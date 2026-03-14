@@ -39,9 +39,9 @@ while true; do
     --max-chars-per-chunk "${MAX_CHARS}" \
     --request-timeout-sec "${REQUEST_TIMEOUT_SEC}" \
     "${VISIBLE_ARGS[@]}"
-  status=$?
-  date "+%Y-%m-%d %H:%M:%S exit ${status}"
-  if [[ "${status}" == "0" ]]; then
+  exit_code=$?
+  date "+%Y-%m-%d %H:%M:%S exit ${exit_code}"
+  if [[ "${exit_code}" == "0" ]]; then
     break
   fi
   sleep "${RETRY_SLEEP_SEC}"

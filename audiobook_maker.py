@@ -1773,20 +1773,32 @@ def synthesize_chatgpt_web_sections(
             if effective_voice not in available_voices:
                 effective_voice = selected_voice
 
-            for section in sections:
-                section_prefix = f"{section.index:03d}"
-                text_path = work_dir / f"{section_prefix}.txt"
-                audio_path = work_dir / f"{section_prefix}.mp3"
-                text_path.write_text(section.text + "\n", encoding="utf-8")
+            def split_audio_paths_for_prefix(prefix: str) -> list[Path]:
+                pattern = re.compile(rf"^{re.escape(prefix)}(?:_\d+)+\.mp3$")
+                return sorted(
+                    path
+                    for path in work_dir.iterdir()
+                    if path.is_file() and pattern.match(path.name)
+                )
+
+            def request_chatgpt_web_piece(
+                *,
+                text: str,
+                prefix: str,
+                label: str,
+            ) -> list[Path]:
+                text_path = work_dir / f"{prefix}.txt"
+                audio_path = work_dir / f"{prefix}.mp3"
+                text_path.write_text(text + "\n", encoding="utf-8")
                 if audio_path.exists():
                     print(
-                        f"[{section.index}/{len(sections)}] 기존 ChatGPT 웹 오디오 재사용: {audio_path.name}",
+                        f"[{label}] 기존 ChatGPT 웹 오디오 재사용: {audio_path.name}",
                         file=sys.stderr,
                     )
-                    audio_files.append(audio_path)
-                    continue
+                    return [audio_path]
+
                 print(
-                    f"[{section.index}/{len(sections)}] ChatGPT 웹 음성 합성 중: {section.title or section_prefix}",
+                    f"[{label}] ChatGPT 웹 음성 합성 중: {prefix}",
                     file=sys.stderr,
                 )
 
@@ -1795,7 +1807,7 @@ def synthesize_chatgpt_web_sections(
                     page = context.new_page()
                     try:
                         prepare_chatgpt_web_page(page, timeout_error_cls=timeout_error_cls)
-                        prompt = build_chatgpt_web_repeat_prompt(section.text)
+                        prompt = build_chatgpt_web_repeat_prompt(text)
                         send_chatgpt_web_prompt(page, prompt, timeout_error_cls=timeout_error_cls)
                         message_id, response_text = wait_for_chatgpt_web_response(
                             page,
@@ -1807,7 +1819,7 @@ def synthesize_chatgpt_web_sections(
                         if not message_id:
                             raise RuntimeError("ChatGPT message_id 를 찾지 못했습니다.")
 
-                        expected = normalize_chatgpt_web_copy(section.text)
+                        expected = normalize_chatgpt_web_copy(text)
                         actual = normalize_chatgpt_web_copy(response_text)
                         if expected != actual:
                             preview = actual[:200].replace("\n", " ")
@@ -1824,25 +1836,93 @@ def synthesize_chatgpt_web_sections(
                         audio_path.write_bytes(audio_bytes)
                         write_chatgpt_web_section_artifacts(
                             work_dir=work_dir,
-                            section_prefix=section_prefix,
+                            section_prefix=prefix,
                             prompt=prompt,
                             response_text=response_text,
                             conversation_id=conversation_id,
                             message_id=message_id,
                             voice=effective_voice,
                         )
-                        audio_files.append(audio_path)
-                        last_error = None
-                        break
+                        return [audio_path]
                     except Exception as exc:
                         last_error = exc
                     finally:
                         page.close()
 
-                if last_error is not None:
-                    raise RuntimeError(
-                        f"ChatGPT 웹 섹션 합성 실패({section_prefix}, {max_attempts}회 시도): {last_error}"
-                    ) from last_error
+                raise RuntimeError(
+                    f"ChatGPT 웹 섹션 합성 실패({prefix}, {max_attempts}회 시도): {last_error}"
+                ) from last_error
+
+            def synthesize_chatgpt_web_piece(
+                *,
+                text: str,
+                prefix: str,
+                label: str,
+            ) -> list[Path]:
+                existing_split_audio = split_audio_paths_for_prefix(prefix)
+                if existing_split_audio:
+                    print(
+                        f"[{label}] 기존 분할 ChatGPT 웹 오디오 재사용: {prefix}_*.mp3",
+                        file=sys.stderr,
+                    )
+                    fallback_max_chars = max(700, min(900, max(700, len(text) // 2)))
+                    child_sections = split_into_sections(text, max_chars=fallback_max_chars)
+                    if len(child_sections) <= 1:
+                        return existing_split_audio
+                    nested_audio: list[Path] = []
+                    for child_index, child_section in enumerate(child_sections, start=1):
+                        child_prefix = f"{prefix}_{child_index:02d}"
+                        nested_audio.extend(
+                            synthesize_chatgpt_web_piece(
+                                text=child_section.text,
+                                prefix=child_prefix,
+                                label=f"{label}.{child_index}",
+                            )
+                        )
+                    return nested_audio
+
+                try:
+                    return request_chatgpt_web_piece(text=text, prefix=prefix, label=label)
+                except RuntimeError as exc:
+                    fallback_max_chars = max(700, min(900, max(700, len(text) // 2)))
+                    if len(normalize_chatgpt_web_copy(text)) <= fallback_max_chars:
+                        raise
+
+                    child_sections = split_into_sections(text, max_chars=fallback_max_chars)
+                    if len(child_sections) <= 1:
+                        child_sections = [
+                            AudioSection(index=index + 1, title=None, text=part)
+                            for index, part in enumerate(hard_split_text(text, fallback_max_chars))
+                        ]
+                    if len(child_sections) <= 1:
+                        raise
+
+                    print(
+                        f"[{label}] exact copy 실패로 {len(child_sections)}개 하위 세그먼트로 재분할합니다: {exc}",
+                        file=sys.stderr,
+                    )
+                    nested_audio: list[Path] = []
+                    for child_index, child_section in enumerate(child_sections, start=1):
+                        child_prefix = f"{prefix}_{child_index:02d}"
+                        nested_audio.extend(
+                            synthesize_chatgpt_web_piece(
+                                text=child_section.text,
+                                prefix=child_prefix,
+                                label=f"{label}.{child_index}",
+                            )
+                        )
+                    return nested_audio
+
+            for section in sections:
+                section_prefix = f"{section.index:03d}"
+                label = f"{section.index}/{len(sections)}"
+                audio_files.extend(
+                    synthesize_chatgpt_web_piece(
+                        text=section.text,
+                        prefix=section_prefix,
+                        label=label,
+                    )
+                )
         finally:
             if context is not None:
                 context.close()
