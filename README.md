@@ -14,6 +14,7 @@
 - `edge`: Microsoft Edge TTS
 - `gemini`: Google AI Studio TTS
 - `chatgpt`: ChatGPT Voice 수동 세그먼트 워크플로우
+- `chatgpt_web`: ChatGPT 웹 로그인 기반 read-aloud 자동화
 - `openai`: OpenAI TTS API
 - `system`: macOS `say`
 - `melo`: MeloTTS
@@ -37,6 +38,8 @@ python3 -m pip install -r requirements_korean_audiobook.txt
 권장:
 - 시스템 `ffmpeg`가 있으면 가장 좋습니다.
 - 시스템 `ffmpeg`가 없으면 `imageio-ffmpeg` fallback을 사용합니다.
+- `chatgpt_web`를 쓰려면 Chrome에 `chatgpt.com` 로그인 세션이 있어야 합니다.
+- `chatgpt_web`는 `playwright install chromium` 초기 1회 설치가 필요할 수 있습니다.
 
 ## 빠른 시작
 
@@ -78,6 +81,24 @@ python3 audiobook_maker.py \
 `chatgpt` provider는 두 단계입니다.
 1. 첫 실행은 `work_dir/chatgpt/segments`, `prompts`, `downloads`를 생성합니다.
 2. ChatGPT Voice에서 세그먼트 오디오를 저장한 뒤 같은 명령을 다시 실행하면 최종 파일을 자동 병합합니다.
+
+ChatGPT 웹 read-aloud 자동화:
+
+```bash
+python3 audiobook_maker.py \
+  --provider chatgpt_web \
+  --input-file "./smoke_ko.txt" \
+  --output-file "./audiobooks/smoke_chatgpt_web.m4a" \
+  --voice "cove"
+```
+
+이 방식은 사용자가 좋아했던 `you_bookstore_intro_chatgpt_voice.*` 계열 산출물과 가장 가까운 흐름을 재구성한 것입니다.
+1. ChatGPT 웹에 본문 그대로 복사하도록 프롬프트를 보냅니다.
+2. 응답 텍스트가 원문과 정확히 일치하는지 검증합니다.
+3. 같은 메시지의 read-aloud 오디오를 `backend-api/synthesize`로 받아 최종 오디오로 병합합니다.
+4. 작업 폴더에는 `001_prompt.txt`, `001_response.txt`, `001_chatgpt_web.json` 같은 추적 파일이 남습니다.
+
+기본값은 Chrome 창을 화면 밖으로 띄워 invisible 상태처럼 동작합니다. 디버깅이 필요하면 `--chatgpt-web-visible`을 추가하면 됩니다.
 
 ## 실험 패키지
 

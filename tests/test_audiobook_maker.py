@@ -65,6 +65,9 @@ class VoiceSelectionTests(unittest.TestCase):
     def test_default_chatgpt_voice_is_spruce(self) -> None:
         self.assertEqual(audiobook_maker.default_chatgpt_voice(), "Spruce")
 
+    def test_default_chatgpt_web_voice_is_cove(self) -> None:
+        self.assertEqual(audiobook_maker.default_chatgpt_web_voice(), "cove")
+
     def test_default_gemini_model_is_free_tier(self) -> None:
         self.assertTrue(audiobook_maker.gemini_model_is_free_tier(audiobook_maker.DEFAULT_GEMINI_MODEL))
 
@@ -197,6 +200,39 @@ class ChatGPTWorkflowTests(unittest.TestCase):
 
         self.assertEqual(audio_files, [import_dir / "001.m4a"])
         self.assertEqual(missing, [2])
+
+
+class ChatGPTWebWorkflowTests(unittest.TestCase):
+    def test_chatgpt_web_prompt_wraps_text_verbatim(self) -> None:
+        prompt = audiobook_maker.build_chatgpt_web_repeat_prompt("안녕하세요.")
+
+        self.assertIn("[본문 시작]", prompt)
+        self.assertIn("안녕하세요.", prompt)
+        self.assertIn("[본문 끝]", prompt)
+
+    def test_chatgpt_web_launch_args_hide_window_by_default(self) -> None:
+        args = audiobook_maker.chatgpt_web_launch_args(visible=False)
+
+        self.assertIn("--window-position=-2400,-2400", args)
+        self.assertIn("--window-size=1280,900", args)
+
+    def test_extract_chatgpt_conversation_id(self) -> None:
+        conversation_id = audiobook_maker.extract_chatgpt_conversation_id(
+            "https://chatgpt.com/c/1234-abcd?model=gpt-4o"
+        )
+
+        self.assertEqual(conversation_id, "1234-abcd")
+
+    def test_resolve_voice_normalizes_chatgpt_web_voice(self) -> None:
+        args = Namespace(
+            voice="Cove",
+            provider="chatgpt_web",
+            melo_language="KR",
+            gemini_voice="",
+            openai_model="gpt-4o-mini-tts",
+        )
+
+        self.assertEqual(audiobook_maker.resolve_voice(args), "cove")
 
 class AudioFormatTests(unittest.TestCase):
     def test_m4a_uses_aac(self) -> None:
