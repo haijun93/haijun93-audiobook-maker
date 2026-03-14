@@ -1,0 +1,8 @@
+edge-tts>=7.2.7
+numpy>=1.26.0
+pydub>=0.25.1
+soundfile>=0.12.1
+
+# Optional high-quality local engines:
+# TTS>=0.22.0
+# MeloTTS: install from the official repo

@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.venvs/
+.env
+.env.local
+audiobooks/
+korean_audiobook_runs/
+.ui_uploads/
