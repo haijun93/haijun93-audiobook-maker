@@ -100,6 +100,15 @@ python3 audiobook_maker.py \
 
 기본값은 Chrome 창을 화면 밖으로 띄워 invisible 상태처럼 동작합니다. 디버깅이 필요하면 `--chatgpt-web-visible`을 추가하면 됩니다.
 
+긴 작업을 재개 가능하게 돌리고, 성공 후 종료까지 걸고 싶으면:
+
+```bash
+SHUTDOWN_ON_SUCCESS=1 MAX_CHARS=1800 \
+  ./scripts/run_chatgpt_web_job.sh \
+  "./You_-_Caroline_Kepnes_ko_web.txt" \
+  "./audiobooks/You_-_Caroline_Kepnes_ko_web_chatgpt_web_cove.m4a"
+```
+
 ## 실험 패키지
 
 `korean_audiobook/`는 장별 MP3/M4B 생성용 실험 패키지입니다.
