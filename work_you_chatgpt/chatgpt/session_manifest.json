@@ -1,0 +1,1972 @@
+{
+  "provider": "chatgpt",
+  "chatgpt_url": "https://chatgpt.com/",
+  "mode": "advanced_voice",
+  "voice_preference": "Spruce",
+  "instructions": "다음 한국어 텍스트를 처음부터 끝까지 빠짐없이 읽어줘. 문장을 바꾸거나 요약하거나 설명을 덧붙이지 말고, 차분하고 steady한 오디오북 낭독 톤으로 읽어줘. 끝난 뒤 추가 멘트 없이 멈춰줘.",
+  "output_file": "audiobooks/You_Caroline_Kepnes_ko_chatgpt.m4a",
+  "import_dir": "work_you_chatgpt/chatgpt/downloads",
+  "section_count": 245,
+  "sections": [
+    {
+      "index": 1,
+      "title": null,
+      "chars": 21,
+      "text_file": "work_you_chatgpt/chatgpt/segments/001.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/001_prompt.txt",
+      "expected_audio_basename": "001.m4a"
+    },
+    {
+      "index": 2,
+      "title": "1",
+      "chars": 1271,
+      "text_file": "work_you_chatgpt/chatgpt/segments/002.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/002_prompt.txt",
+      "expected_audio_basename": "002.m4a"
+    },
+    {
+      "index": 3,
+      "title": "F—K, 찾았다, 드디어.",
+      "chars": 1717,
+      "text_file": "work_you_chatgpt/chatgpt/segments/003.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/003_prompt.txt",
+      "expected_audio_basename": "003.m4a"
+    },
+    {
+      "index": 4,
+      "title": null,
+      "chars": 1775,
+      "text_file": "work_you_chatgpt/chatgpt/segments/004.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/004_prompt.txt",
+      "expected_audio_basename": "004.m4a"
+    },
+    {
+      "index": 5,
+      "title": null,
+      "chars": 1784,
+      "text_file": "work_you_chatgpt/chatgpt/segments/005.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/005_prompt.txt",
+      "expected_audio_basename": "005.m4a"
+    },
+    {
+      "index": 6,
+      "title": null,
+      "chars": 768,
+      "text_file": "work_you_chatgpt/chatgpt/segments/006.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/006_prompt.txt",
+      "expected_audio_basename": "006.m4a"
+    },
+    {
+      "index": 7,
+      "title": "2",
+      "chars": 1408,
+      "text_file": "work_you_chatgpt/chatgpt/segments/007.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/007_prompt.txt",
+      "expected_audio_basename": "007.m4a"
+    },
+    {
+      "index": 8,
+      "title": null,
+      "chars": 1461,
+      "text_file": "work_you_chatgpt/chatgpt/segments/008.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/008_prompt.txt",
+      "expected_audio_basename": "008.m4a"
+    },
+    {
+      "index": 9,
+      "title": null,
+      "chars": 1661,
+      "text_file": "work_you_chatgpt/chatgpt/segments/009.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/009_prompt.txt",
+      "expected_audio_basename": "009.m4a"
+    },
+    {
+      "index": 10,
+      "title": null,
+      "chars": 1674,
+      "text_file": "work_you_chatgpt/chatgpt/segments/010.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/010_prompt.txt",
+      "expected_audio_basename": "010.m4a"
+    },
+    {
+      "index": 11,
+      "title": null,
+      "chars": 1645,
+      "text_file": "work_you_chatgpt/chatgpt/segments/011.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/011_prompt.txt",
+      "expected_audio_basename": "011.m4a"
+    },
+    {
+      "index": 12,
+      "title": null,
+      "chars": 1528,
+      "text_file": "work_you_chatgpt/chatgpt/segments/012.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/012_prompt.txt",
+      "expected_audio_basename": "012.m4a"
+    },
+    {
+      "index": 13,
+      "title": null,
+      "chars": 851,
+      "text_file": "work_you_chatgpt/chatgpt/segments/013.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/013_prompt.txt",
+      "expected_audio_basename": "013.m4a"
+    },
+    {
+      "index": 14,
+      "title": "3",
+      "chars": 1529,
+      "text_file": "work_you_chatgpt/chatgpt/segments/014.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/014_prompt.txt",
+      "expected_audio_basename": "014.m4a"
+    },
+    {
+      "index": 15,
+      "title": null,
+      "chars": 1627,
+      "text_file": "work_you_chatgpt/chatgpt/segments/015.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/015_prompt.txt",
+      "expected_audio_basename": "015.m4a"
+    },
+    {
+      "index": 16,
+      "title": null,
+      "chars": 1663,
+      "text_file": "work_you_chatgpt/chatgpt/segments/016.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/016_prompt.txt",
+      "expected_audio_basename": "016.m4a"
+    },
+    {
+      "index": 17,
+      "title": null,
+      "chars": 1242,
+      "text_file": "work_you_chatgpt/chatgpt/segments/017.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/017_prompt.txt",
+      "expected_audio_basename": "017.m4a"
+    },
+    {
+      "index": 18,
+      "title": "4",
+      "chars": 1789,
+      "text_file": "work_you_chatgpt/chatgpt/segments/018.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/018_prompt.txt",
+      "expected_audio_basename": "018.m4a"
+    },
+    {
+      "index": 19,
+      "title": null,
+      "chars": 1730,
+      "text_file": "work_you_chatgpt/chatgpt/segments/019.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/019_prompt.txt",
+      "expected_audio_basename": "019.m4a"
+    },
+    {
+      "index": 20,
+      "title": null,
+      "chars": 1636,
+      "text_file": "work_you_chatgpt/chatgpt/segments/020.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/020_prompt.txt",
+      "expected_audio_basename": "020.m4a"
+    },
+    {
+      "index": 21,
+      "title": "5",
+      "chars": 1672,
+      "text_file": "work_you_chatgpt/chatgpt/segments/021.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/021_prompt.txt",
+      "expected_audio_basename": "021.m4a"
+    },
+    {
+      "index": 22,
+      "title": null,
+      "chars": 1759,
+      "text_file": "work_you_chatgpt/chatgpt/segments/022.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/022_prompt.txt",
+      "expected_audio_basename": "022.m4a"
+    },
+    {
+      "index": 23,
+      "title": null,
+      "chars": 1342,
+      "text_file": "work_you_chatgpt/chatgpt/segments/023.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/023_prompt.txt",
+      "expected_audio_basename": "023.m4a"
+    },
+    {
+      "index": 24,
+      "title": "6",
+      "chars": 1721,
+      "text_file": "work_you_chatgpt/chatgpt/segments/024.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/024_prompt.txt",
+      "expected_audio_basename": "024.m4a"
+    },
+    {
+      "index": 25,
+      "title": null,
+      "chars": 1685,
+      "text_file": "work_you_chatgpt/chatgpt/segments/025.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/025_prompt.txt",
+      "expected_audio_basename": "025.m4a"
+    },
+    {
+      "index": 26,
+      "title": null,
+      "chars": 119,
+      "text_file": "work_you_chatgpt/chatgpt/segments/026.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/026_prompt.txt",
+      "expected_audio_basename": "026.m4a"
+    },
+    {
+      "index": 27,
+      "title": "7",
+      "chars": 1753,
+      "text_file": "work_you_chatgpt/chatgpt/segments/027.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/027_prompt.txt",
+      "expected_audio_basename": "027.m4a"
+    },
+    {
+      "index": 28,
+      "title": null,
+      "chars": 1474,
+      "text_file": "work_you_chatgpt/chatgpt/segments/028.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/028_prompt.txt",
+      "expected_audio_basename": "028.m4a"
+    },
+    {
+      "index": 29,
+      "title": null,
+      "chars": 1691,
+      "text_file": "work_you_chatgpt/chatgpt/segments/029.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/029_prompt.txt",
+      "expected_audio_basename": "029.m4a"
+    },
+    {
+      "index": 30,
+      "title": null,
+      "chars": 1790,
+      "text_file": "work_you_chatgpt/chatgpt/segments/030.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/030_prompt.txt",
+      "expected_audio_basename": "030.m4a"
+    },
+    {
+      "index": 31,
+      "title": null,
+      "chars": 1767,
+      "text_file": "work_you_chatgpt/chatgpt/segments/031.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/031_prompt.txt",
+      "expected_audio_basename": "031.m4a"
+    },
+    {
+      "index": 32,
+      "title": null,
+      "chars": 1786,
+      "text_file": "work_you_chatgpt/chatgpt/segments/032.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/032_prompt.txt",
+      "expected_audio_basename": "032.m4a"
+    },
+    {
+      "index": 33,
+      "title": null,
+      "chars": 795,
+      "text_file": "work_you_chatgpt/chatgpt/segments/033.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/033_prompt.txt",
+      "expected_audio_basename": "033.m4a"
+    },
+    {
+      "index": 34,
+      "title": "8",
+      "chars": 1633,
+      "text_file": "work_you_chatgpt/chatgpt/segments/034.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/034_prompt.txt",
+      "expected_audio_basename": "034.m4a"
+    },
+    {
+      "index": 35,
+      "title": null,
+      "chars": 1794,
+      "text_file": "work_you_chatgpt/chatgpt/segments/035.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/035_prompt.txt",
+      "expected_audio_basename": "035.m4a"
+    },
+    {
+      "index": 36,
+      "title": null,
+      "chars": 1402,
+      "text_file": "work_you_chatgpt/chatgpt/segments/036.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/036_prompt.txt",
+      "expected_audio_basename": "036.m4a"
+    },
+    {
+      "index": 37,
+      "title": null,
+      "chars": 1456,
+      "text_file": "work_you_chatgpt/chatgpt/segments/037.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/037_prompt.txt",
+      "expected_audio_basename": "037.m4a"
+    },
+    {
+      "index": 38,
+      "title": "N.",
+      "chars": 445,
+      "text_file": "work_you_chatgpt/chatgpt/segments/038.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/038_prompt.txt",
+      "expected_audio_basename": "038.m4a"
+    },
+    {
+      "index": 39,
+      "title": "9",
+      "chars": 1578,
+      "text_file": "work_you_chatgpt/chatgpt/segments/039.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/039_prompt.txt",
+      "expected_audio_basename": "039.m4a"
+    },
+    {
+      "index": 40,
+      "title": null,
+      "chars": 1785,
+      "text_file": "work_you_chatgpt/chatgpt/segments/040.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/040_prompt.txt",
+      "expected_audio_basename": "040.m4a"
+    },
+    {
+      "index": 41,
+      "title": null,
+      "chars": 853,
+      "text_file": "work_you_chatgpt/chatgpt/segments/041.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/041_prompt.txt",
+      "expected_audio_basename": "041.m4a"
+    },
+    {
+      "index": 42,
+      "title": "10",
+      "chars": 1731,
+      "text_file": "work_you_chatgpt/chatgpt/segments/042.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/042_prompt.txt",
+      "expected_audio_basename": "042.m4a"
+    },
+    {
+      "index": 43,
+      "title": null,
+      "chars": 1629,
+      "text_file": "work_you_chatgpt/chatgpt/segments/043.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/043_prompt.txt",
+      "expected_audio_basename": "043.m4a"
+    },
+    {
+      "index": 44,
+      "title": null,
+      "chars": 1497,
+      "text_file": "work_you_chatgpt/chatgpt/segments/044.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/044_prompt.txt",
+      "expected_audio_basename": "044.m4a"
+    },
+    {
+      "index": 45,
+      "title": null,
+      "chars": 1764,
+      "text_file": "work_you_chatgpt/chatgpt/segments/045.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/045_prompt.txt",
+      "expected_audio_basename": "045.m4a"
+    },
+    {
+      "index": 46,
+      "title": null,
+      "chars": 1781,
+      "text_file": "work_you_chatgpt/chatgpt/segments/046.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/046_prompt.txt",
+      "expected_audio_basename": "046.m4a"
+    },
+    {
+      "index": 47,
+      "title": null,
+      "chars": 1689,
+      "text_file": "work_you_chatgpt/chatgpt/segments/047.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/047_prompt.txt",
+      "expected_audio_basename": "047.m4a"
+    },
+    {
+      "index": 48,
+      "title": null,
+      "chars": 226,
+      "text_file": "work_you_chatgpt/chatgpt/segments/048.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/048_prompt.txt",
+      "expected_audio_basename": "048.m4a"
+    },
+    {
+      "index": 49,
+      "title": "\"형, L라인 완전히 맛 갔어요.\"",
+      "chars": 845,
+      "text_file": "work_you_chatgpt/chatgpt/segments/049.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/049_prompt.txt",
+      "expected_audio_basename": "049.m4a"
+    },
+    {
+      "index": 50,
+      "title": "11",
+      "chars": 1794,
+      "text_file": "work_you_chatgpt/chatgpt/segments/050.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/050_prompt.txt",
+      "expected_audio_basename": "050.m4a"
+    },
+    {
+      "index": 51,
+      "title": null,
+      "chars": 1626,
+      "text_file": "work_you_chatgpt/chatgpt/segments/051.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/051_prompt.txt",
+      "expected_audio_basename": "051.m4a"
+    },
+    {
+      "index": 52,
+      "title": null,
+      "chars": 1789,
+      "text_file": "work_you_chatgpt/chatgpt/segments/052.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/052_prompt.txt",
+      "expected_audio_basename": "052.m4a"
+    },
+    {
+      "index": 53,
+      "title": null,
+      "chars": 1790,
+      "text_file": "work_you_chatgpt/chatgpt/segments/053.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/053_prompt.txt",
+      "expected_audio_basename": "053.m4a"
+    },
+    {
+      "index": 54,
+      "title": null,
+      "chars": 1570,
+      "text_file": "work_you_chatgpt/chatgpt/segments/054.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/054_prompt.txt",
+      "expected_audio_basename": "054.m4a"
+    },
+    {
+      "index": 55,
+      "title": null,
+      "chars": 1777,
+      "text_file": "work_you_chatgpt/chatgpt/segments/055.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/055_prompt.txt",
+      "expected_audio_basename": "055.m4a"
+    },
+    {
+      "index": 56,
+      "title": null,
+      "chars": 1764,
+      "text_file": "work_you_chatgpt/chatgpt/segments/056.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/056_prompt.txt",
+      "expected_audio_basename": "056.m4a"
+    },
+    {
+      "index": 57,
+      "title": null,
+      "chars": 1650,
+      "text_file": "work_you_chatgpt/chatgpt/segments/057.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/057_prompt.txt",
+      "expected_audio_basename": "057.m4a"
+    },
+    {
+      "index": 58,
+      "title": null,
+      "chars": 1781,
+      "text_file": "work_you_chatgpt/chatgpt/segments/058.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/058_prompt.txt",
+      "expected_audio_basename": "058.m4a"
+    },
+    {
+      "index": 59,
+      "title": null,
+      "chars": 1771,
+      "text_file": "work_you_chatgpt/chatgpt/segments/059.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/059_prompt.txt",
+      "expected_audio_basename": "059.m4a"
+    },
+    {
+      "index": 60,
+      "title": null,
+      "chars": 1049,
+      "text_file": "work_you_chatgpt/chatgpt/segments/060.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/060_prompt.txt",
+      "expected_audio_basename": "060.m4a"
+    },
+    {
+      "index": 61,
+      "title": "12",
+      "chars": 1384,
+      "text_file": "work_you_chatgpt/chatgpt/segments/061.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/061_prompt.txt",
+      "expected_audio_basename": "061.m4a"
+    },
+    {
+      "index": 62,
+      "title": null,
+      "chars": 839,
+      "text_file": "work_you_chatgpt/chatgpt/segments/062.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/062_prompt.txt",
+      "expected_audio_basename": "062.m4a"
+    },
+    {
+      "index": 63,
+      "title": "\"그래서 J. D.가 그 여자 삼촌이야?\"",
+      "chars": 1202,
+      "text_file": "work_you_chatgpt/chatgpt/segments/063.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/063_prompt.txt",
+      "expected_audio_basename": "063.m4a"
+    },
+    {
+      "index": 64,
+      "title": "\"J. D. 삼촌만큼 미쳤어?\"",
+      "chars": 1795,
+      "text_file": "work_you_chatgpt/chatgpt/segments/064.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/064_prompt.txt",
+      "expected_audio_basename": "064.m4a"
+    },
+    {
+      "index": 65,
+      "title": null,
+      "chars": 1730,
+      "text_file": "work_you_chatgpt/chatgpt/segments/065.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/065_prompt.txt",
+      "expected_audio_basename": "065.m4a"
+    },
+    {
+      "index": 66,
+      "title": null,
+      "chars": 1563,
+      "text_file": "work_you_chatgpt/chatgpt/segments/066.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/066_prompt.txt",
+      "expected_audio_basename": "066.m4a"
+    },
+    {
+      "index": 67,
+      "title": null,
+      "chars": 1635,
+      "text_file": "work_you_chatgpt/chatgpt/segments/067.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/067_prompt.txt",
+      "expected_audio_basename": "067.m4a"
+    },
+    {
+      "index": 68,
+      "title": null,
+      "chars": 1795,
+      "text_file": "work_you_chatgpt/chatgpt/segments/068.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/068_prompt.txt",
+      "expected_audio_basename": "068.m4a"
+    },
+    {
+      "index": 69,
+      "title": null,
+      "chars": 1775,
+      "text_file": "work_you_chatgpt/chatgpt/segments/069.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/069_prompt.txt",
+      "expected_audio_basename": "069.m4a"
+    },
+    {
+      "index": 70,
+      "title": null,
+      "chars": 1727,
+      "text_file": "work_you_chatgpt/chatgpt/segments/070.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/070_prompt.txt",
+      "expected_audio_basename": "070.m4a"
+    },
+    {
+      "index": 71,
+      "title": null,
+      "chars": 616,
+      "text_file": "work_you_chatgpt/chatgpt/segments/071.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/071_prompt.txt",
+      "expected_audio_basename": "071.m4a"
+    },
+    {
+      "index": 72,
+      "title": "13",
+      "chars": 1713,
+      "text_file": "work_you_chatgpt/chatgpt/segments/072.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/072_prompt.txt",
+      "expected_audio_basename": "072.m4a"
+    },
+    {
+      "index": 73,
+      "title": null,
+      "chars": 1768,
+      "text_file": "work_you_chatgpt/chatgpt/segments/073.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/073_prompt.txt",
+      "expected_audio_basename": "073.m4a"
+    },
+    {
+      "index": 74,
+      "title": null,
+      "chars": 1783,
+      "text_file": "work_you_chatgpt/chatgpt/segments/074.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/074_prompt.txt",
+      "expected_audio_basename": "074.m4a"
+    },
+    {
+      "index": 75,
+      "title": null,
+      "chars": 1524,
+      "text_file": "work_you_chatgpt/chatgpt/segments/075.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/075_prompt.txt",
+      "expected_audio_basename": "075.m4a"
+    },
+    {
+      "index": 76,
+      "title": "14",
+      "chars": 1768,
+      "text_file": "work_you_chatgpt/chatgpt/segments/076.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/076_prompt.txt",
+      "expected_audio_basename": "076.m4a"
+    },
+    {
+      "index": 77,
+      "title": null,
+      "chars": 1678,
+      "text_file": "work_you_chatgpt/chatgpt/segments/077.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/077_prompt.txt",
+      "expected_audio_basename": "077.m4a"
+    },
+    {
+      "index": 78,
+      "title": null,
+      "chars": 1682,
+      "text_file": "work_you_chatgpt/chatgpt/segments/078.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/078_prompt.txt",
+      "expected_audio_basename": "078.m4a"
+    },
+    {
+      "index": 79,
+      "title": null,
+      "chars": 1708,
+      "text_file": "work_you_chatgpt/chatgpt/segments/079.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/079_prompt.txt",
+      "expected_audio_basename": "079.m4a"
+    },
+    {
+      "index": 80,
+      "title": null,
+      "chars": 1793,
+      "text_file": "work_you_chatgpt/chatgpt/segments/080.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/080_prompt.txt",
+      "expected_audio_basename": "080.m4a"
+    },
+    {
+      "index": 81,
+      "title": null,
+      "chars": 1489,
+      "text_file": "work_you_chatgpt/chatgpt/segments/081.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/081_prompt.txt",
+      "expected_audio_basename": "081.m4a"
+    },
+    {
+      "index": 82,
+      "title": "15",
+      "chars": 1707,
+      "text_file": "work_you_chatgpt/chatgpt/segments/082.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/082_prompt.txt",
+      "expected_audio_basename": "082.m4a"
+    },
+    {
+      "index": 83,
+      "title": null,
+      "chars": 1709,
+      "text_file": "work_you_chatgpt/chatgpt/segments/083.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/083_prompt.txt",
+      "expected_audio_basename": "083.m4a"
+    },
+    {
+      "index": 84,
+      "title": null,
+      "chars": 712,
+      "text_file": "work_you_chatgpt/chatgpt/segments/084.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/084_prompt.txt",
+      "expected_audio_basename": "084.m4a"
+    },
+    {
+      "index": 85,
+      "title": "\"IC라고 들어봤어?\"",
+      "chars": 1764,
+      "text_file": "work_you_chatgpt/chatgpt/segments/085.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/085_prompt.txt",
+      "expected_audio_basename": "085.m4a"
+    },
+    {
+      "index": 86,
+      "title": null,
+      "chars": 1200,
+      "text_file": "work_you_chatgpt/chatgpt/segments/086.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/086_prompt.txt",
+      "expected_audio_basename": "086.m4a"
+    },
+    {
+      "index": 87,
+      "title": "16",
+      "chars": 1619,
+      "text_file": "work_you_chatgpt/chatgpt/segments/087.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/087_prompt.txt",
+      "expected_audio_basename": "087.m4a"
+    },
+    {
+      "index": 88,
+      "title": null,
+      "chars": 1412,
+      "text_file": "work_you_chatgpt/chatgpt/segments/088.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/088_prompt.txt",
+      "expected_audio_basename": "088.m4a"
+    },
+    {
+      "index": 89,
+      "title": null,
+      "chars": 391,
+      "text_file": "work_you_chatgpt/chatgpt/segments/089.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/089_prompt.txt",
+      "expected_audio_basename": "089.m4a"
+    },
+    {
+      "index": 90,
+      "title": "17",
+      "chars": 1783,
+      "text_file": "work_you_chatgpt/chatgpt/segments/090.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/090_prompt.txt",
+      "expected_audio_basename": "090.m4a"
+    },
+    {
+      "index": 91,
+      "title": null,
+      "chars": 1320,
+      "text_file": "work_you_chatgpt/chatgpt/segments/091.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/091_prompt.txt",
+      "expected_audio_basename": "091.m4a"
+    },
+    {
+      "index": 92,
+      "title": "18",
+      "chars": 1611,
+      "text_file": "work_you_chatgpt/chatgpt/segments/092.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/092_prompt.txt",
+      "expected_audio_basename": "092.m4a"
+    },
+    {
+      "index": 93,
+      "title": null,
+      "chars": 1775,
+      "text_file": "work_you_chatgpt/chatgpt/segments/093.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/093_prompt.txt",
+      "expected_audio_basename": "093.m4a"
+    },
+    {
+      "index": 94,
+      "title": null,
+      "chars": 1574,
+      "text_file": "work_you_chatgpt/chatgpt/segments/094.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/094_prompt.txt",
+      "expected_audio_basename": "094.m4a"
+    },
+    {
+      "index": 95,
+      "title": null,
+      "chars": 1733,
+      "text_file": "work_you_chatgpt/chatgpt/segments/095.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/095_prompt.txt",
+      "expected_audio_basename": "095.m4a"
+    },
+    {
+      "index": 96,
+      "title": null,
+      "chars": 1799,
+      "text_file": "work_you_chatgpt/chatgpt/segments/096.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/096_prompt.txt",
+      "expected_audio_basename": "096.m4a"
+    },
+    {
+      "index": 97,
+      "title": null,
+      "chars": 1672,
+      "text_file": "work_you_chatgpt/chatgpt/segments/097.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/097_prompt.txt",
+      "expected_audio_basename": "097.m4a"
+    },
+    {
+      "index": 98,
+      "title": "19",
+      "chars": 1783,
+      "text_file": "work_you_chatgpt/chatgpt/segments/098.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/098_prompt.txt",
+      "expected_audio_basename": "098.m4a"
+    },
+    {
+      "index": 99,
+      "title": null,
+      "chars": 1448,
+      "text_file": "work_you_chatgpt/chatgpt/segments/099.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/099_prompt.txt",
+      "expected_audio_basename": "099.m4a"
+    },
+    {
+      "index": 100,
+      "title": null,
+      "chars": 1562,
+      "text_file": "work_you_chatgpt/chatgpt/segments/100.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/100_prompt.txt",
+      "expected_audio_basename": "100.m4a"
+    },
+    {
+      "index": 101,
+      "title": null,
+      "chars": 1800,
+      "text_file": "work_you_chatgpt/chatgpt/segments/101.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/101_prompt.txt",
+      "expected_audio_basename": "101.m4a"
+    },
+    {
+      "index": 102,
+      "title": null,
+      "chars": 1383,
+      "text_file": "work_you_chatgpt/chatgpt/segments/102.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/102_prompt.txt",
+      "expected_audio_basename": "102.m4a"
+    },
+    {
+      "index": 103,
+      "title": "20",
+      "chars": 1779,
+      "text_file": "work_you_chatgpt/chatgpt/segments/103.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/103_prompt.txt",
+      "expected_audio_basename": "103.m4a"
+    },
+    {
+      "index": 104,
+      "title": null,
+      "chars": 1260,
+      "text_file": "work_you_chatgpt/chatgpt/segments/104.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/104_prompt.txt",
+      "expected_audio_basename": "104.m4a"
+    },
+    {
+      "index": 105,
+      "title": null,
+      "chars": 1784,
+      "text_file": "work_you_chatgpt/chatgpt/segments/105.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/105_prompt.txt",
+      "expected_audio_basename": "105.m4a"
+    },
+    {
+      "index": 106,
+      "title": null,
+      "chars": 561,
+      "text_file": "work_you_chatgpt/chatgpt/segments/106.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/106_prompt.txt",
+      "expected_audio_basename": "106.m4a"
+    },
+    {
+      "index": 107,
+      "title": "21",
+      "chars": 1795,
+      "text_file": "work_you_chatgpt/chatgpt/segments/107.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/107_prompt.txt",
+      "expected_audio_basename": "107.m4a"
+    },
+    {
+      "index": 108,
+      "title": null,
+      "chars": 1628,
+      "text_file": "work_you_chatgpt/chatgpt/segments/108.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/108_prompt.txt",
+      "expected_audio_basename": "108.m4a"
+    },
+    {
+      "index": 109,
+      "title": null,
+      "chars": 1106,
+      "text_file": "work_you_chatgpt/chatgpt/segments/109.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/109_prompt.txt",
+      "expected_audio_basename": "109.m4a"
+    },
+    {
+      "index": 110,
+      "title": null,
+      "chars": 767,
+      "text_file": "work_you_chatgpt/chatgpt/segments/110.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/110_prompt.txt",
+      "expected_audio_basename": "110.m4a"
+    },
+    {
+      "index": 111,
+      "title": "22",
+      "chars": 1781,
+      "text_file": "work_you_chatgpt/chatgpt/segments/111.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/111_prompt.txt",
+      "expected_audio_basename": "111.m4a"
+    },
+    {
+      "index": 112,
+      "title": null,
+      "chars": 1565,
+      "text_file": "work_you_chatgpt/chatgpt/segments/112.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/112_prompt.txt",
+      "expected_audio_basename": "112.m4a"
+    },
+    {
+      "index": 113,
+      "title": null,
+      "chars": 1772,
+      "text_file": "work_you_chatgpt/chatgpt/segments/113.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/113_prompt.txt",
+      "expected_audio_basename": "113.m4a"
+    },
+    {
+      "index": 114,
+      "title": null,
+      "chars": 1730,
+      "text_file": "work_you_chatgpt/chatgpt/segments/114.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/114_prompt.txt",
+      "expected_audio_basename": "114.m4a"
+    },
+    {
+      "index": 115,
+      "title": null,
+      "chars": 853,
+      "text_file": "work_you_chatgpt/chatgpt/segments/115.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/115_prompt.txt",
+      "expected_audio_basename": "115.m4a"
+    },
+    {
+      "index": 116,
+      "title": "23",
+      "chars": 1352,
+      "text_file": "work_you_chatgpt/chatgpt/segments/116.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/116_prompt.txt",
+      "expected_audio_basename": "116.m4a"
+    },
+    {
+      "index": 117,
+      "title": null,
+      "chars": 1792,
+      "text_file": "work_you_chatgpt/chatgpt/segments/117.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/117_prompt.txt",
+      "expected_audio_basename": "117.m4a"
+    },
+    {
+      "index": 118,
+      "title": null,
+      "chars": 915,
+      "text_file": "work_you_chatgpt/chatgpt/segments/118.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/118_prompt.txt",
+      "expected_audio_basename": "118.m4a"
+    },
+    {
+      "index": 119,
+      "title": "24",
+      "chars": 1582,
+      "text_file": "work_you_chatgpt/chatgpt/segments/119.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/119_prompt.txt",
+      "expected_audio_basename": "119.m4a"
+    },
+    {
+      "index": 120,
+      "title": null,
+      "chars": 1675,
+      "text_file": "work_you_chatgpt/chatgpt/segments/120.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/120_prompt.txt",
+      "expected_audio_basename": "120.m4a"
+    },
+    {
+      "index": 121,
+      "title": null,
+      "chars": 1727,
+      "text_file": "work_you_chatgpt/chatgpt/segments/121.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/121_prompt.txt",
+      "expected_audio_basename": "121.m4a"
+    },
+    {
+      "index": 122,
+      "title": null,
+      "chars": 1793,
+      "text_file": "work_you_chatgpt/chatgpt/segments/122.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/122_prompt.txt",
+      "expected_audio_basename": "122.m4a"
+    },
+    {
+      "index": 123,
+      "title": null,
+      "chars": 1250,
+      "text_file": "work_you_chatgpt/chatgpt/segments/123.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/123_prompt.txt",
+      "expected_audio_basename": "123.m4a"
+    },
+    {
+      "index": 124,
+      "title": "25",
+      "chars": 1278,
+      "text_file": "work_you_chatgpt/chatgpt/segments/124.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/124_prompt.txt",
+      "expected_audio_basename": "124.m4a"
+    },
+    {
+      "index": 125,
+      "title": null,
+      "chars": 1164,
+      "text_file": "work_you_chatgpt/chatgpt/segments/125.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/125_prompt.txt",
+      "expected_audio_basename": "125.m4a"
+    },
+    {
+      "index": 126,
+      "title": null,
+      "chars": 1781,
+      "text_file": "work_you_chatgpt/chatgpt/segments/126.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/126_prompt.txt",
+      "expected_audio_basename": "126.m4a"
+    },
+    {
+      "index": 127,
+      "title": null,
+      "chars": 1614,
+      "text_file": "work_you_chatgpt/chatgpt/segments/127.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/127_prompt.txt",
+      "expected_audio_basename": "127.m4a"
+    },
+    {
+      "index": 128,
+      "title": "26",
+      "chars": 1650,
+      "text_file": "work_you_chatgpt/chatgpt/segments/128.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/128_prompt.txt",
+      "expected_audio_basename": "128.m4a"
+    },
+    {
+      "index": 129,
+      "title": null,
+      "chars": 1661,
+      "text_file": "work_you_chatgpt/chatgpt/segments/129.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/129_prompt.txt",
+      "expected_audio_basename": "129.m4a"
+    },
+    {
+      "index": 130,
+      "title": null,
+      "chars": 1787,
+      "text_file": "work_you_chatgpt/chatgpt/segments/130.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/130_prompt.txt",
+      "expected_audio_basename": "130.m4a"
+    },
+    {
+      "index": 131,
+      "title": null,
+      "chars": 1628,
+      "text_file": "work_you_chatgpt/chatgpt/segments/131.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/131_prompt.txt",
+      "expected_audio_basename": "131.m4a"
+    },
+    {
+      "index": 132,
+      "title": null,
+      "chars": 977,
+      "text_file": "work_you_chatgpt/chatgpt/segments/132.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/132_prompt.txt",
+      "expected_audio_basename": "132.m4a"
+    },
+    {
+      "index": 133,
+      "title": "27",
+      "chars": 1481,
+      "text_file": "work_you_chatgpt/chatgpt/segments/133.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/133_prompt.txt",
+      "expected_audio_basename": "133.m4a"
+    },
+    {
+      "index": 134,
+      "title": null,
+      "chars": 1798,
+      "text_file": "work_you_chatgpt/chatgpt/segments/134.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/134_prompt.txt",
+      "expected_audio_basename": "134.m4a"
+    },
+    {
+      "index": 135,
+      "title": null,
+      "chars": 1108,
+      "text_file": "work_you_chatgpt/chatgpt/segments/135.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/135_prompt.txt",
+      "expected_audio_basename": "135.m4a"
+    },
+    {
+      "index": 136,
+      "title": "28",
+      "chars": 1784,
+      "text_file": "work_you_chatgpt/chatgpt/segments/136.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/136_prompt.txt",
+      "expected_audio_basename": "136.m4a"
+    },
+    {
+      "index": 137,
+      "title": null,
+      "chars": 1571,
+      "text_file": "work_you_chatgpt/chatgpt/segments/137.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/137_prompt.txt",
+      "expected_audio_basename": "137.m4a"
+    },
+    {
+      "index": 138,
+      "title": null,
+      "chars": 1295,
+      "text_file": "work_you_chatgpt/chatgpt/segments/138.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/138_prompt.txt",
+      "expected_audio_basename": "138.m4a"
+    },
+    {
+      "index": 139,
+      "title": "29",
+      "chars": 1564,
+      "text_file": "work_you_chatgpt/chatgpt/segments/139.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/139_prompt.txt",
+      "expected_audio_basename": "139.m4a"
+    },
+    {
+      "index": 140,
+      "title": null,
+      "chars": 1662,
+      "text_file": "work_you_chatgpt/chatgpt/segments/140.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/140_prompt.txt",
+      "expected_audio_basename": "140.m4a"
+    },
+    {
+      "index": 141,
+      "title": null,
+      "chars": 1752,
+      "text_file": "work_you_chatgpt/chatgpt/segments/141.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/141_prompt.txt",
+      "expected_audio_basename": "141.m4a"
+    },
+    {
+      "index": 142,
+      "title": null,
+      "chars": 1486,
+      "text_file": "work_you_chatgpt/chatgpt/segments/142.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/142_prompt.txt",
+      "expected_audio_basename": "142.m4a"
+    },
+    {
+      "index": 143,
+      "title": "30",
+      "chars": 1796,
+      "text_file": "work_you_chatgpt/chatgpt/segments/143.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/143_prompt.txt",
+      "expected_audio_basename": "143.m4a"
+    },
+    {
+      "index": 144,
+      "title": null,
+      "chars": 1732,
+      "text_file": "work_you_chatgpt/chatgpt/segments/144.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/144_prompt.txt",
+      "expected_audio_basename": "144.m4a"
+    },
+    {
+      "index": 145,
+      "title": "31",
+      "chars": 1410,
+      "text_file": "work_you_chatgpt/chatgpt/segments/145.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/145_prompt.txt",
+      "expected_audio_basename": "145.m4a"
+    },
+    {
+      "index": 146,
+      "title": null,
+      "chars": 1796,
+      "text_file": "work_you_chatgpt/chatgpt/segments/146.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/146_prompt.txt",
+      "expected_audio_basename": "146.m4a"
+    },
+    {
+      "index": 147,
+      "title": null,
+      "chars": 1540,
+      "text_file": "work_you_chatgpt/chatgpt/segments/147.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/147_prompt.txt",
+      "expected_audio_basename": "147.m4a"
+    },
+    {
+      "index": 148,
+      "title": null,
+      "chars": 1605,
+      "text_file": "work_you_chatgpt/chatgpt/segments/148.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/148_prompt.txt",
+      "expected_audio_basename": "148.m4a"
+    },
+    {
+      "index": 149,
+      "title": null,
+      "chars": 1765,
+      "text_file": "work_you_chatgpt/chatgpt/segments/149.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/149_prompt.txt",
+      "expected_audio_basename": "149.m4a"
+    },
+    {
+      "index": 150,
+      "title": null,
+      "chars": 1732,
+      "text_file": "work_you_chatgpt/chatgpt/segments/150.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/150_prompt.txt",
+      "expected_audio_basename": "150.m4a"
+    },
+    {
+      "index": 151,
+      "title": null,
+      "chars": 1784,
+      "text_file": "work_you_chatgpt/chatgpt/segments/151.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/151_prompt.txt",
+      "expected_audio_basename": "151.m4a"
+    },
+    {
+      "index": 152,
+      "title": null,
+      "chars": 1658,
+      "text_file": "work_you_chatgpt/chatgpt/segments/152.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/152_prompt.txt",
+      "expected_audio_basename": "152.m4a"
+    },
+    {
+      "index": 153,
+      "title": null,
+      "chars": 399,
+      "text_file": "work_you_chatgpt/chatgpt/segments/153.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/153_prompt.txt",
+      "expected_audio_basename": "153.m4a"
+    },
+    {
+      "index": 154,
+      "title": "32",
+      "chars": 1628,
+      "text_file": "work_you_chatgpt/chatgpt/segments/154.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/154_prompt.txt",
+      "expected_audio_basename": "154.m4a"
+    },
+    {
+      "index": 155,
+      "title": null,
+      "chars": 1760,
+      "text_file": "work_you_chatgpt/chatgpt/segments/155.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/155_prompt.txt",
+      "expected_audio_basename": "155.m4a"
+    },
+    {
+      "index": 156,
+      "title": null,
+      "chars": 1631,
+      "text_file": "work_you_chatgpt/chatgpt/segments/156.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/156_prompt.txt",
+      "expected_audio_basename": "156.m4a"
+    },
+    {
+      "index": 157,
+      "title": null,
+      "chars": 1255,
+      "text_file": "work_you_chatgpt/chatgpt/segments/157.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/157_prompt.txt",
+      "expected_audio_basename": "157.m4a"
+    },
+    {
+      "index": 158,
+      "title": "33",
+      "chars": 1677,
+      "text_file": "work_you_chatgpt/chatgpt/segments/158.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/158_prompt.txt",
+      "expected_audio_basename": "158.m4a"
+    },
+    {
+      "index": 159,
+      "title": null,
+      "chars": 1599,
+      "text_file": "work_you_chatgpt/chatgpt/segments/159.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/159_prompt.txt",
+      "expected_audio_basename": "159.m4a"
+    },
+    {
+      "index": 160,
+      "title": null,
+      "chars": 1628,
+      "text_file": "work_you_chatgpt/chatgpt/segments/160.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/160_prompt.txt",
+      "expected_audio_basename": "160.m4a"
+    },
+    {
+      "index": 161,
+      "title": null,
+      "chars": 502,
+      "text_file": "work_you_chatgpt/chatgpt/segments/161.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/161_prompt.txt",
+      "expected_audio_basename": "161.m4a"
+    },
+    {
+      "index": 162,
+      "title": "34",
+      "chars": 1748,
+      "text_file": "work_you_chatgpt/chatgpt/segments/162.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/162_prompt.txt",
+      "expected_audio_basename": "162.m4a"
+    },
+    {
+      "index": 163,
+      "title": null,
+      "chars": 1609,
+      "text_file": "work_you_chatgpt/chatgpt/segments/163.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/163_prompt.txt",
+      "expected_audio_basename": "163.m4a"
+    },
+    {
+      "index": 164,
+      "title": null,
+      "chars": 1614,
+      "text_file": "work_you_chatgpt/chatgpt/segments/164.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/164_prompt.txt",
+      "expected_audio_basename": "164.m4a"
+    },
+    {
+      "index": 165,
+      "title": null,
+      "chars": 1720,
+      "text_file": "work_you_chatgpt/chatgpt/segments/165.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/165_prompt.txt",
+      "expected_audio_basename": "165.m4a"
+    },
+    {
+      "index": 166,
+      "title": null,
+      "chars": 807,
+      "text_file": "work_you_chatgpt/chatgpt/segments/166.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/166_prompt.txt",
+      "expected_audio_basename": "166.m4a"
+    },
+    {
+      "index": 167,
+      "title": "35",
+      "chars": 1774,
+      "text_file": "work_you_chatgpt/chatgpt/segments/167.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/167_prompt.txt",
+      "expected_audio_basename": "167.m4a"
+    },
+    {
+      "index": 168,
+      "title": null,
+      "chars": 1729,
+      "text_file": "work_you_chatgpt/chatgpt/segments/168.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/168_prompt.txt",
+      "expected_audio_basename": "168.m4a"
+    },
+    {
+      "index": 169,
+      "title": null,
+      "chars": 1722,
+      "text_file": "work_you_chatgpt/chatgpt/segments/169.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/169_prompt.txt",
+      "expected_audio_basename": "169.m4a"
+    },
+    {
+      "index": 170,
+      "title": null,
+      "chars": 190,
+      "text_file": "work_you_chatgpt/chatgpt/segments/170.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/170_prompt.txt",
+      "expected_audio_basename": "170.m4a"
+    },
+    {
+      "index": 171,
+      "title": "36",
+      "chars": 1610,
+      "text_file": "work_you_chatgpt/chatgpt/segments/171.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/171_prompt.txt",
+      "expected_audio_basename": "171.m4a"
+    },
+    {
+      "index": 172,
+      "title": null,
+      "chars": 1800,
+      "text_file": "work_you_chatgpt/chatgpt/segments/172.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/172_prompt.txt",
+      "expected_audio_basename": "172.m4a"
+    },
+    {
+      "index": 173,
+      "title": null,
+      "chars": 1785,
+      "text_file": "work_you_chatgpt/chatgpt/segments/173.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/173_prompt.txt",
+      "expected_audio_basename": "173.m4a"
+    },
+    {
+      "index": 174,
+      "title": null,
+      "chars": 1685,
+      "text_file": "work_you_chatgpt/chatgpt/segments/174.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/174_prompt.txt",
+      "expected_audio_basename": "174.m4a"
+    },
+    {
+      "index": 175,
+      "title": null,
+      "chars": 507,
+      "text_file": "work_you_chatgpt/chatgpt/segments/175.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/175_prompt.txt",
+      "expected_audio_basename": "175.m4a"
+    },
+    {
+      "index": 176,
+      "title": "37",
+      "chars": 1668,
+      "text_file": "work_you_chatgpt/chatgpt/segments/176.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/176_prompt.txt",
+      "expected_audio_basename": "176.m4a"
+    },
+    {
+      "index": 177,
+      "title": null,
+      "chars": 1791,
+      "text_file": "work_you_chatgpt/chatgpt/segments/177.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/177_prompt.txt",
+      "expected_audio_basename": "177.m4a"
+    },
+    {
+      "index": 178,
+      "title": null,
+      "chars": 42,
+      "text_file": "work_you_chatgpt/chatgpt/segments/178.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/178_prompt.txt",
+      "expected_audio_basename": "178.m4a"
+    },
+    {
+      "index": 179,
+      "title": "38",
+      "chars": 1408,
+      "text_file": "work_you_chatgpt/chatgpt/segments/179.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/179_prompt.txt",
+      "expected_audio_basename": "179.m4a"
+    },
+    {
+      "index": 180,
+      "title": null,
+      "chars": 1761,
+      "text_file": "work_you_chatgpt/chatgpt/segments/180.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/180_prompt.txt",
+      "expected_audio_basename": "180.m4a"
+    },
+    {
+      "index": 181,
+      "title": null,
+      "chars": 1524,
+      "text_file": "work_you_chatgpt/chatgpt/segments/181.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/181_prompt.txt",
+      "expected_audio_basename": "181.m4a"
+    },
+    {
+      "index": 182,
+      "title": null,
+      "chars": 982,
+      "text_file": "work_you_chatgpt/chatgpt/segments/182.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/182_prompt.txt",
+      "expected_audio_basename": "182.m4a"
+    },
+    {
+      "index": 183,
+      "title": "39",
+      "chars": 1663,
+      "text_file": "work_you_chatgpt/chatgpt/segments/183.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/183_prompt.txt",
+      "expected_audio_basename": "183.m4a"
+    },
+    {
+      "index": 184,
+      "title": null,
+      "chars": 1270,
+      "text_file": "work_you_chatgpt/chatgpt/segments/184.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/184_prompt.txt",
+      "expected_audio_basename": "184.m4a"
+    },
+    {
+      "index": 185,
+      "title": null,
+      "chars": 1778,
+      "text_file": "work_you_chatgpt/chatgpt/segments/185.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/185_prompt.txt",
+      "expected_audio_basename": "185.m4a"
+    },
+    {
+      "index": 186,
+      "title": null,
+      "chars": 1159,
+      "text_file": "work_you_chatgpt/chatgpt/segments/186.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/186_prompt.txt",
+      "expected_audio_basename": "186.m4a"
+    },
+    {
+      "index": 187,
+      "title": "40",
+      "chars": 1729,
+      "text_file": "work_you_chatgpt/chatgpt/segments/187.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/187_prompt.txt",
+      "expected_audio_basename": "187.m4a"
+    },
+    {
+      "index": 188,
+      "title": null,
+      "chars": 935,
+      "text_file": "work_you_chatgpt/chatgpt/segments/188.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/188_prompt.txt",
+      "expected_audio_basename": "188.m4a"
+    },
+    {
+      "index": 189,
+      "title": "41",
+      "chars": 1676,
+      "text_file": "work_you_chatgpt/chatgpt/segments/189.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/189_prompt.txt",
+      "expected_audio_basename": "189.m4a"
+    },
+    {
+      "index": 190,
+      "title": null,
+      "chars": 1690,
+      "text_file": "work_you_chatgpt/chatgpt/segments/190.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/190_prompt.txt",
+      "expected_audio_basename": "190.m4a"
+    },
+    {
+      "index": 191,
+      "title": null,
+      "chars": 1782,
+      "text_file": "work_you_chatgpt/chatgpt/segments/191.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/191_prompt.txt",
+      "expected_audio_basename": "191.m4a"
+    },
+    {
+      "index": 192,
+      "title": null,
+      "chars": 228,
+      "text_file": "work_you_chatgpt/chatgpt/segments/192.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/192_prompt.txt",
+      "expected_audio_basename": "192.m4a"
+    },
+    {
+      "index": 193,
+      "title": "42",
+      "chars": 1635,
+      "text_file": "work_you_chatgpt/chatgpt/segments/193.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/193_prompt.txt",
+      "expected_audio_basename": "193.m4a"
+    },
+    {
+      "index": 194,
+      "title": null,
+      "chars": 1723,
+      "text_file": "work_you_chatgpt/chatgpt/segments/194.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/194_prompt.txt",
+      "expected_audio_basename": "194.m4a"
+    },
+    {
+      "index": 195,
+      "title": null,
+      "chars": 881,
+      "text_file": "work_you_chatgpt/chatgpt/segments/195.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/195_prompt.txt",
+      "expected_audio_basename": "195.m4a"
+    },
+    {
+      "index": 196,
+      "title": "43",
+      "chars": 236,
+      "text_file": "work_you_chatgpt/chatgpt/segments/196.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/196_prompt.txt",
+      "expected_audio_basename": "196.m4a"
+    },
+    {
+      "index": 197,
+      "title": "걱정 마, B. 저녁 먹을까?",
+      "chars": 54,
+      "text_file": "work_you_chatgpt/chatgpt/segments/197.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/197_prompt.txt",
+      "expected_audio_basename": "197.m4a"
+    },
+    {
+      "index": 198,
+      "title": "널 미워하다니? B, 사랑해.",
+      "chars": 1789,
+      "text_file": "work_you_chatgpt/chatgpt/segments/198.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/198_prompt.txt",
+      "expected_audio_basename": "198.m4a"
+    },
+    {
+      "index": 199,
+      "title": null,
+      "chars": 1533,
+      "text_file": "work_you_chatgpt/chatgpt/segments/199.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/199_prompt.txt",
+      "expected_audio_basename": "199.m4a"
+    },
+    {
+      "index": 200,
+      "title": "너: K",
+      "chars": 473,
+      "text_file": "work_you_chatgpt/chatgpt/segments/200.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/200_prompt.txt",
+      "expected_audio_basename": "200.m4a"
+    },
+    {
+      "index": 201,
+      "title": "44",
+      "chars": 1755,
+      "text_file": "work_you_chatgpt/chatgpt/segments/201.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/201_prompt.txt",
+      "expected_audio_basename": "201.m4a"
+    },
+    {
+      "index": 202,
+      "title": null,
+      "chars": 1773,
+      "text_file": "work_you_chatgpt/chatgpt/segments/202.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/202_prompt.txt",
+      "expected_audio_basename": "202.m4a"
+    },
+    {
+      "index": 203,
+      "title": null,
+      "chars": 1683,
+      "text_file": "work_you_chatgpt/chatgpt/segments/203.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/203_prompt.txt",
+      "expected_audio_basename": "203.m4a"
+    },
+    {
+      "index": 204,
+      "title": null,
+      "chars": 549,
+      "text_file": "work_you_chatgpt/chatgpt/segments/204.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/204_prompt.txt",
+      "expected_audio_basename": "204.m4a"
+    },
+    {
+      "index": 205,
+      "title": "45",
+      "chars": 1676,
+      "text_file": "work_you_chatgpt/chatgpt/segments/205.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/205_prompt.txt",
+      "expected_audio_basename": "205.m4a"
+    },
+    {
+      "index": 206,
+      "title": null,
+      "chars": 1532,
+      "text_file": "work_you_chatgpt/chatgpt/segments/206.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/206_prompt.txt",
+      "expected_audio_basename": "206.m4a"
+    },
+    {
+      "index": 207,
+      "title": null,
+      "chars": 895,
+      "text_file": "work_you_chatgpt/chatgpt/segments/207.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/207_prompt.txt",
+      "expected_audio_basename": "207.m4a"
+    },
+    {
+      "index": 208,
+      "title": "K",
+      "chars": 1698,
+      "text_file": "work_you_chatgpt/chatgpt/segments/208.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/208_prompt.txt",
+      "expected_audio_basename": "208.m4a"
+    },
+    {
+      "index": 209,
+      "title": "46",
+      "chars": 1784,
+      "text_file": "work_you_chatgpt/chatgpt/segments/209.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/209_prompt.txt",
+      "expected_audio_basename": "209.m4a"
+    },
+    {
+      "index": 210,
+      "title": null,
+      "chars": 1655,
+      "text_file": "work_you_chatgpt/chatgpt/segments/210.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/210_prompt.txt",
+      "expected_audio_basename": "210.m4a"
+    },
+    {
+      "index": 211,
+      "title": null,
+      "chars": 1743,
+      "text_file": "work_you_chatgpt/chatgpt/segments/211.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/211_prompt.txt",
+      "expected_audio_basename": "211.m4a"
+    },
+    {
+      "index": 212,
+      "title": null,
+      "chars": 1739,
+      "text_file": "work_you_chatgpt/chatgpt/segments/212.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/212_prompt.txt",
+      "expected_audio_basename": "212.m4a"
+    },
+    {
+      "index": 213,
+      "title": null,
+      "chars": 642,
+      "text_file": "work_you_chatgpt/chatgpt/segments/213.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/213_prompt.txt",
+      "expected_audio_basename": "213.m4a"
+    },
+    {
+      "index": 214,
+      "title": "47",
+      "chars": 1711,
+      "text_file": "work_you_chatgpt/chatgpt/segments/214.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/214_prompt.txt",
+      "expected_audio_basename": "214.m4a"
+    },
+    {
+      "index": 215,
+      "title": null,
+      "chars": 1616,
+      "text_file": "work_you_chatgpt/chatgpt/segments/215.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/215_prompt.txt",
+      "expected_audio_basename": "215.m4a"
+    },
+    {
+      "index": 216,
+      "title": null,
+      "chars": 1112,
+      "text_file": "work_you_chatgpt/chatgpt/segments/216.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/216_prompt.txt",
+      "expected_audio_basename": "216.m4a"
+    },
+    {
+      "index": 217,
+      "title": "48",
+      "chars": 1795,
+      "text_file": "work_you_chatgpt/chatgpt/segments/217.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/217_prompt.txt",
+      "expected_audio_basename": "217.m4a"
+    },
+    {
+      "index": 218,
+      "title": null,
+      "chars": 1758,
+      "text_file": "work_you_chatgpt/chatgpt/segments/218.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/218_prompt.txt",
+      "expected_audio_basename": "218.m4a"
+    },
+    {
+      "index": 219,
+      "title": null,
+      "chars": 1719,
+      "text_file": "work_you_chatgpt/chatgpt/segments/219.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/219_prompt.txt",
+      "expected_audio_basename": "219.m4a"
+    },
+    {
+      "index": 220,
+      "title": null,
+      "chars": 1619,
+      "text_file": "work_you_chatgpt/chatgpt/segments/220.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/220_prompt.txt",
+      "expected_audio_basename": "220.m4a"
+    },
+    {
+      "index": 221,
+      "title": null,
+      "chars": 321,
+      "text_file": "work_you_chatgpt/chatgpt/segments/221.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/221_prompt.txt",
+      "expected_audio_basename": "221.m4a"
+    },
+    {
+      "index": 222,
+      "title": "49",
+      "chars": 1721,
+      "text_file": "work_you_chatgpt/chatgpt/segments/222.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/222_prompt.txt",
+      "expected_audio_basename": "222.m4a"
+    },
+    {
+      "index": 223,
+      "title": null,
+      "chars": 1757,
+      "text_file": "work_you_chatgpt/chatgpt/segments/223.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/223_prompt.txt",
+      "expected_audio_basename": "223.m4a"
+    },
+    {
+      "index": 224,
+      "title": null,
+      "chars": 1172,
+      "text_file": "work_you_chatgpt/chatgpt/segments/224.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/224_prompt.txt",
+      "expected_audio_basename": "224.m4a"
+    },
+    {
+      "index": 225,
+      "title": "50",
+      "chars": 1594,
+      "text_file": "work_you_chatgpt/chatgpt/segments/225.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/225_prompt.txt",
+      "expected_audio_basename": "225.m4a"
+    },
+    {
+      "index": 226,
+      "title": null,
+      "chars": 1549,
+      "text_file": "work_you_chatgpt/chatgpt/segments/226.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/226_prompt.txt",
+      "expected_audio_basename": "226.m4a"
+    },
+    {
+      "index": 227,
+      "title": null,
+      "chars": 1772,
+      "text_file": "work_you_chatgpt/chatgpt/segments/227.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/227_prompt.txt",
+      "expected_audio_basename": "227.m4a"
+    },
+    {
+      "index": 228,
+      "title": null,
+      "chars": 1642,
+      "text_file": "work_you_chatgpt/chatgpt/segments/228.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/228_prompt.txt",
+      "expected_audio_basename": "228.m4a"
+    },
+    {
+      "index": 229,
+      "title": null,
+      "chars": 1462,
+      "text_file": "work_you_chatgpt/chatgpt/segments/229.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/229_prompt.txt",
+      "expected_audio_basename": "229.m4a"
+    },
+    {
+      "index": 230,
+      "title": null,
+      "chars": 1607,
+      "text_file": "work_you_chatgpt/chatgpt/segments/230.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/230_prompt.txt",
+      "expected_audio_basename": "230.m4a"
+    },
+    {
+      "index": 231,
+      "title": null,
+      "chars": 1664,
+      "text_file": "work_you_chatgpt/chatgpt/segments/231.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/231_prompt.txt",
+      "expected_audio_basename": "231.m4a"
+    },
+    {
+      "index": 232,
+      "title": null,
+      "chars": 298,
+      "text_file": "work_you_chatgpt/chatgpt/segments/232.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/232_prompt.txt",
+      "expected_audio_basename": "232.m4a"
+    },
+    {
+      "index": 233,
+      "title": "52",
+      "chars": 1347,
+      "text_file": "work_you_chatgpt/chatgpt/segments/233.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/233_prompt.txt",
+      "expected_audio_basename": "233.m4a"
+    },
+    {
+      "index": 234,
+      "title": null,
+      "chars": 1542,
+      "text_file": "work_you_chatgpt/chatgpt/segments/234.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/234_prompt.txt",
+      "expected_audio_basename": "234.m4a"
+    },
+    {
+      "index": 235,
+      "title": null,
+      "chars": 561,
+      "text_file": "work_you_chatgpt/chatgpt/segments/235.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/235_prompt.txt",
+      "expected_audio_basename": "235.m4a"
+    },
+    {
+      "index": 236,
+      "title": "53",
+      "chars": 1418,
+      "text_file": "work_you_chatgpt/chatgpt/segments/236.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/236_prompt.txt",
+      "expected_audio_basename": "236.m4a"
+    },
+    {
+      "index": 237,
+      "title": null,
+      "chars": 1758,
+      "text_file": "work_you_chatgpt/chatgpt/segments/237.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/237_prompt.txt",
+      "expected_audio_basename": "237.m4a"
+    },
+    {
+      "index": 238,
+      "title": null,
+      "chars": 1128,
+      "text_file": "work_you_chatgpt/chatgpt/segments/238.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/238_prompt.txt",
+      "expected_audio_basename": "238.m4a"
+    },
+    {
+      "index": 239,
+      "title": "감사의 말",
+      "chars": 1771,
+      "text_file": "work_you_chatgpt/chatgpt/segments/239.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/239_prompt.txt",
+      "expected_audio_basename": "239.m4a"
+    },
+    {
+      "index": 240,
+      "title": null,
+      "chars": 520,
+      "text_file": "work_you_chatgpt/chatgpt/segments/240.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/240_prompt.txt",
+      "expected_audio_basename": "240.m4a"
+    },
+    {
+      "index": 241,
+      "title": "EMILYBESTLERBOOKS.COM",
+      "chars": 1652,
+      "text_file": "work_you_chatgpt/chatgpt/segments/241.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/241_prompt.txt",
+      "expected_audio_basename": "241.m4a"
+    },
+    {
+      "index": 242,
+      "title": "I'm in Love Again (뮤지컬 《1924년 그리니치 빌리지 폴리스》 삽입곡)",
+      "chars": 415,
+      "text_file": "work_you_chatgpt/chatgpt/segments/242.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/242_prompt.txt",
+      "expected_audio_basename": "242.m4a"
+    },
+    {
+      "index": 243,
+      "title": "작사·작곡: 롤랜드 J. 샐리",
+      "chars": 269,
+      "text_file": "work_you_chatgpt/chatgpt/segments/243.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/243_prompt.txt",
+      "expected_audio_basename": "243.m4a"
+    },
+    {
+      "index": 244,
+      "title": "ISBN 978-1-4767-8561-5 (전자책)",
+      "chars": 32,
+      "text_file": "work_you_chatgpt/chatgpt/segments/244.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/244_prompt.txt",
+      "expected_audio_basename": "244.m4a"
+    },
+    {
+      "index": 245,
+      "title": "감사의 말",
+      "chars": 20,
+      "text_file": "work_you_chatgpt/chatgpt/segments/245.txt",
+      "prompt_file": "work_you_chatgpt/chatgpt/prompts/245_prompt.txt",
+      "expected_audio_basename": "245.m4a"
+    }
+  ]
+}
