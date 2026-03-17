@@ -2,6 +2,7 @@ import unittest
 from argparse import Namespace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import audiobook_maker
 
@@ -112,6 +113,14 @@ class OutputPathTests(unittest.TestCase):
             output_path,
             Path.cwd() / audiobook_maker.DEFAULT_AUDIOBOOK_OUTPUT_DIRNAME / "translated_audiobook.m4a",
         )
+
+
+class DefaultProviderTests(unittest.TestCase):
+    def test_parse_args_defaults_provider_to_gemini(self) -> None:
+        with patch("sys.argv", ["audiobook_maker.py"]):
+            args = audiobook_maker.parse_args()
+
+        self.assertEqual(args.provider, "gemini")
 
 
 class OpenAIPayloadTests(unittest.TestCase):

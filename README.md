@@ -19,7 +19,8 @@
 - `system`: macOS `say`
 - `melo`: MeloTTS
 
-기본 오디오 생성 방식은 `gemini`가 아니라, CLI에서 명시적으로 `--provider`를 주는 것을 권장합니다.
+기본 오디오 생성 방식은 `gemini`입니다.
+다른 엔진을 쓰고 싶을 때만 `--provider`를 명시하면 됩니다.
 
 ## 설치
 
@@ -28,6 +29,8 @@
 ```bash
 python3 -m pip install -r requirements.txt
 ```
+
+기본 provider는 `gemini`이므로, `--provider`를 생략하면 Google AI Studio TTS 경로를 사용합니다.
 
 장문 오디오북 패키지까지 같이 쓰려면:
 
@@ -59,7 +62,6 @@ Google AI Studio TTS:
 export GEMINI_API_KEY="AIza..."
 
 python3 audiobook_maker.py \
-  --provider gemini \
   --input-file "./smoke_ko.txt" \
   --output-file "./audiobooks/smoke_gemini.m4a" \
   --voice "Sulafat" \

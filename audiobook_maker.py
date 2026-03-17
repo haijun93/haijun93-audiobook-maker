@@ -208,8 +208,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--provider",
         choices=("system", "melo", "edge", "gemini", "chatgpt", "chatgpt_web", "openai"),
-        default="system",
-        help="오디오 생성 provider. `system`은 macOS `say`, `melo`는 MeloTTS, `edge`는 Edge TTS, `gemini`는 Google AI Studio(Gemini TTS), `chatgpt`는 ChatGPT Voice 수동 워크플로우, `chatgpt_web`는 ChatGPT 웹 로그인 기반 read-aloud, `openai`는 OpenAI TTS입니다.",
+        default="gemini",
+        help="오디오 생성 provider. 기본값은 `gemini`(Google AI Studio/Gemini TTS)이며, `system`은 macOS `say`, `melo`는 MeloTTS, `edge`는 Edge TTS, `chatgpt`는 ChatGPT Voice 수동 워크플로우, `chatgpt_web`는 ChatGPT 웹 로그인 기반 read-aloud, `openai`는 OpenAI TTS입니다.",
     )
     parser.add_argument("--voice", type=str, help="provider별 음성 이름")
     parser.add_argument(
