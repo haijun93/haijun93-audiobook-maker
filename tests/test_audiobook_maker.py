@@ -1,3 +1,5 @@
+import base64
+import json
 import unittest
 from argparse import Namespace
 from pathlib import Path
@@ -172,6 +174,103 @@ class GeminiGuardTests(unittest.TestCase):
         )
 
         self.assertNotIn("instructions", payload)
+
+
+class GeminiRequestTests(unittest.TestCase):
+    def test_request_gemini_speech_retries_when_audio_missing(self) -> None:
+        class FakeResponse:
+            def __init__(self, body: bytes) -> None:
+                self._body = body
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return self._body
+
+        first_body = json.dumps(
+            {
+                "candidates": [
+                    {
+                        "finishReason": "OTHER",
+                        "index": 0,
+                    }
+                ]
+            }
+        ).encode("utf-8")
+        second_body = json.dumps(
+            {
+                "candidates": [
+                    {
+                        "finishReason": "STOP",
+                        "content": {
+                            "parts": [
+                                {
+                                    "inlineData": {
+                                        "data": base64.b64encode(b"pcm-bytes").decode("ascii"),
+                                    }
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+        ).encode("utf-8")
+        responses = [FakeResponse(first_body), FakeResponse(second_body)]
+
+        with (
+            patch("audiobook_maker.request.urlopen", side_effect=responses),
+            patch("audiobook_maker.time.sleep") as sleep_mock,
+        ):
+            pcm_bytes = audiobook_maker.request_gemini_speech(
+                payload={"contents": []},
+                api_key_pool=audiobook_maker.GeminiApiKeyPool(
+                    keys=["AIzaSyExampleValidLookingKey"]
+                ),
+                endpoint="https://example.com/generateContent",
+                timeout_sec=1,
+            )
+
+        self.assertEqual(pcm_bytes, b"pcm-bytes")
+        sleep_mock.assert_called_once()
+
+    def test_synthesize_gemini_sections_reuses_existing_audio(self) -> None:
+        args = Namespace(
+            gemini_api_key_env="GEMINI_API_KEY",
+            gemini_base_url="",
+            gemini_model=audiobook_maker.DEFAULT_GEMINI_MODEL,
+            gemini_instructions="",
+            gemini_language_code="ko-KR",
+            request_timeout_sec=30,
+        )
+        sections = [
+            audiobook_maker.AudioSection(index=1, title="제1장", text="안녕하세요."),
+        ]
+
+        with TemporaryDirectory() as temp_dir:
+            work_dir = Path(temp_dir)
+            audio_path = work_dir / "001.wav"
+            audio_path.write_bytes(b"existing-wav")
+
+            with (
+                patch.dict("os.environ", {"GEMINI_API_KEY": "AIzaSyExampleValidLookingKey"}),
+                patch(
+                    "audiobook_maker.request_gemini_speech",
+                    side_effect=AssertionError("existing audio should be reused"),
+                ),
+            ):
+                audio_files = audiobook_maker.synthesize_gemini_sections(
+                    sections,
+                    args=args,
+                    voice="Sulafat",
+                    work_dir=work_dir,
+                )
+
+            self.assertEqual(audio_files, [audio_path])
+            self.assertEqual((work_dir / "001.txt").read_text(encoding="utf-8"), "안녕하세요.\n")
 
 
 class ChatGPTWorkflowTests(unittest.TestCase):

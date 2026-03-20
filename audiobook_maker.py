@@ -58,6 +58,24 @@ class AudioSection:
     text: str
 
 
+@dataclass
+class GeminiApiKeyPool:
+    keys: list[str]
+    index: int = 0
+
+    def current(self) -> str:
+        return self.keys[self.index]
+
+    def current_label(self) -> str:
+        return f"{self.index + 1}/{len(self.keys)}"
+
+    def advance(self) -> bool:
+        if self.index + 1 >= len(self.keys):
+            return False
+        self.index += 1
+        return True
+
+
 HEADING_PATTERNS = (
     re.compile(r"^(chapter|chap\.)\s+[0-9ivxlcdm]+\b.*$", re.IGNORECASE),
     re.compile(r"^제?\s*\d+\s*장(?:\s*[:.\-]\s*.*)?$"),
@@ -624,6 +642,17 @@ def validate_gemini_api_key(api_key: str) -> None:
         )
 
 
+def parse_gemini_api_keys(raw_value: str) -> list[str]:
+    if not raw_value.strip():
+        return []
+    keys: list[str] = []
+    for item in re.split(r"[\s,]+", raw_value.strip()):
+        value = item.strip()
+        if value:
+            keys.append(value)
+    return keys
+
+
 def openai_voice_choices(model: str) -> tuple[str, ...]:
     if model.startswith("gpt-4o"):
         return OPENAI_GPT4O_VOICES
@@ -866,12 +895,13 @@ def ensure_runtime_ready(args: argparse.Namespace, output_path: Path) -> None:
         return
 
     if args.provider == "gemini":
-        api_key = os.environ.get(args.gemini_api_key_env)
-        if not api_key:
+        api_keys = parse_gemini_api_keys(os.environ.get(args.gemini_api_key_env, ""))
+        if not api_keys:
             raise RuntimeError(
                 f"Google AI Studio provider를 쓰려면 환경 변수 {args.gemini_api_key_env} 에 API key를 설정해야 합니다."
             )
-        validate_gemini_api_key(api_key)
+        for api_key in api_keys:
+            validate_gemini_api_key(api_key)
         if not args.gemini_allow_billed_model and not gemini_model_is_free_tier(args.gemini_model):
             allowed = ", ".join(GEMINI_FREE_TIER_TTS_MODELS)
             raise RuntimeError(
@@ -1319,44 +1349,142 @@ def build_gemini_speech_payload(
 def request_gemini_speech(
     *,
     payload: dict[str, object],
-    api_key: str,
+    api_key_pool: GeminiApiKeyPool,
     endpoint: str,
     timeout_sec: int,
-) -> bytes:
-    url = f"{endpoint}?key={api_key}"
-    req = request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with request.urlopen(req, timeout=timeout_sec) as response:
-            body = response.read().decode("utf-8", errors="replace")
-    except error.HTTPError as exc:
-        details = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Google AI Studio HTTP 오류 {exc.code}: {details}") from exc
-    except error.URLError as exc:
-        raise RuntimeError(f"Google AI Studio 연결 실패: {exc}") from exc
+    ) -> bytes:
+    request_body = json.dumps(payload).encode("utf-8")
 
-    try:
-        parsed = json.loads(body)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Google AI Studio 응답 파싱 실패: {body[:200]}") from exc
-
-    candidates = parsed.get("candidates") or []
-    for candidate in candidates:
-        content = candidate.get("content") or {}
-        for part in content.get("parts") or []:
-            inline_data = part.get("inlineData") or part.get("inline_data") or {}
-            data = inline_data.get("data")
-            if data:
+    def parse_retry_delay_sec(details: str, headers: object) -> float | None:
+        if headers is not None:
+            retry_after = getattr(headers, "get", lambda *_args, **_kwargs: None)("Retry-After")
+            if retry_after:
                 try:
-                    return base64.b64decode(data)
-                except Exception as exc:
-                    raise RuntimeError("Google AI Studio 오디오 base64 디코딩 실패") from exc
+                    return max(float(retry_after), 1.0)
+                except ValueError:
+                    pass
 
-    raise RuntimeError(f"Google AI Studio 오디오 응답을 찾지 못했습니다: {parsed}")
+        try:
+            parsed_details = json.loads(details)
+        except json.JSONDecodeError:
+            parsed_details = {}
+
+        for item in parsed_details.get("error", {}).get("details") or []:
+            if not isinstance(item, dict):
+                continue
+            retry_delay = item.get("retryDelay")
+            if isinstance(retry_delay, str):
+                match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)s", retry_delay.strip())
+                if match:
+                    return max(float(match.group(1)), 1.0)
+
+        match = re.search(r"Please retry in ([0-9]+(?:\.[0-9]+)?)s", details)
+        if match:
+            return max(float(match.group(1)), 1.0)
+        return None
+
+    def parse_quota_id(details: str) -> str | None:
+        try:
+            parsed_details = json.loads(details)
+        except json.JSONDecodeError:
+            return None
+
+        for item in parsed_details.get("error", {}).get("details") or []:
+            if not isinstance(item, dict):
+                continue
+            for violation in item.get("violations") or []:
+                if not isinstance(violation, dict):
+                    continue
+                quota_id = violation.get("quotaId")
+                if isinstance(quota_id, str) and quota_id.strip():
+                    return quota_id.strip()
+        return None
+
+    attempt = 0
+    max_retries = 100
+    while True:
+        url = f"{endpoint}?key={api_key_pool.current()}"
+        req = request.Request(
+            url,
+            data=request_body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with request.urlopen(req, timeout=timeout_sec) as response:
+                body = response.read().decode("utf-8", errors="replace")
+        except error.HTTPError as exc:
+            details = exc.read().decode("utf-8", errors="replace")
+            quota_id = parse_quota_id(details)
+            if (
+                exc.code == 429
+                and quota_id
+                and "PerDayPerProjectPerModel" in quota_id
+            ):
+                if api_key_pool.advance():
+                    attempt = 0
+                    print(
+                        "Google AI Studio 일일 quota 소진. "
+                        f"다음 API key로 전환합니다 ({api_key_pool.current_label()})",
+                        file=sys.stderr,
+                    )
+                    continue
+                raise RuntimeError(
+                    "Google AI Studio 일일 quota가 현재 제공된 모든 API key에서 소진됐습니다. "
+                    "다른 프로젝트의 API key를 더 추가하세요."
+                ) from exc
+            if exc.code == 429 and attempt < max_retries:
+                attempt += 1
+                retry_delay_sec = parse_retry_delay_sec(details, exc.headers) or 30.0
+                print(
+                    "Google AI Studio quota 대기 "
+                    f"{retry_delay_sec:.1f}s 후 재시도 "
+                    f"({attempt}/{max_retries}, key {api_key_pool.current_label()})",
+                    file=sys.stderr,
+                )
+                time.sleep(retry_delay_sec)
+                continue
+            raise RuntimeError(f"Google AI Studio HTTP 오류 {exc.code}: {details}") from exc
+        except error.URLError as exc:
+            raise RuntimeError(f"Google AI Studio 연결 실패: {exc}") from exc
+
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Google AI Studio 응답 파싱 실패: {body[:200]}") from exc
+
+        candidates = parsed.get("candidates") or []
+        for candidate in candidates:
+            content = candidate.get("content") or {}
+            for part in content.get("parts") or []:
+                inline_data = part.get("inlineData") or part.get("inline_data") or {}
+                data = inline_data.get("data")
+                if data:
+                    try:
+                        return base64.b64decode(data)
+                    except Exception as exc:
+                        raise RuntimeError("Google AI Studio 오디오 base64 디코딩 실패") from exc
+
+        finish_reasons = [
+            candidate.get("finishReason")
+            for candidate in candidates
+            if isinstance(candidate, dict) and candidate.get("finishReason")
+        ]
+        if attempt < max_retries:
+            attempt += 1
+            retry_delay_sec = parse_retry_delay_sec(body, None) or min(5.0 * attempt, 30.0)
+            reason_text = ", ".join(str(reason) for reason in finish_reasons) or "unknown"
+            print(
+                "Google AI Studio 오디오 없이 응답 "
+                f"(finishReason={reason_text}). "
+                f"{retry_delay_sec:.1f}s 후 재시도 "
+                f"({attempt}/{max_retries}, key {api_key_pool.current_label()})",
+                file=sys.stderr,
+            )
+            time.sleep(retry_delay_sec)
+            continue
+
+        raise RuntimeError(f"Google AI Studio 오디오 응답을 찾지 못했습니다: {parsed}")
 
 
 def write_pcm_wav(path: Path, pcm_bytes: bytes, *, sample_rate: int = GEMINI_PCM_SAMPLE_RATE) -> None:
@@ -1703,7 +1831,8 @@ def synthesize_gemini_sections(
     voice: str,
     work_dir: Path,
 ) -> list[Path]:
-    api_key = os.environ.get(args.gemini_api_key_env, "")
+    api_keys = parse_gemini_api_keys(os.environ.get(args.gemini_api_key_env, ""))
+    api_key_pool = GeminiApiKeyPool(keys=api_keys)
     endpoint = gemini_endpoint(args)
     audio_files: list[Path] = []
 
@@ -1712,8 +1841,19 @@ def synthesize_gemini_sections(
         text_path = work_dir / f"{section_prefix}.txt"
         audio_path = work_dir / f"{section_prefix}.wav"
         text_path.write_text(section.text + "\n", encoding="utf-8")
+        if audio_path.exists() and audio_path.stat().st_size > 0:
+            print(
+                f"[{section.index}/{len(sections)}] 기존 Gemini 오디오 재사용: {section.title or section_prefix}",
+                file=sys.stderr,
+            )
+            audio_files.append(audio_path)
+            continue
         print(
-            f"[{section.index}/{len(sections)}] Google AI Studio 음성 합성 중: {section.title or section_prefix}",
+            "["
+            f"{section.index}/{len(sections)}"
+            "] Google AI Studio 음성 합성 중: "
+            f"{section.title or section_prefix} "
+            f"(key {api_key_pool.current_label()})",
             file=sys.stderr,
         )
         prompt = build_gemini_tts_prompt(section.text, args.gemini_instructions)
@@ -1724,7 +1864,7 @@ def synthesize_gemini_sections(
         )
         pcm_bytes = request_gemini_speech(
             payload=payload,
-            api_key=api_key,
+            api_key_pool=api_key_pool,
             endpoint=endpoint,
             timeout_sec=args.request_timeout_sec,
         )
