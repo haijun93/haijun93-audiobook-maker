@@ -8,3 +8,4 @@ __pycache__/
 audiobooks/
 korean_audiobook_runs/
 .ui_uploads/
+tmp_*_probe/

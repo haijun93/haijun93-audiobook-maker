@@ -65,6 +65,9 @@ class VoiceSelectionTests(unittest.TestCase):
     def test_default_gemini_voice_is_sulafat(self) -> None:
         self.assertEqual(audiobook_maker.default_gemini_voice(), "Sulafat")
 
+    def test_default_gemini_web_voice_is_app_default(self) -> None:
+        self.assertEqual(audiobook_maker.default_gemini_web_voice(), "app_default")
+
     def test_default_chatgpt_voice_is_spruce(self) -> None:
         self.assertEqual(audiobook_maker.default_chatgpt_voice(), "Spruce")
 
@@ -342,6 +345,27 @@ class ChatGPTWebWorkflowTests(unittest.TestCase):
 
         self.assertEqual(audiobook_maker.resolve_voice(args), "cove")
 
+
+class GeminiWebWorkflowTests(unittest.TestCase):
+    def test_gemini_web_prompt_wraps_text_verbatim(self) -> None:
+        prompt = audiobook_maker.build_gemini_web_repeat_prompt("안녕하세요.")
+
+        self.assertIn("[본문 시작]", prompt)
+        self.assertIn("안녕하세요.", prompt)
+        self.assertIn("[본문 끝]", prompt)
+
+    def test_resolve_voice_defaults_gemini_web_voice(self) -> None:
+        args = Namespace(
+            voice=None,
+            provider="gemini_web",
+            melo_language="KR",
+            gemini_voice="",
+            openai_model="gpt-4o-mini-tts",
+        )
+
+        self.assertEqual(audiobook_maker.resolve_voice(args), "app_default")
+
+
 class AudioFormatTests(unittest.TestCase):
     def test_m4a_uses_aac(self) -> None:
         codec_args = audiobook_maker.ffmpeg_codec_args(Path("book.m4a"), 96)
@@ -354,6 +378,11 @@ class AudioFormatTests(unittest.TestCase):
 
         expected = "file '{}'".format(str(path).replace("'", r"'\''"))
         self.assertEqual(line, expected)
+
+    def test_gemini_web_uses_ogg_temp_audio(self) -> None:
+        args = Namespace(provider="gemini_web")
+
+        self.assertEqual(audiobook_maker.temp_audio_suffix(args), ".ogg")
 
 
 if __name__ == "__main__":
