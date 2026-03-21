@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a Korean audiobook using macOS `say`, Edge TTS, Gemini TTS, ChatGPT Voice workflow, or other TTS providers."""
+"""Build a Korean audiobook with Gemini web read-aloud as the primary path, plus optional fallback TTS providers."""
 
 from __future__ import annotations
 
@@ -115,6 +115,7 @@ EDGE_KOREAN_VOICE_PREFERENCES = (
 DEFAULT_EDGE_RATE = "+0%"
 DEFAULT_EDGE_VOLUME = "+0%"
 DEFAULT_EDGE_PITCH = "+0Hz"
+DEFAULT_PROVIDER = "gemini_web"
 GEMINI_TTS_ENDPOINT_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 DEFAULT_GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-preview-tts"
@@ -242,9 +243,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--text", type=str, help="직접 입력할 텍스트")
     parser.add_argument(
         "--provider",
-        choices=("system", "melo", "edge", "gemini", "gemini_web", "chatgpt", "chatgpt_web", "openai"),
-        default="gemini",
-        help="오디오 생성 provider. 기본값은 `gemini`(Google AI Studio/Gemini TTS)이며, `gemini_web`는 Gemini 웹 로그인 기반 read-aloud, `system`은 macOS `say`, `melo`는 MeloTTS, `edge`는 Edge TTS, `chatgpt`는 ChatGPT Voice 수동 워크플로우, `chatgpt_web`는 ChatGPT 웹 로그인 기반 read-aloud, `openai`는 OpenAI TTS입니다.",
+        choices=("gemini_web", "gemini", "system", "melo", "edge", "chatgpt", "chatgpt_web", "openai"),
+        default=DEFAULT_PROVIDER,
+        help="오디오 생성 provider. 기본값은 `gemini_web`(Gemini 웹 로그인 기반 read-aloud)이며, `gemini`는 Google AI Studio/Gemini TTS API fallback, `system`은 macOS `say`, `melo`는 MeloTTS, `edge`는 Edge TTS, `chatgpt`는 ChatGPT Voice 수동 워크플로우, `chatgpt_web`는 ChatGPT 웹 로그인 기반 read-aloud, `openai`는 OpenAI TTS입니다.",
     )
     parser.add_argument("--voice", type=str, help="provider별 음성 이름")
     parser.add_argument(

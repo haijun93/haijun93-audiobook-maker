@@ -121,11 +121,11 @@ class OutputPathTests(unittest.TestCase):
 
 
 class DefaultProviderTests(unittest.TestCase):
-    def test_parse_args_defaults_provider_to_gemini(self) -> None:
+    def test_parse_args_defaults_provider_to_gemini_web(self) -> None:
         with patch("sys.argv", ["audiobook_maker.py"]):
             args = audiobook_maker.parse_args()
 
-        self.assertEqual(args.provider, "gemini")
+        self.assertEqual(args.provider, "gemini_web")
 
 
 class OpenAIPayloadTests(unittest.TestCase):

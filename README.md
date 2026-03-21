@@ -11,16 +11,16 @@
 - `tests/`: 핵심 오디오 처리 테스트
 
 ## 지원 방식
+- `gemini_web`: Gemini 웹 로그인 기반 read-aloud 자동화, 현재 기본 방식
 - `edge`: Microsoft Edge TTS
-- `gemini`: Google AI Studio TTS
-- `gemini_web`: Gemini 웹 로그인 기반 read-aloud 자동화
+- `gemini`: Google AI Studio TTS API fallback
 - `chatgpt`: ChatGPT Voice 수동 세그먼트 워크플로우
 - `chatgpt_web`: ChatGPT 웹 로그인 기반 read-aloud 자동화
 - `openai`: OpenAI TTS API
 - `system`: macOS `say`
 - `melo`: MeloTTS
 
-기본 오디오 생성 방식은 `gemini`입니다.
+기본 오디오 생성 방식은 `gemini_web`입니다.
 다른 엔진을 쓰고 싶을 때만 `--provider`를 명시하면 됩니다.
 
 ## 설치
@@ -31,7 +31,7 @@
 python3 -m pip install -r requirements.txt
 ```
 
-기본 provider는 `gemini`이므로, `--provider`를 생략하면 Google AI Studio TTS 경로를 사용합니다.
+기본 provider는 `gemini_web`이므로, `--provider`를 생략하면 Gemini 웹 read-aloud 경로를 사용합니다.
 
 장문 오디오북 패키지까지 같이 쓰려면:
 
@@ -65,29 +65,15 @@ python3 audiobook_maker.py \
   --voice "ko-KR-SunHiNeural"
 ```
 
-Google AI Studio TTS:
-
-```bash
-export GEMINI_API_KEY="AIza..."
-
-python3 audiobook_maker.py \
-  --input-file "./smoke_ko.txt" \
-  --output-file "./audiobooks/smoke_gemini.m4a" \
-  --voice "Sulafat" \
-  --gemini-model "gemini-2.5-flash-preview-tts" \
-  --gemini-language-code "ko-KR"
-```
-
 Gemini 웹 voice mode 자동화:
 
 ```bash
 python3 audiobook_maker.py \
-  --provider gemini_web \
   --input-file "./smoke_ko.txt" \
   --output-file "./audiobooks/smoke_gemini_web.m4a"
 ```
 
-이 방식은 API key 없이 Gemini 웹앱의 `듣기` 버튼을 사용합니다.
+이 방식은 현재 프로젝트의 기본 경로이자 핵심 기능입니다. API key 없이 Gemini 웹앱의 `듣기` 버튼을 사용합니다.
 1. Gemini 웹에 본문 그대로 복사하도록 프롬프트를 보냅니다.
 2. 응답 텍스트가 원문과 정확히 일치하는지 검증합니다.
 3. 같은 응답 카드의 `듣기` 버튼이 만드는 `audio/ogg` blob을 추출해 최종 오디오로 병합합니다.
@@ -103,6 +89,22 @@ SHUTDOWN_ON_SUCCESS=1 MAX_CHARS=900 \
   "./ProjectHailMary_ko_chatgpt.txt" \
   "./audiobooks/ProjectHailMary_ko_chatgpt_audiobook_gemini_web.m4a"
 ```
+
+Google AI Studio TTS:
+
+```bash
+export GEMINI_API_KEY="AIza..."
+
+python3 audiobook_maker.py \
+  --provider gemini \
+  --input-file "./smoke_ko.txt" \
+  --output-file "./audiobooks/smoke_gemini.m4a" \
+  --voice "Sulafat" \
+  --gemini-model "gemini-2.5-flash-preview-tts" \
+  --gemini-language-code "ko-KR"
+```
+
+이 경로는 브라우저 자동화가 어려운 환경에서 쓰는 API fallback입니다.
 
 ChatGPT Voice 수동 워크플로우:
 

@@ -9,13 +9,23 @@ fi
 INPUT_FILE="$1"
 OUTPUT_FILE="$2"
 SESSION_NAME="${3:-phm_audiobook}"
-MAX_CHARS="${4:-12000}"
+PROVIDER="${PROVIDER:-gemini_web}"
+MAX_CHARS="${4:-}"
 KEY_FILE="${5:-/tmp/phm_gemini_keys_comma.txt}"
 CHECK_INTERVAL_SEC="${6:-60}"
 WATCHDOG_LOG="${7:-/tmp/${SESSION_NAME}_watchdog.log}"
 JOB_LOG="${8:-/tmp/${SESSION_NAME}.log}"
-ROOT_DIR="/Users/hyeokjunkong/Desktop/myproject_python/haijun93-audiobook-maker"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 RUNNER_SCRIPT="$ROOT_DIR/scripts/run_gemini_audiobook_job.sh"
+
+if [[ -z "$MAX_CHARS" ]]; then
+  if [[ "$PROVIDER" == "gemini_web" ]]; then
+    MAX_CHARS="900"
+  else
+    MAX_CHARS="12000"
+  fi
+fi
 
 timestamp() {
   date '+%Y-%m-%d %H:%M:%S %Z'
@@ -45,17 +55,19 @@ print(output.with_name(f"{output.stem}_work"))
 PY
 }
 
-wav_count() {
+audio_count() {
   local work_dir
   work_dir="$(work_dir_for_output)"
-  python3 - "$work_dir" <<'PY'
+  python3 - "$work_dir" "$PROVIDER" <<'PY'
 from pathlib import Path
 import sys
 work = Path(sys.argv[1])
+provider = sys.argv[2]
+pattern = "*.ogg" if provider == "gemini_web" else "*.wav"
 if not work.exists():
     print(0)
 else:
-    print(sum(1 for path in work.glob("*.wav") if path.is_file()))
+    print(sum(1 for path in work.glob(pattern) if path.is_file()))
 PY
 }
 
@@ -64,7 +76,7 @@ start_job() {
     log_line "session already active; skipping restart"
     return 0
   fi
-  if [[ ! -f "$KEY_FILE" ]]; then
+  if [[ "$PROVIDER" == "gemini" && ! -f "$KEY_FILE" ]]; then
     log_line "key file missing: $KEY_FILE"
     return 1
   fi
@@ -72,8 +84,8 @@ start_job() {
   : >> "$WATCHDOG_LOG"
   : >> "$JOB_LOG"
   local launch_cmd
-  launch_cmd="cd ${(q)ROOT_DIR} && ${(q)RUNNER_SCRIPT} ${(q)INPUT_FILE} ${(q)OUTPUT_FILE} ${(q)MAX_CHARS} ${(q)KEY_FILE} >> ${(q)JOB_LOG} 2>&1"
-  log_line "starting session ${SESSION_NAME} (wav_count=$(wav_count))"
+  launch_cmd="cd ${(q)ROOT_DIR} && PROVIDER=${(q)PROVIDER} ${(q)RUNNER_SCRIPT} ${(q)INPUT_FILE} ${(q)OUTPUT_FILE} ${(q)MAX_CHARS} ${(q)KEY_FILE} >> ${(q)JOB_LOG} 2>&1"
+  log_line "starting session ${SESSION_NAME} (provider=${PROVIDER}, audio_count=$(audio_count))"
   screen -dmS "$SESSION_NAME" zsh -lc "$launch_cmd"
 }
 
@@ -90,9 +102,7 @@ fi
 mkdir -p "$(dirname "$WATCHDOG_LOG")"
 : >> "$WATCHDOG_LOG"
 
-last_wav_count=""
-
-log_line "watchdog started for session ${SESSION_NAME}"
+log_line "watchdog started for session ${SESSION_NAME} (provider=${PROVIDER})"
 
 while true; do
   if [[ -s "$OUTPUT_FILE" ]]; then
@@ -100,19 +110,18 @@ while true; do
     exit 0
   fi
 
-  current_wav_count="$(wav_count)"
+  current_audio_count="$(audio_count)"
   current_session_count="$(session_count)"
 
   if [[ "$current_session_count" -gt 0 ]]; then
     if [[ "$current_session_count" -gt 1 ]]; then
       log_line "warning: duplicate sessions detected ($current_session_count)"
     fi
-    log_line "session active (sessions=$current_session_count, wav_count=$current_wav_count)"
-    last_wav_count="$current_wav_count"
+    log_line "session active (sessions=$current_session_count, audio_count=$current_audio_count)"
   else
-    log_line "session not running; attempting restart (wav_count=$current_wav_count)"
+    log_line "session not running; attempting restart (audio_count=$current_audio_count)"
     if start_job; then
-      last_wav_count="$current_wav_count"
+      :
     fi
   fi
 
