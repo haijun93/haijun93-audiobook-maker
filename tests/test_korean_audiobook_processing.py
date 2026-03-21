@@ -38,6 +38,26 @@ class DocumentPlanTests(unittest.TestCase):
         self.assertTrue(plan.chapters[0].chunks[0].is_dialogue)
         self.assertEqual(plan.chapters[1].title, "제2장")
 
+    def test_short_sentences_are_packed_into_one_chunk(self) -> None:
+        config = ProcessingConfig(max_chunk_chars=120)
+        text = "제1장\n\n첫 문장이다. 둘째 문장도 짧다. 셋째 문장 역시 짧다."
+
+        plan = build_document_plan(text, config)
+
+        self.assertEqual(len(plan.chapters[0].chunks), 1)
+        self.assertIn("첫 문장이다.", plan.chapters[0].chunks[0].text)
+        self.assertIn("둘째 문장도 짧다.", plan.chapters[0].chunks[0].text)
+        self.assertIn("셋째 문장 역시 짧다.", plan.chapters[0].chunks[0].text)
+
+    def test_long_sentence_still_splits_when_over_limit(self) -> None:
+        config = ProcessingConfig(max_chunk_chars=45)
+        text = "제1장\n\n이 문장은 아주 길어서 설정한 최대 길이를 넘기기 때문에 여러 덩어리로 나뉘어야 한다."
+
+        plan = build_document_plan(text, config)
+
+        self.assertGreater(len(plan.chapters[0].chunks), 1)
+        self.assertTrue(all(len(chunk.text) <= 45 for chunk in plan.chapters[0].chunks))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,12 @@ python3 -m pip install -r requirements.txt
 python3 -m pip install -r requirements_korean_audiobook.txt
 ```
 
+`xtts_v2`를 쓸 때는 Coqui TTS와 `transformers<5`를 같이 맞추는 편이 안전합니다.
+
+```bash
+python3 -m pip install TTS "transformers==4.46.3" torchcodec
+```
+
 권장:
 - 시스템 `ffmpeg`가 있으면 가장 좋습니다.
 - 시스템 `ffmpeg`가 없으면 `imageio-ffmpeg` fallback을 사용합니다.

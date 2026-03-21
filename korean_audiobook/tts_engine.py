@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -135,7 +136,17 @@ class XTTSv2Engine(BaseTTSEngine):
         except ImportError as exc:
             raise RuntimeError("XTTS-v2에는 Coqui TTS가 필요합니다. `python -m pip install TTS`를 실행하세요.") from exc
         device = detect_torch_device(self.config.engine.device)
-        tts = TTS(self.config.engine.xtts_model)
+        # Coqui's official XTTS checkpoints still rely on full-object torch.load semantics.
+        os.environ.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "1")
+        try:
+            tts = TTS(self.config.engine.xtts_model)
+        except ImportError as exc:
+            if "BeamSearchScorer" in str(exc) or "transformers" in str(exc):
+                raise RuntimeError(
+                    "XTTS-v2는 현재 `transformers<5` 환경이 필요합니다. "
+                    "`python -m pip install 'transformers<5'` 후 다시 실행하세요."
+                ) from exc
+            raise
         if hasattr(tts, "to"):
             tts = tts.to(device)
         self._tts = tts

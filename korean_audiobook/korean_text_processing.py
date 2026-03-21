@@ -251,6 +251,77 @@ def split_long_sentence(sentence: str, max_chars: int) -> list[str]:
     return fragments
 
 
+@dataclass
+class ParagraphPiece:
+    text: str
+    paragraph_end: bool
+    forced_soft_break: bool
+
+
+def build_paragraph_pieces(paragraph: str, config: ProcessingConfig) -> list[ParagraphPiece]:
+    pieces: list[ParagraphPiece] = []
+    sentences = split_sentences(paragraph)
+    if not sentences:
+        return pieces
+
+    for sentence_index, sentence in enumerate(sentences):
+        fragments = split_long_sentence(sentence, config.max_chunk_chars)
+        for fragment_index, fragment in enumerate(fragments):
+            pieces.append(
+                ParagraphPiece(
+                    text=fragment,
+                    paragraph_end=(
+                        sentence_index == len(sentences) - 1 and fragment_index == len(fragments) - 1
+                    ),
+                    forced_soft_break=fragment_index < len(fragments) - 1,
+                )
+            )
+    return pieces
+
+
+def pack_paragraph_pieces(pieces: list[ParagraphPiece], config: ProcessingConfig) -> list[tuple[str, int]]:
+    if not pieces:
+        return []
+
+    packed: list[tuple[str, int]] = []
+    current_text = pieces[0].text
+    current_end = pieces[0]
+
+    for piece in pieces[1:]:
+        candidate = f"{current_text} {piece.text}".strip()
+        if len(candidate) <= config.max_chunk_chars:
+            current_text = candidate
+            current_end = piece
+            continue
+
+        packed.append(
+            (
+                current_text,
+                infer_pause_ms(
+                    current_text,
+                    config=config,
+                    paragraph_end=current_end.paragraph_end,
+                    forced_soft_break=current_end.forced_soft_break,
+                ),
+            )
+        )
+        current_text = piece.text
+        current_end = piece
+
+    packed.append(
+        (
+            current_text,
+            infer_pause_ms(
+                current_text,
+                config=config,
+                paragraph_end=current_end.paragraph_end,
+                forced_soft_break=current_end.forced_soft_break,
+            ),
+        )
+    )
+    return packed
+
+
 def choose_split_index(text: str, max_chars: int) -> int:
     floor = max(24, int(max_chars * 0.45))
     punctuation_candidates = [match.end() for match in re.finditer(r"[,;:]\s+", text)]
@@ -306,33 +377,24 @@ def build_chapter_plan(index: int, title: str, paragraphs: list[str], config: Pr
     chapter = ChapterPlan(index=index, title=title, slug=slug)
     chunk_counter = 0
     for paragraph_index, paragraph in enumerate(paragraphs, start=1):
-        sentences = split_sentences(paragraph)
-        if not sentences:
+        pieces = build_paragraph_pieces(paragraph, config)
+        if not pieces:
             continue
-        for sentence_index, sentence in enumerate(sentences):
-            fragments = split_long_sentence(sentence, config.max_chunk_chars)
-            for fragment_index, fragment in enumerate(fragments):
-                chunk_counter += 1
-                paragraph_end = sentence_index == len(sentences) - 1 and fragment_index == len(fragments) - 1
-                pause_ms = infer_pause_ms(
-                    fragment,
-                    config=config,
-                    paragraph_end=paragraph_end,
-                    forced_soft_break=fragment_index < len(fragments) - 1,
+        for packed_text, pause_ms in pack_paragraph_pieces(pieces, config):
+            chunk_counter += 1
+            chunk_id = f"{index:03d}-{paragraph_index:04d}-{chunk_counter:05d}"
+            chapter.chunks.append(
+                NarrationChunk(
+                    chunk_id=chunk_id,
+                    chapter_index=index,
+                    chapter_title=title,
+                    paragraph_index=paragraph_index,
+                    chunk_index=chunk_counter,
+                    text=packed_text,
+                    pause_ms=pause_ms,
+                    is_dialogue=is_dialogue(packed_text),
                 )
-                chunk_id = f"{index:03d}-{paragraph_index:04d}-{chunk_counter:05d}"
-                chapter.chunks.append(
-                    NarrationChunk(
-                        chunk_id=chunk_id,
-                        chapter_index=index,
-                        chapter_title=title,
-                        paragraph_index=paragraph_index,
-                        chunk_index=chunk_counter,
-                        text=fragment,
-                        pause_ms=pause_ms,
-                        is_dialogue=is_dialogue(fragment),
-                    )
-                )
+            )
     if chapter.chunks:
         chapter.chunks[-1].pause_ms = config.chapter_gap_ms
     return chapter

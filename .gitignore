@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .DS_Store
 .venvs/
+.venv311/
 .env
 .env.local
 audiobooks/

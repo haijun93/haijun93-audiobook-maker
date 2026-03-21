@@ -5,4 +5,6 @@ soundfile>=0.12.1
 
 # Optional high-quality local engines:
 # TTS>=0.22.0
+# transformers==4.46.3
+# torchcodec
 # MeloTTS: install from the official repo

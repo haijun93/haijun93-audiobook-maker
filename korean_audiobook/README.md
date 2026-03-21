@@ -13,7 +13,7 @@ python -m pip install -r requirements_korean_audiobook.txt
 `xtts_v2`를 쓰려면 Coqui TTS를 추가로 설치하세요.
 
 ```bash
-python -m pip install TTS
+python -m pip install TTS "transformers==4.46.3" torchcodec
 ```
 
 `melo`를 쓰려면 공식 저장소를 설치하세요.
