@@ -61,3 +61,9 @@ MAX_CHARS=1800 \
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
+
+`pytest`가 설치돼 있다면 아래 명령도 동작합니다.
+
+```bash
+pytest -q
+```

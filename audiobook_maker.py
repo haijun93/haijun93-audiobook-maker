@@ -695,12 +695,15 @@ def build_retry_child_sections(
         return existing_sections
 
     normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-    if len(normalized) <= min_chars:
+    # Allow retries to keep splitting shorter failed snippets instead of
+    # getting stuck on an exact-copy mismatch for a small fragment.
+    effective_min_chars = min(min_chars, max(40, len(normalized) // 2))
+    if len(normalized) <= effective_min_chars:
         return []
 
     target_max_chars = retry_split_target_max_chars(
         normalized,
-        min_chars=min_chars,
+        min_chars=effective_min_chars,
         max_chars_cap=max_chars_cap,
     )
     while True:
@@ -712,9 +715,9 @@ def build_retry_child_sections(
             ]
         if len(child_sections) > 1:
             return child_sections
-        if target_max_chars <= min_chars:
+        if target_max_chars <= effective_min_chars:
             return []
-        tighter_max_chars = max(min_chars, target_max_chars * 2 // 3)
+        tighter_max_chars = max(effective_min_chars, target_max_chars * 2 // 3)
         if tighter_max_chars >= target_max_chars:
             return []
         target_max_chars = tighter_max_chars
@@ -796,7 +799,9 @@ def build_chatgpt_web_repeat_prompt(text: str, reading_instructions: str = "") -
 
 
 def normalize_chatgpt_web_copy(text: str) -> str:
-    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    normalized = re.sub(r"\s+([)\]}>.,!?;:])", r"\1", normalized)
+    return normalized
 
 
 def extract_chatgpt_conversation_id(url: str) -> str:
@@ -1138,6 +1143,24 @@ def synthesize_chatgpt_web_sections(
                 prefix: str,
                 label: str,
             ) -> list[Path]:
+                existing_child_sections = load_direct_retry_child_sections(work_dir, prefix)
+                if len(existing_child_sections) > 1:
+                    print(
+                        f"[{label}] 기존 재분할 텍스트 재사용: {prefix}_*.txt",
+                        file=sys.stderr,
+                    )
+                    nested_audio: list[Path] = []
+                    for child_index, child_section in enumerate(existing_child_sections, start=1):
+                        child_prefix = f"{prefix}_{child_index:02d}"
+                        nested_audio.extend(
+                            synthesize_chatgpt_web_piece(
+                                text=child_section.text,
+                                prefix=child_prefix,
+                                label=f"{label}.{child_index}",
+                            )
+                        )
+                    return nested_audio
+
                 existing_split_audio = [
                     path
                     for path in split_audio_paths_for_prefix(prefix)
