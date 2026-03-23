@@ -1,5 +1,4 @@
-import base64
-import json
+import subprocess
 import unittest
 from argparse import Namespace
 from pathlib import Path
@@ -25,67 +24,34 @@ class SectionSplitTests(unittest.TestCase):
 
         self.assertEqual(len(sections), 1)
         self.assertTrue(sections[0].text.startswith("제1장\n\n"))
-        self.assertIn("가" * 20, sections[0].text)
+        self.assertEqual(sections[0].title, "제1장")
 
-    def test_long_paragraph_splits_into_multiple_sections(self) -> None:
-        paragraph = " ".join(["이 문장은 비교적 길다."] * 80)
-        text = f"제2장\n\n{paragraph}"
+    def test_retry_split_uses_smaller_child_sections_for_short_failures(self) -> None:
+        text = " ".join(["가나다라마"] * 80)
 
-        sections = audiobook_maker.split_into_sections(text, max_chars=220)
+        with TemporaryDirectory() as tmpdir:
+            child_sections = audiobook_maker.build_retry_child_sections(
+                Path(tmpdir),
+                prefix="138_02_01",
+                text=text,
+            )
 
-        self.assertGreaterEqual(len(sections), 2)
-        self.assertTrue(sections[0].text.startswith("제2장\n\n"))
-        self.assertEqual(sections[0].title, "제2장")
+        self.assertGreater(len(child_sections), 1)
+        self.assertTrue(all(len(section.text) < len(text) for section in child_sections))
 
+    def test_retry_split_reuses_existing_direct_child_texts(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir)
+            (work_dir / "138_02_01.txt").write_text("첫 번째 조각", encoding="utf-8")
+            (work_dir / "138_02_02.txt").write_text("두 번째 조각", encoding="utf-8")
 
-class VoiceSelectionTests(unittest.TestCase):
-    def test_default_korean_voice_prefers_flo(self) -> None:
-        voices = [
-            audiobook_maker.SayVoice(name="Reed (한국어(대한민국))", locale="ko_KR"),
-            audiobook_maker.SayVoice(name="Flo (한국어(대한민국))", locale="ko_KR"),
-        ]
+            child_sections = audiobook_maker.build_retry_child_sections(
+                work_dir,
+                prefix="138_02",
+                text="원본 전체 텍스트",
+            )
 
-        voice = audiobook_maker.default_korean_voice(voices)
-
-        self.assertEqual(voice, "Flo (한국어(대한민국))")
-
-    def test_default_edge_voice_prefers_sunhi(self) -> None:
-        voices = [
-            {"ShortName": "ko-KR-InJoonNeural", "Locale": "ko-KR"},
-            {"ShortName": "ko-KR-SunHiNeural", "Locale": "ko-KR"},
-        ]
-
-        voice = audiobook_maker.default_edge_voice(voices)
-
-        self.assertEqual(voice, "ko-KR-SunHiNeural")
-
-    def test_default_melo_voice_is_kr(self) -> None:
-        self.assertEqual(audiobook_maker.default_melo_voice(), "KR")
-
-    def test_default_gemini_voice_is_sulafat(self) -> None:
-        self.assertEqual(audiobook_maker.default_gemini_voice(), "Sulafat")
-
-    def test_default_gemini_web_voice_is_app_default(self) -> None:
-        self.assertEqual(audiobook_maker.default_gemini_web_voice(), "app_default")
-
-    def test_default_chatgpt_voice_is_spruce(self) -> None:
-        self.assertEqual(audiobook_maker.default_chatgpt_voice(), "Spruce")
-
-    def test_default_chatgpt_web_voice_is_cove(self) -> None:
-        self.assertEqual(audiobook_maker.default_chatgpt_web_voice(), "cove")
-
-    def test_default_gemini_model_is_free_tier(self) -> None:
-        self.assertTrue(audiobook_maker.gemini_model_is_free_tier(audiobook_maker.DEFAULT_GEMINI_MODEL))
-
-    def test_default_openai_voice_prefers_marin_for_gpt4o(self) -> None:
-        voice = audiobook_maker.default_openai_voice("gpt-4o-mini-tts")
-
-        self.assertEqual(voice, "marin")
-
-    def test_openai_legacy_model_limits_voice_choices(self) -> None:
-        choices = audiobook_maker.openai_voice_choices("tts-1-hd")
-
-        self.assertEqual(choices, audiobook_maker.OPENAI_LEGACY_VOICES)
+        self.assertEqual([section.text for section in child_sections], ["첫 번째 조각", "두 번째 조각"])
 
 
 class OutputPathTests(unittest.TestCase):
@@ -98,13 +64,6 @@ class OutputPathTests(unittest.TestCase):
         output_path = audiobook_maker.default_output_path(args)
 
         self.assertEqual(output_path, Path("/tmp/audiobooks/source_ko_audiobook.m4a"))
-
-    def test_default_audiobook_output_dir_reuses_existing_audiobooks_folder(self) -> None:
-        output_dir = audiobook_maker.default_audiobook_output_dir(
-            Path("/tmp/audiobooks/source_ko.txt")
-        )
-
-        self.assertEqual(output_dir, Path("/tmp/audiobooks"))
 
     def test_resolve_output_path_without_input_uses_cwd_audiobooks_folder(self) -> None:
         args = Namespace(
@@ -120,207 +79,56 @@ class OutputPathTests(unittest.TestCase):
         )
 
 
-class DefaultProviderTests(unittest.TestCase):
-    def test_parse_args_defaults_provider_to_gemini_web(self) -> None:
+class ProviderSurfaceTests(unittest.TestCase):
+    def test_parse_args_defaults_provider_to_chatgpt_web(self) -> None:
         with patch("sys.argv", ["audiobook_maker.py"]):
             args = audiobook_maker.parse_args()
 
-        self.assertEqual(args.provider, "gemini_web")
+        self.assertEqual(args.provider, "chatgpt_web")
+
+    def test_parse_args_restricts_provider_choices_to_web_backends(self) -> None:
+        with patch("sys.argv", ["audiobook_maker.py", "--provider", "unsupported"]):
+            with self.assertRaises(SystemExit):
+                audiobook_maker.parse_args()
+
+    def test_default_chunk_size_uses_chatgpt_web_value(self) -> None:
+        self.assertEqual(audiobook_maker.default_max_chars_per_chunk("chatgpt_web"), 1800)
+        self.assertEqual(audiobook_maker.default_max_chars_per_chunk("unused"), 1800)
 
 
-class OpenAIPayloadTests(unittest.TestCase):
-    def test_gemini_payload_uses_prebuilt_voice(self) -> None:
-        payload = audiobook_maker.build_gemini_speech_payload(
-            prompt="읽어줘",
-            voice="Sulafat",
-            language_code="ko-KR",
-        )
+class VoiceSelectionTests(unittest.TestCase):
+    def test_default_chatgpt_web_voice_is_cove(self) -> None:
+        self.assertEqual(audiobook_maker.default_chatgpt_web_voice(), "cove")
 
-        self.assertEqual(
-            payload["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"],
-            "Sulafat",
-        )
-        self.assertEqual(payload["generationConfig"]["speechConfig"]["languageCode"], "ko-KR")
-        self.assertEqual(payload["generationConfig"]["responseModalities"], ["AUDIO"])
+    def test_resolve_voice_defaults_chatgpt_web_voice(self) -> None:
+        args = Namespace(voice=None, provider="chatgpt_web")
 
+        self.assertEqual(audiobook_maker.resolve_voice(args), "cove")
 
-class GeminiGuardTests(unittest.TestCase):
-    def test_validate_gemini_api_key_accepts_aiza_prefix(self) -> None:
-        audiobook_maker.validate_gemini_api_key("AIzaSyExampleValidLookingKey")
-
-    def test_validate_gemini_api_key_rejects_project_like_identifier(self) -> None:
-        with self.assertRaisesRegex(RuntimeError, "AIza"):
-            audiobook_maker.validate_gemini_api_key("gen-lang-client-0222957486")
-
-    def test_gpt4o_payload_includes_instructions(self) -> None:
-        payload = audiobook_maker.build_openai_speech_payload(
-            text="안녕하세요",
-            model="gpt-4o-mini-tts",
-            voice="marin",
-            response_format="wav",
-            speed=1.0,
-            instructions="차분한 한국어 오디오북 톤",
-        )
-
-        self.assertEqual(payload["voice"], "marin")
-        self.assertEqual(payload["response_format"], "wav")
-        self.assertEqual(payload["instructions"], "차분한 한국어 오디오북 톤")
-
-    def test_tts1_payload_omits_instructions(self) -> None:
-        payload = audiobook_maker.build_openai_speech_payload(
-            text="안녕하세요",
-            model="tts-1-hd",
-            voice="alloy",
-            response_format="wav",
-            speed=1.0,
-            instructions="차분한 한국어 오디오북 톤",
-        )
-
-        self.assertNotIn("instructions", payload)
-
-
-class GeminiRequestTests(unittest.TestCase):
-    def test_request_gemini_speech_retries_when_audio_missing(self) -> None:
-        class FakeResponse:
-            def __init__(self, body: bytes) -> None:
-                self._body = body
-
-            def __enter__(self) -> "FakeResponse":
-                return self
-
-            def __exit__(self, exc_type, exc, tb) -> None:
-                return None
-
-            def read(self) -> bytes:
-                return self._body
-
-        first_body = json.dumps(
-            {
-                "candidates": [
-                    {
-                        "finishReason": "OTHER",
-                        "index": 0,
-                    }
-                ]
-            }
-        ).encode("utf-8")
-        second_body = json.dumps(
-            {
-                "candidates": [
-                    {
-                        "finishReason": "STOP",
-                        "content": {
-                            "parts": [
-                                {
-                                    "inlineData": {
-                                        "data": base64.b64encode(b"pcm-bytes").decode("ascii"),
-                                    }
-                                }
-                            ]
-                        },
-                    }
-                ]
-            }
-        ).encode("utf-8")
-        responses = [FakeResponse(first_body), FakeResponse(second_body)]
-
-        with (
-            patch("audiobook_maker.request.urlopen", side_effect=responses),
-            patch("audiobook_maker.time.sleep") as sleep_mock,
-        ):
-            pcm_bytes = audiobook_maker.request_gemini_speech(
-                payload={"contents": []},
-                api_key_pool=audiobook_maker.GeminiApiKeyPool(
-                    keys=["AIzaSyExampleValidLookingKey"]
-                ),
-                endpoint="https://example.com/generateContent",
-                timeout_sec=1,
-            )
-
-        self.assertEqual(pcm_bytes, b"pcm-bytes")
-        sleep_mock.assert_called_once()
-
-    def test_synthesize_gemini_sections_reuses_existing_audio(self) -> None:
+    def test_resolve_voice_normalizes_chatgpt_web_voice(self) -> None:
         args = Namespace(
-            gemini_api_key_env="GEMINI_API_KEY",
-            gemini_base_url="",
-            gemini_model=audiobook_maker.DEFAULT_GEMINI_MODEL,
-            gemini_instructions="",
-            gemini_language_code="ko-KR",
-            request_timeout_sec=30,
-        )
-        sections = [
-            audiobook_maker.AudioSection(index=1, title="제1장", text="안녕하세요."),
-        ]
-
-        with TemporaryDirectory() as temp_dir:
-            work_dir = Path(temp_dir)
-            audio_path = work_dir / "001.wav"
-            audio_path.write_bytes(b"existing-wav")
-
-            with (
-                patch.dict("os.environ", {"GEMINI_API_KEY": "AIzaSyExampleValidLookingKey"}),
-                patch(
-                    "audiobook_maker.request_gemini_speech",
-                    side_effect=AssertionError("existing audio should be reused"),
-                ),
-            ):
-                audio_files = audiobook_maker.synthesize_gemini_sections(
-                    sections,
-                    args=args,
-                    voice="Sulafat",
-                    work_dir=work_dir,
-                )
-
-            self.assertEqual(audio_files, [audio_path])
-            self.assertEqual((work_dir / "001.txt").read_text(encoding="utf-8"), "안녕하세요.\n")
-
-
-class ChatGPTWorkflowTests(unittest.TestCase):
-    def test_chatgpt_default_chunk_size_is_1800(self) -> None:
-        self.assertEqual(audiobook_maker.default_max_chars_per_chunk("chatgpt"), 1800)
-
-    def test_chatgpt_prompt_mentions_segment_and_voice(self) -> None:
-        prompt = audiobook_maker.build_chatgpt_segment_prompt(
-            text="안녕하세요.",
-            voice="Spruce",
-            mode="advanced_voice",
-            instructions="차분하게 읽어줘.",
-            index=1,
-            total=3,
+            voice="Cove",
+            provider="chatgpt_web",
         )
 
-        self.assertIn("세그먼트 1/3", prompt)
-        self.assertIn("선호 음성: Spruce", prompt)
-        self.assertIn("안녕하세요.", prompt)
-
-    def test_collect_chatgpt_imported_audio_files_reports_missing_segments(self) -> None:
-        sections = [
-            audiobook_maker.AudioSection(index=1, title=None, text="첫 문장"),
-            audiobook_maker.AudioSection(index=2, title=None, text="둘째 문장"),
-        ]
-
-        with TemporaryDirectory() as temp_dir:
-            import_dir = Path(temp_dir)
-            (import_dir / "001.m4a").write_bytes(b"fake")
-
-            audio_files, missing = audiobook_maker.collect_chatgpt_imported_audio_files(
-                sections,
-                import_dir=import_dir,
-            )
-
-        self.assertEqual(audio_files, [import_dir / "001.m4a"])
-        self.assertEqual(missing, [2])
+        self.assertEqual(audiobook_maker.resolve_voice(args), "cove")
 
 
-class ChatGPTWebWorkflowTests(unittest.TestCase):
-    def test_chatgpt_web_prompt_wraps_text_verbatim(self) -> None:
+class ReadingInstructionTests(unittest.TestCase):
+    def test_common_reading_instructions_are_used_as_default(self) -> None:
+        self.assertEqual(
+            audiobook_maker.DEFAULT_CHATGPT_INSTRUCTIONS,
+            audiobook_maker.DEFAULT_KOREAN_AUDIOBOOK_READING_INSTRUCTIONS,
+        )
+
+    def test_chatgpt_web_prompt_includes_default_reading_instructions(self) -> None:
         prompt = audiobook_maker.build_chatgpt_web_repeat_prompt("안녕하세요.")
 
-        self.assertIn("[본문 시작]", prompt)
+        self.assertIn("추가 낭독 지침", prompt)
+        self.assertIn("한국어 원어민 전문 성우", prompt)
         self.assertIn("안녕하세요.", prompt)
-        self.assertIn("[본문 끝]", prompt)
 
+class ChatGPTWebWorkflowTests(unittest.TestCase):
     def test_chatgpt_web_launch_args_hide_window_by_default(self) -> None:
         args = audiobook_maker.chatgpt_web_launch_args(visible=False)
 
@@ -333,37 +141,6 @@ class ChatGPTWebWorkflowTests(unittest.TestCase):
         )
 
         self.assertEqual(conversation_id, "1234-abcd")
-
-    def test_resolve_voice_normalizes_chatgpt_web_voice(self) -> None:
-        args = Namespace(
-            voice="Cove",
-            provider="chatgpt_web",
-            melo_language="KR",
-            gemini_voice="",
-            openai_model="gpt-4o-mini-tts",
-        )
-
-        self.assertEqual(audiobook_maker.resolve_voice(args), "cove")
-
-
-class GeminiWebWorkflowTests(unittest.TestCase):
-    def test_gemini_web_prompt_wraps_text_verbatim(self) -> None:
-        prompt = audiobook_maker.build_gemini_web_repeat_prompt("안녕하세요.")
-
-        self.assertIn("[본문 시작]", prompt)
-        self.assertIn("안녕하세요.", prompt)
-        self.assertIn("[본문 끝]", prompt)
-
-    def test_resolve_voice_defaults_gemini_web_voice(self) -> None:
-        args = Namespace(
-            voice=None,
-            provider="gemini_web",
-            melo_language="KR",
-            gemini_voice="",
-            openai_model="gpt-4o-mini-tts",
-        )
-
-        self.assertEqual(audiobook_maker.resolve_voice(args), "app_default")
 
 
 class AudioFormatTests(unittest.TestCase):
@@ -379,10 +156,96 @@ class AudioFormatTests(unittest.TestCase):
         expected = "file '{}'".format(str(path).replace("'", r"'\''"))
         self.assertEqual(line, expected)
 
-    def test_gemini_web_uses_ogg_temp_audio(self) -> None:
-        args = Namespace(provider="gemini_web")
+    def test_chatgpt_web_uses_mp3_temp_audio(self) -> None:
+        args = Namespace(provider="chatgpt_web")
 
-        self.assertEqual(audiobook_maker.temp_audio_suffix(args), ".ogg")
+        self.assertEqual(audiobook_maker.temp_audio_suffix(args), ".mp3")
+
+    def test_partial_audio_path_inserts_partial_before_suffix(self) -> None:
+        self.assertEqual(
+            audiobook_maker.partial_audio_path(Path("/tmp/book.m4a")),
+            Path("/tmp/book.partial.m4a"),
+        )
+
+
+class AudioValidationTests(unittest.TestCase):
+    def test_find_incomplete_audio_artifacts_detects_partial_audio_files(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "001.partial.mp3").write_bytes(b"x")
+            (root / "002.m4a.partial").write_bytes(b"x")
+            (root / "003.mp3").write_bytes(b"x")
+            (root / "notes.partial.txt").write_text("ignore", encoding="utf-8")
+
+            found = audiobook_maker.find_incomplete_audio_artifacts(root)
+
+        self.assertEqual(
+            [path.name for path in found],
+            ["001.partial.mp3", "002.m4a.partial"],
+        )
+
+    def test_audio_file_looks_complete_rejects_zero_byte_file(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "empty.mp3"
+            path.write_bytes(b"")
+
+            is_valid, reason = audiobook_maker.audio_file_looks_complete(path)
+
+        self.assertFalse(is_valid)
+        self.assertIn("0", reason)
+
+    def test_audio_file_looks_complete_accepts_ffprobe_audio_stream(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=["ffprobe"],
+            returncode=0,
+            stdout='{"streams":[{"codec_type":"audio"}],"format":{"duration":"12.3"}}',
+            stderr="",
+        )
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "book.mp3"
+            path.write_bytes(b"audio")
+            with patch("audiobook_maker.resolve_ffprobe_binary", return_value="/usr/bin/ffprobe"):
+                with patch("audiobook_maker.run_command", return_value=completed):
+                    is_valid, reason = audiobook_maker.audio_file_looks_complete(path)
+
+        self.assertTrue(is_valid)
+        self.assertEqual(reason, "")
+
+    def test_audio_file_looks_complete_rejects_missing_audio_stream(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=["ffprobe"],
+            returncode=0,
+            stdout='{"streams":[{"codec_type":"video"}],"format":{"duration":"12.3"}}',
+            stderr="",
+        )
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "book.mp3"
+            path.write_bytes(b"audio")
+            with patch("audiobook_maker.resolve_ffprobe_binary", return_value="/usr/bin/ffprobe"):
+                with patch("audiobook_maker.run_command", return_value=completed):
+                    is_valid, reason = audiobook_maker.audio_file_looks_complete(path)
+
+        self.assertFalse(is_valid)
+        self.assertIn("오디오 스트림", reason)
+
+    def test_combine_audio_files_copies_via_partial_file_then_replaces(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "segment.mp3"
+            output = root / "book.mp3"
+            source.write_bytes(b"audio")
+
+            with patch("audiobook_maker.ensure_valid_audio_file") as ensure_valid:
+                audiobook_maker.combine_audio_files(
+                    [source],
+                    output_path=output,
+                    work_dir=root,
+                    bitrate_kbps=96,
+                )
+
+            self.assertEqual(output.read_bytes(), b"audio")
+            self.assertFalse(audiobook_maker.partial_audio_path(output).exists())
+            self.assertEqual(ensure_valid.call_count, 2)
 
 
 if __name__ == "__main__":
