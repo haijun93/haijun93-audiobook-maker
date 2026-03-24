@@ -1,6 +1,7 @@
 import subprocess
 import unittest
 from argparse import Namespace
+from json import loads
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -246,6 +247,29 @@ class AudioValidationTests(unittest.TestCase):
             self.assertEqual(output.read_bytes(), b"audio")
             self.assertFalse(audiobook_maker.partial_audio_path(output).exists())
             self.assertEqual(ensure_valid.call_count, 2)
+
+
+class HeartbeatTests(unittest.TestCase):
+    def test_progress_heartbeat_writes_stage_metadata(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            heartbeat_path = Path(tmpdir) / "heartbeat.json"
+
+            heartbeat = audiobook_maker.ProgressHeartbeat(heartbeat_path)
+            heartbeat.beat(
+                stage="waiting",
+                label="111/240",
+                section_prefix="111",
+                attempt=2,
+                detail="stable_polls=1",
+            )
+
+            payload = loads(heartbeat_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["stage"], "waiting")
+        self.assertEqual(payload["label"], "111/240")
+        self.assertEqual(payload["section_prefix"], "111")
+        self.assertEqual(payload["attempt"], 2)
+        self.assertEqual(payload["detail"], "stable_polls=1")
 
 
 if __name__ == "__main__":

@@ -47,6 +47,13 @@ MAX_CHARS=1800 \
   "./audiobooks/book_chatgpt_web_cove.m4a"
 ```
 
+기본적으로 watchdog가 켜져 있습니다.
+- `WATCHDOG_STALL_SEC=120`: heartbeat나 산출물 갱신이 120초 없으면 현재 합성 프로세스를 강제 종료하고 즉시 재시작합니다.
+- `WATCHDOG_POLL_SEC=15`: 정체 여부를 확인하는 주기입니다.
+- `WATCHDOG_KILL_GRACE_SEC=10`: 정상 종료를 기다린 뒤 강제 종료로 넘어가기 전 유예 시간입니다.
+
+`run_chatgpt_web_job.sh`는 Python을 unbuffered 모드로 실행하고, 작업 폴더 안에 heartbeat JSON 파일을 남겨 외부 감시가 실제 진행 상태를 추적할 수 있게 합니다.
+
 ## 산출물
 
 작업 폴더에 다음 추적 파일을 남깁니다.
@@ -55,6 +62,7 @@ MAX_CHARS=1800 \
 - 응답 본문
 - ChatGPT 웹 메타데이터 JSON
 - 분할 오디오 세그먼트
+- watchdog heartbeat JSON
 
 ## 테스트
 

@@ -48,6 +48,64 @@ class AudioSection:
     text: str
 
 
+@dataclass
+class ProgressHeartbeat:
+    path: Path
+
+    def beat(
+        self,
+        *,
+        stage: str,
+        label: str | None = None,
+        section_prefix: str | None = None,
+        attempt: int | None = None,
+        detail: str | None = None,
+    ) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        now = time.time()
+        payload: dict[str, object] = {
+            "timestamp": round(now, 3),
+            "iso_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+            "pid": os.getpid(),
+            "stage": stage,
+        }
+        if label:
+            payload["label"] = label
+        if section_prefix:
+            payload["section_prefix"] = section_prefix
+        if attempt is not None:
+            payload["attempt"] = attempt
+        if detail:
+            payload["detail"] = detail[:500]
+
+        temp_path = self.path.with_name(f"{self.path.name}.tmp")
+        temp_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temp_path.replace(self.path)
+
+
+def beat_heartbeat(
+    heartbeat: ProgressHeartbeat | None,
+    *,
+    stage: str,
+    label: str | None = None,
+    section_prefix: str | None = None,
+    attempt: int | None = None,
+    detail: str | None = None,
+) -> None:
+    if heartbeat is None:
+        return
+    heartbeat.beat(
+        stage=stage,
+        label=label,
+        section_prefix=section_prefix,
+        attempt=attempt,
+        detail=detail,
+    )
+
+
 HEADING_PATTERNS = (
     re.compile(r"^(chapter|chap\.)\s+[0-9ivxlcdm]+\b.*$", re.IGNORECASE),
     re.compile(r"^제?\s*\d+\s*장(?:\s*[:.\-]\s*.*)?$"),
@@ -175,6 +233,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=600,
         help="네트워크/브라우저 요청 타임아웃(초, 기본: 600)",
+    )
+    parser.add_argument(
+        "--heartbeat-file",
+        type=Path,
+        help="외부 watchdog가 진행 상태를 감시할 heartbeat 파일 경로",
     )
     return parser.parse_args()
 
@@ -874,7 +937,15 @@ def read_last_chatgpt_web_response(page) -> tuple[str, str]:
     return (node.get_attribute("data-message-id") or "").strip(), node.inner_text().strip()
 
 
-def wait_for_chatgpt_web_response(page, *, timeout_sec: int) -> tuple[str, str]:
+def wait_for_chatgpt_web_response(
+    page,
+    *,
+    timeout_sec: int,
+    heartbeat: ProgressHeartbeat | None = None,
+    label: str | None = None,
+    section_prefix: str | None = None,
+    attempt: int | None = None,
+) -> tuple[str, str]:
     deadline = time.time() + timeout_sec
     last_message_id = ""
     last_text = ""
@@ -883,6 +954,14 @@ def wait_for_chatgpt_web_response(page, *, timeout_sec: int) -> tuple[str, str]:
     while time.time() < deadline:
         message_id, text = read_last_chatgpt_web_response(page)
         normalized = normalize_chatgpt_web_copy(text)
+        beat_heartbeat(
+            heartbeat,
+            stage="wait_for_response",
+            label=label,
+            section_prefix=section_prefix,
+            attempt=attempt,
+            detail=f"stable_polls={stable_polls} chars={len(normalized)}",
+        )
         if message_id and normalized and message_id == last_message_id and normalized == last_text:
             stable_polls += 1
         else:
@@ -1026,8 +1105,10 @@ def synthesize_chatgpt_web_sections(
     chrome_path = str(Path(args.chatgpt_web_chrome_path).expanduser())
     audio_files: list[Path] = []
     max_attempts = max(1, args.chatgpt_web_max_attempts)
+    heartbeat = ProgressHeartbeat(args.heartbeat_file) if args.heartbeat_file else None
 
     with sync_playwright() as playwright:
+        beat_heartbeat(heartbeat, stage="launch_browser", detail="playwright_start")
         browser = playwright.chromium.launch(
             headless=False,
             executable_path=chrome_path,
@@ -1042,6 +1123,11 @@ def synthesize_chatgpt_web_sections(
             try:
                 prepare_chatgpt_web_page(settings_page, timeout_error_cls=timeout_error_cls)
                 selected_voice, available_voices = fetch_chatgpt_web_voice_settings(settings_page)
+                beat_heartbeat(
+                    heartbeat,
+                    stage="browser_ready",
+                    detail=f"selected_voice={selected_voice}",
+                )
             finally:
                 settings_page.close()
 
@@ -1071,10 +1157,24 @@ def synthesize_chatgpt_web_sections(
                 text_path = work_dir / f"{prefix}.txt"
                 audio_path = work_dir / f"{prefix}.mp3"
                 text_path.write_text(text + "\n", encoding="utf-8")
+                beat_heartbeat(
+                    heartbeat,
+                    stage="section_prepared",
+                    label=label,
+                    section_prefix=prefix,
+                    detail=f"chars={len(text)}",
+                )
                 if reuse_existing_audio_if_valid(audio_path, label=label):
                     print(
                         f"[{label}] 기존 ChatGPT 웹 오디오 재사용: {audio_path.name}",
                         file=sys.stderr,
+                    )
+                    beat_heartbeat(
+                        heartbeat,
+                        stage="reuse_existing_audio",
+                        label=label,
+                        section_prefix=prefix,
+                        detail=audio_path.name,
                     )
                     return [audio_path]
 
@@ -1087,21 +1187,54 @@ def synthesize_chatgpt_web_sections(
                 for attempt in range(1, max_attempts + 1):
                     page = context.new_page()
                     try:
+                        beat_heartbeat(
+                            heartbeat,
+                            stage="section_attempt_start",
+                            label=label,
+                            section_prefix=prefix,
+                            attempt=attempt,
+                        )
                         prepare_chatgpt_web_page(page, timeout_error_cls=timeout_error_cls)
                         prompt = build_chatgpt_web_repeat_prompt(
                             text,
                             args.chatgpt_web_reading_instructions,
                         )
+                        beat_heartbeat(
+                            heartbeat,
+                            stage="page_ready",
+                            label=label,
+                            section_prefix=prefix,
+                            attempt=attempt,
+                        )
                         send_chatgpt_web_prompt(page, prompt, timeout_error_cls=timeout_error_cls)
+                        beat_heartbeat(
+                            heartbeat,
+                            stage="prompt_submitted",
+                            label=label,
+                            section_prefix=prefix,
+                            attempt=attempt,
+                        )
                         message_id, response_text = wait_for_chatgpt_web_response(
                             page,
                             timeout_sec=args.request_timeout_sec,
+                            heartbeat=heartbeat,
+                            label=label,
+                            section_prefix=prefix,
+                            attempt=attempt,
                         )
                         conversation_id = extract_chatgpt_conversation_id(page.url)
                         if not conversation_id:
                             raise RuntimeError("ChatGPT conversation_id 를 찾지 못했습니다.")
                         if not message_id:
                             raise RuntimeError("ChatGPT message_id 를 찾지 못했습니다.")
+                        beat_heartbeat(
+                            heartbeat,
+                            stage="response_received",
+                            label=label,
+                            section_prefix=prefix,
+                            attempt=attempt,
+                            detail=f"message_id={message_id}",
+                        )
 
                         expected = normalize_chatgpt_web_copy(text)
                         actual = normalize_chatgpt_web_copy(response_text)
@@ -1111,6 +1244,13 @@ def synthesize_chatgpt_web_sections(
                                 f"응답 텍스트가 입력과 일치하지 않습니다({text_path.name}, attempt {attempt}): {preview}"
                             )
 
+                        beat_heartbeat(
+                            heartbeat,
+                            stage="audio_fetch_start",
+                            label=label,
+                            section_prefix=prefix,
+                            attempt=attempt,
+                        )
                         audio_bytes = fetch_chatgpt_web_audio_bytes(
                             page,
                             conversation_id=conversation_id,
@@ -1118,6 +1258,14 @@ def synthesize_chatgpt_web_sections(
                             voice=effective_voice,
                         )
                         write_validated_audio_file(audio_path, audio_bytes)
+                        beat_heartbeat(
+                            heartbeat,
+                            stage="audio_written",
+                            label=label,
+                            section_prefix=prefix,
+                            attempt=attempt,
+                            detail=audio_path.name,
+                        )
                         write_chatgpt_web_section_artifacts(
                             work_dir=work_dir,
                             section_prefix=prefix,
@@ -1127,9 +1275,24 @@ def synthesize_chatgpt_web_sections(
                             message_id=message_id,
                             voice=effective_voice,
                         )
+                        beat_heartbeat(
+                            heartbeat,
+                            stage="section_complete",
+                            label=label,
+                            section_prefix=prefix,
+                            attempt=attempt,
+                        )
                         return [audio_path]
                     except Exception as exc:
                         last_error = exc
+                        beat_heartbeat(
+                            heartbeat,
+                            stage="section_attempt_error",
+                            label=label,
+                            section_prefix=prefix,
+                            attempt=attempt,
+                            detail=str(exc),
+                        )
                     finally:
                         page.close()
 
@@ -1148,6 +1311,13 @@ def synthesize_chatgpt_web_sections(
                     print(
                         f"[{label}] 기존 재분할 텍스트 재사용: {prefix}_*.txt",
                         file=sys.stderr,
+                    )
+                    beat_heartbeat(
+                        heartbeat,
+                        stage="reuse_existing_child_sections",
+                        label=label,
+                        section_prefix=prefix,
+                        detail=f"children={len(existing_child_sections)}",
                     )
                     nested_audio: list[Path] = []
                     for child_index, child_section in enumerate(existing_child_sections, start=1):
@@ -1170,6 +1340,13 @@ def synthesize_chatgpt_web_sections(
                     print(
                         f"[{label}] 기존 분할 ChatGPT 웹 오디오 재사용: {prefix}_*.mp3",
                         file=sys.stderr,
+                    )
+                    beat_heartbeat(
+                        heartbeat,
+                        stage="reuse_existing_split_audio",
+                        label=label,
+                        section_prefix=prefix,
+                        detail=f"children={len(existing_split_audio)}",
                     )
                     child_sections = build_retry_child_sections(
                         work_dir,
@@ -1204,6 +1381,13 @@ def synthesize_chatgpt_web_sections(
                     print(
                         f"[{label}] exact copy 실패로 {len(child_sections)}개 하위 세그먼트로 재분할합니다: {exc}",
                         file=sys.stderr,
+                    )
+                    beat_heartbeat(
+                        heartbeat,
+                        stage="section_resplit",
+                        label=label,
+                        section_prefix=prefix,
+                        detail=f"children={len(child_sections)} reason={exc}",
                     )
                     nested_audio: list[Path] = []
                     for child_index, child_section in enumerate(child_sections, start=1):
@@ -1257,6 +1441,7 @@ def combine_audio_files(
     output_path: Path,
     work_dir: Path,
     bitrate_kbps: int,
+    heartbeat: ProgressHeartbeat | None = None,
 ) -> None:
     if not audio_files:
         raise RuntimeError("합칠 오디오 세그먼트가 없습니다.")
@@ -1297,13 +1482,31 @@ def combine_audio_files(
         str(temp_output_path),
     ]
     print("ffmpeg로 최종 오디오를 합치는 중...", file=sys.stderr)
-    result = run_command(cmd, capture_output=True)
-    if result.returncode != 0:
+    ffmpeg_log_path = work_dir / "ffmpeg_concat.log"
+    with ffmpeg_log_path.open("w", encoding="utf-8") as ffmpeg_log:
+        process = subprocess.Popen(
+            cmd,
+            stdout=ffmpeg_log,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        while process.poll() is None:
+            beat_heartbeat(
+                heartbeat,
+                stage="combine_audio",
+                detail=f"ffmpeg_pid={process.pid}",
+            )
+            time.sleep(5)
+        exit_code = process.wait()
+    if exit_code != 0:
         temp_output_path.unlink(missing_ok=True)
-        details = (result.stderr or result.stdout or "").strip()
+        details = ffmpeg_log_path.read_text(encoding="utf-8", errors="replace").strip()
         raise RuntimeError(f"ffmpeg 합치기 실패: {details or 'unknown error'}")
     ensure_valid_audio_file(temp_output_path)
     temp_output_path.replace(output_path)
+    ffmpeg_log_path.unlink(missing_ok=True)
 
 
 def manifest_provider_settings(
@@ -1379,6 +1582,8 @@ def main() -> int:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         work_dir = resolve_work_dir(args, output_path)
         work_dir.mkdir(parents=True, exist_ok=True)
+        heartbeat = ProgressHeartbeat(args.heartbeat_file) if args.heartbeat_file else None
+        beat_heartbeat(heartbeat, stage="startup", detail="workdir_ready")
         cleanup_dirs = [work_dir]
         if output_path.parent != work_dir:
             cleanup_dirs.append(output_path.parent)
@@ -1398,18 +1603,22 @@ def main() -> int:
         print(f"voice: {voice}", file=sys.stderr)
         print(f"세그먼트 최대 글자 수: {max_chars_per_chunk}", file=sys.stderr)
         print(f"세그먼트 수: {len(sections)}", file=sys.stderr)
+        beat_heartbeat(heartbeat, stage="sections_ready", detail=f"count={len(sections)}")
         audio_files = synthesize_sections(
             sections,
             args=args,
             voice=voice,
             work_dir=work_dir,
         )
+        beat_heartbeat(heartbeat, stage="audio_sections_complete", detail=f"count={len(audio_files)}")
         combine_audio_files(
             audio_files,
             output_path=output_path,
             work_dir=work_dir,
             bitrate_kbps=args.audio_bitrate_kbps,
+            heartbeat=heartbeat,
         )
+        beat_heartbeat(heartbeat, stage="combine_complete", detail=output_path.name)
         write_manifest(
             output_path,
             args=args,
@@ -1418,7 +1627,10 @@ def main() -> int:
             work_dir=work_dir,
             sections=sections,
         )
+        beat_heartbeat(heartbeat, stage="done", detail=output_path.name)
     except Exception as exc:
+        if "heartbeat" in locals():
+            beat_heartbeat(heartbeat, stage="fatal_error", detail=str(exc))
         print(f"오디오북 생성 실패: {exc}", file=sys.stderr)
         return 1
     finally:
