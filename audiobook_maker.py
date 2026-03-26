@@ -48,6 +48,12 @@ class AudioSection:
     text: str
 
 
+class ChatGPTWebExactCopyMismatchError(RuntimeError):
+    def __init__(self, message: str, *, response_text: str):
+        super().__init__(message)
+        self.response_text = response_text
+
+
 @dataclass
 class ProgressHeartbeat:
     path: Path
@@ -145,6 +151,139 @@ CHATGPT_WEB_VOICES = (
     "maple",
     "breeze",
     "ember",
+)
+CHATGPT_WEB_REFUSAL_MARKERS = (
+    "그 요청은 도와드릴 수 없습니다",
+    "그 요청은 도와드릴 수 없어요",
+    "성적으로 노골적이고 동의가 불분명한 장면의 그대로 복제·낭독용 출력은 제공할 수 없습니다",
+    "그 문장은 그대로 재출력할 수 없습니다",
+    "그 문장은 그대로 재출력해드릴 수 없습니다",
+    "그건 그대로 재출력할 수 없어",
+    "노골적인 성적 묘사를 제외한 문장으로 순화",
+    "성적 묘사를 그대로 재현하는 내용이라 그대로 출력할 수 없습니다",
+    "수위를 낮춘 낭독용 문장으로는 이렇게 바꿀 수 있습니다",
+    "수위를 낮춘 낭독용 문장으로 바꿀 수 있습니다",
+    "오디오북 낭독용으로는 수위를 낮춘 비노골적 문장으로 다듬거나",
+    "감정선만 살린 문장으로 바꿔드릴 수 있어요",
+    "이 콘텐츠는 당사의 사용 정책을 위반할 수 있습니다",
+)
+CHATGPT_WEB_REFUSAL_ACTION_MARKERS = (
+    "그 요청은 도와드릴 수 없습니다",
+    "그 요청은 도와드릴 수 없어요",
+    "도와줄 수 없는 요청",
+    "그 문장은 그대로 재출력할 수 없습니다",
+    "그 문장은 그대로 재출력해드릴 수 없습니다",
+    "그건 그대로 재출력할 수 없어",
+    "그대로 재출력할 수 없습니다",
+    "그대로 출력할 수 없습니다",
+)
+CHATGPT_WEB_REFUSAL_CONTEXT_MARKERS = (
+    "성적으로 노골적",
+    "노골적인 성적",
+    "성적 묘사",
+    "동의가 불분명",
+    "동의 없는",
+    "강압",
+    "취한 상태",
+    "복제·낭독용 출력",
+)
+CHATGPT_WEB_SPOKEN_LITERAL_OVERRIDES = {
+    "www.watch-mark-watney-die.com": "와치 마크 와트너 다이 닷 컴",
+}
+CHATGPT_WEB_RATE_LIMIT_MARKERS = (
+    "요청이 너무 빠릅니다",
+    "대화 액세스가 일시적으로 제한되었습니다",
+)
+CHATGPT_WEB_RATE_LIMIT_MODAL_SELECTORS = (
+    "#modal-conversation-history-rate-limit",
+    '[data-testid="modal-conversation-history-rate-limit"]',
+)
+CHATGPT_WEB_RATE_LIMIT_WAIT_SEC = 300
+CHATGPT_WEB_SPOKEN_DOMAIN_SUFFIXES = {
+    "ai": "에이아이",
+    "app": "앱",
+    "biz": "비즈",
+    "ca": "씨에이",
+    "co": "코",
+    "com": "컴",
+    "dev": "데브",
+    "de": "디이",
+    "edu": "이디유",
+    "fr": "에프알",
+    "gov": "지오브이",
+    "info": "인포",
+    "io": "아이오",
+    "jp": "제이피",
+    "kr": "케이알",
+    "me": "미",
+    "mil": "밀",
+    "net": "넷",
+    "org": "오알지",
+    "tv": "티비",
+    "uk": "유케이",
+    "us": "유에스",
+}
+CHATGPT_WEB_SPOKEN_TOKEN_OVERRIDES = {
+    "chatgpt": "챗지피티",
+    "die": "다이",
+    "gmail": "지메일",
+    "google": "구글",
+    "hotmail": "핫메일",
+    "mail": "메일",
+    "mark": "마크",
+    "naver": "네이버",
+    "outlook": "아웃룩",
+    "watch": "와치",
+    "watney": "와트너",
+    "www": "",
+    "yahoo": "야후",
+}
+ASCII_LETTER_SPOKEN_FORMS = {
+    "a": "에이",
+    "b": "비",
+    "c": "씨",
+    "d": "디",
+    "e": "이",
+    "f": "에프",
+    "g": "지",
+    "h": "에이치",
+    "i": "아이",
+    "j": "제이",
+    "k": "케이",
+    "l": "엘",
+    "m": "엠",
+    "n": "엔",
+    "o": "오",
+    "p": "피",
+    "q": "큐",
+    "r": "알",
+    "s": "에스",
+    "t": "티",
+    "u": "유",
+    "v": "브이",
+    "w": "더블유",
+    "x": "엑스",
+    "y": "와이",
+    "z": "지",
+}
+CHATGPT_WEB_KNOWN_DOMAIN_SUFFIX_PATTERN = "|".join(
+    sorted(
+        (re.escape(suffix) for suffix in CHATGPT_WEB_SPOKEN_DOMAIN_SUFFIXES),
+        key=len,
+        reverse=True,
+    )
+)
+EMAIL_LITERAL_PATTERN = re.compile(
+    rf"\b[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9-]+\.)+(?:{CHATGPT_WEB_KNOWN_DOMAIN_SUFFIX_PATTERN})\b",
+    re.IGNORECASE,
+)
+URL_LITERAL_PATTERN = re.compile(
+    rf"\bhttps?://(?:[A-Za-z0-9-]+\.)+(?:{CHATGPT_WEB_KNOWN_DOMAIN_SUFFIX_PATTERN})(?:[/?#][^\s<>()]*)?",
+    re.IGNORECASE,
+)
+BARE_DOMAIN_LITERAL_PATTERN = re.compile(
+    rf"(?<![@/])\b(?:www\.)?(?:[A-Za-z0-9-]+\.)+(?:{CHATGPT_WEB_KNOWN_DOMAIN_SUFFIX_PATTERN})\b",
+    re.IGNORECASE,
 )
 CHATGPT_WEB_REPEAT_PROMPT_TEMPLATE = """
 너는 오디오북 낭독용 텍스트 복사기다.
@@ -593,6 +732,122 @@ def normalize_text(text: str) -> str:
     return normalized
 
 
+def spoken_form_for_ascii_token(token: str) -> str:
+    cleaned = token.strip()
+    if not cleaned:
+        return ""
+
+    lowered = cleaned.lower()
+    if lowered in CHATGPT_WEB_SPOKEN_LITERAL_OVERRIDES:
+        return CHATGPT_WEB_SPOKEN_LITERAL_OVERRIDES[lowered]
+    if lowered in CHATGPT_WEB_SPOKEN_TOKEN_OVERRIDES:
+        return CHATGPT_WEB_SPOKEN_TOKEN_OVERRIDES[lowered]
+    if lowered in CHATGPT_WEB_SPOKEN_DOMAIN_SUFFIXES:
+        return CHATGPT_WEB_SPOKEN_DOMAIN_SUFFIXES[lowered]
+    if cleaned.isdigit():
+        return " ".join(cleaned)
+    if cleaned.isupper() or len(cleaned) <= 3:
+        return " ".join(
+            ASCII_LETTER_SPOKEN_FORMS.get(letter.lower(), letter)
+            for letter in cleaned
+        )
+    return cleaned
+
+
+def spoken_form_for_domain_label(label: str) -> str:
+    lowered = label.lower().strip()
+    if not lowered:
+        return ""
+    if lowered in CHATGPT_WEB_SPOKEN_TOKEN_OVERRIDES:
+        return CHATGPT_WEB_SPOKEN_TOKEN_OVERRIDES[lowered]
+    if lowered in CHATGPT_WEB_SPOKEN_DOMAIN_SUFFIXES:
+        return CHATGPT_WEB_SPOKEN_DOMAIN_SUFFIXES[lowered]
+
+    spoken_parts: list[str] = []
+    for piece in re.split(r"[-_+]+", label):
+        piece = piece.strip()
+        if not piece:
+            continue
+        tokens = re.findall(r"[A-Za-z]+|\d+", piece)
+        if not tokens:
+            spoken_parts.append(piece)
+            continue
+        spoken_parts.extend(
+            spoken_form_for_ascii_token(token)
+            for token in tokens
+            if spoken_form_for_ascii_token(token)
+        )
+    return " ".join(spoken_parts).strip()
+
+
+def spoken_form_for_domain_literal(domain: str) -> str:
+    lowered = domain.lower().strip()
+    if lowered in CHATGPT_WEB_SPOKEN_LITERAL_OVERRIDES:
+        return CHATGPT_WEB_SPOKEN_LITERAL_OVERRIDES[lowered]
+
+    labels = [label for label in domain.split(".") if label]
+    spoken_labels: list[str] = []
+    for index, label in enumerate(labels):
+        if index == 0 and label.lower() == "www":
+            continue
+        spoken = spoken_form_for_domain_label(label)
+        if spoken:
+            spoken_labels.append(spoken)
+    return " 닷 ".join(spoken_labels) if spoken_labels else domain
+
+
+def spoken_form_for_url_tail(tail: str) -> str:
+    tokens = re.findall(r"[A-Za-z]+|\d+|[/?#=&._+-]", tail)
+    spoken_tokens: list[str] = []
+    symbol_map = {
+        "/": "슬래시",
+        "?": "물음표",
+        "#": "샵",
+        "=": "이퀄",
+        "&": "앤드",
+        ".": "닷",
+    }
+    for token in tokens:
+        if token in {"-", "_", "+"}:
+            continue
+        if token in symbol_map:
+            spoken_tokens.append(symbol_map[token])
+            continue
+        spoken_tokens.append(spoken_form_for_ascii_token(token))
+    return " ".join(part for part in spoken_tokens if part).strip()
+
+
+def spoken_form_for_email_literal(email: str) -> str:
+    local_part, domain = email.split("@", 1)
+    local_tokens = re.findall(r"[A-Za-z]+|\d+", re.sub(r"[._%+-]+", " ", local_part))
+    spoken_local = " ".join(spoken_form_for_ascii_token(token) for token in local_tokens if token)
+    spoken_domain = spoken_form_for_domain_literal(domain)
+    if spoken_local:
+        return f"{spoken_local} 앳 {spoken_domain}"
+    return f"앳 {spoken_domain}"
+
+
+def spoken_form_for_url_literal(url: str) -> str:
+    lowered = url.lower().strip()
+    if lowered in CHATGPT_WEB_SPOKEN_LITERAL_OVERRIDES:
+        return CHATGPT_WEB_SPOKEN_LITERAL_OVERRIDES[lowered]
+
+    match = re.match(r"^(https?)://([^/?#]+)(.*)$", url, re.IGNORECASE)
+    if not match:
+        return url
+
+    host = spoken_form_for_domain_literal(match.group(2))
+    tail = spoken_form_for_url_tail(match.group(3))
+    return host if not tail else f"{host} {tail}"
+
+
+def spokenize_text_for_readaloud(text: str) -> str:
+    updated = EMAIL_LITERAL_PATTERN.sub(lambda match: spoken_form_for_email_literal(match.group(0)), text)
+    updated = URL_LITERAL_PATTERN.sub(lambda match: spoken_form_for_url_literal(match.group(0)), updated)
+    updated = BARE_DOMAIN_LITERAL_PATTERN.sub(lambda match: spoken_form_for_domain_literal(match.group(0)), updated)
+    return updated
+
+
 def looks_like_heading(paragraph: str) -> bool:
     text = paragraph.strip()
     if not text or "\n" in text or len(text) > 48:
@@ -627,6 +882,85 @@ def hard_split_text(text: str, max_chars: int) -> list[str]:
     return parts
 
 
+def split_text_into_sentence_units(text: str) -> list[str]:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return []
+
+    matches = re.finditer(r'.+?(?:[.!?…]+(?:"|”|’)?)(?=\s+|$)|.+$', normalized, re.S)
+    parts = [match.group(0).strip() for match in matches if match.group(0).strip()]
+    return parts or [normalized]
+
+
+def token_ends_with_strong_pause(token: str) -> bool:
+    return bool(re.search(r'[.!?…](?:"|”|’)?$', token))
+
+
+def token_ends_with_soft_pause(token: str) -> bool:
+    return bool(re.search(r'[,;:](?:"|”|’)?$', token))
+
+
+def token_ends_with_clause_pause(token: str) -> bool:
+    return bool(
+        re.search(
+            r'(?:고|며|서|자|면|는데|지만|라고|라며|하며|해서|하여|도록|기에|니까|니)(?:"|”|’)?$',
+            token,
+        )
+    )
+
+
+def split_text_into_breath_units(text: str) -> list[str]:
+    normalized = text.replace("\r\n", " ").replace("\r", " ").strip()
+    tokens = re.findall(r"\S+", normalized)
+    if len(tokens) <= 1:
+        return [normalized] if normalized else []
+
+    min_words = 2
+    preferred_words = 4
+    max_words = 5
+    chunks: list[str] = []
+    current_tokens: list[str] = []
+
+    for index, token in enumerate(tokens):
+        current_tokens.append(token)
+        size = len(current_tokens)
+        remaining = len(tokens) - index - 1
+
+        if size < min_words and remaining > 0:
+            continue
+
+        should_break = False
+        if token_ends_with_strong_pause(token):
+            should_break = True
+        elif token_ends_with_soft_pause(token) and size >= 3:
+            should_break = True
+        elif token_ends_with_clause_pause(token) and size >= min_words:
+            should_break = True
+        elif size >= preferred_words and min_words <= remaining <= max_words:
+            should_break = True
+        elif size >= max_words:
+            should_break = True
+        elif remaining == 0:
+            should_break = True
+
+        if should_break:
+            chunks.append(" ".join(current_tokens))
+            current_tokens = []
+
+    if current_tokens:
+        chunks.append(" ".join(current_tokens))
+
+    if (
+        len(chunks) >= 2
+        and len(chunks[-1].split()) == 1
+        and not token_ends_with_strong_pause(chunks[-1])
+    ):
+        chunks[-2] = f"{chunks[-2]} {chunks[-1]}"
+        chunks.pop()
+
+    return chunks
+
+
 def split_long_paragraph(paragraph: str, max_chars: int) -> list[str]:
     text = paragraph.strip()
     if not text:
@@ -635,7 +969,7 @@ def split_long_paragraph(paragraph: str, max_chars: int) -> list[str]:
         return [text]
 
     pieces: list[str] = []
-    for sentence in re.split(r"(?<=[.!?…])\s+", text):
+    for sentence in split_text_into_sentence_units(text):
         sentence = sentence.strip()
         if not sentence:
             continue
@@ -724,6 +1058,38 @@ def retry_split_target_max_chars(
     return min(max_chars_cap, max(min_chars, len(normalized) // 2))
 
 
+def is_chatgpt_web_refusal_response(text: str) -> bool:
+    normalized = normalize_chatgpt_web_copy(text)
+    if any(marker in normalized for marker in CHATGPT_WEB_REFUSAL_MARKERS):
+        return True
+    return (
+        any(marker in normalized for marker in CHATGPT_WEB_REFUSAL_ACTION_MARKERS)
+        and any(marker in normalized for marker in CHATGPT_WEB_REFUSAL_CONTEXT_MARKERS)
+    )
+
+
+def find_exact_copy_mismatch_error(error: Exception | None) -> ChatGPTWebExactCopyMismatchError | None:
+    current = error
+    seen: set[int] = set()
+    while current is not None:
+        identity = id(current)
+        if identity in seen:
+            return None
+        seen.add(identity)
+        if isinstance(current, ChatGPTWebExactCopyMismatchError):
+            return current
+        current = current.__cause__ or current.__context__
+    return None
+
+
+def build_text_units_as_sections(parts: list[str]) -> list[AudioSection]:
+    return [
+        AudioSection(index=index + 1, title=None, text=part)
+        for index, part in enumerate(parts)
+        if part.strip()
+    ]
+
+
 def load_direct_retry_child_sections(work_dir: Path, prefix: str) -> list[AudioSection]:
     pattern = re.compile(rf"^{re.escape(prefix)}_(\d+)\.txt$")
     child_sections: list[tuple[int, str]] = []
@@ -733,7 +1099,7 @@ def load_direct_retry_child_sections(work_dir: Path, prefix: str) -> list[AudioS
         match = pattern.match(path.name)
         if not match:
             continue
-        text = path.read_text(encoding="utf-8").strip()
+        text = spokenize_text_for_readaloud(path.read_text(encoding="utf-8")).strip()
         if not text:
             continue
         child_sections.append((int(match.group(1)), text))
@@ -750,6 +1116,7 @@ def build_retry_child_sections(
     *,
     prefix: str,
     text: str,
+    last_error: Exception | None = None,
     min_chars: int = RETRY_SPLIT_MIN_CHARS,
     max_chars_cap: int = RETRY_SPLIT_MAX_CHARS,
 ) -> list[AudioSection]:
@@ -758,6 +1125,16 @@ def build_retry_child_sections(
         return existing_sections
 
     normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    mismatch_error = find_exact_copy_mismatch_error(last_error)
+    if mismatch_error and is_chatgpt_web_refusal_response(mismatch_error.response_text):
+        sentence_sections = build_text_units_as_sections(split_text_into_sentence_units(normalized))
+        if len(sentence_sections) > 1:
+            return sentence_sections
+
+        breath_sections = build_text_units_as_sections(split_text_into_breath_units(normalized))
+        if len(breath_sections) > 1:
+            return breath_sections
+
     # Allow retries to keep splitting shorter failed snippets instead of
     # getting stuck on an exact-copy mismatch for a small fragment.
     effective_min_chars = min(min_chars, max(40, len(normalized) // 2))
@@ -863,8 +1240,61 @@ def build_chatgpt_web_repeat_prompt(text: str, reading_instructions: str = "") -
 
 def normalize_chatgpt_web_copy(text: str) -> str:
     normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    normalized = re.sub(r"\s+", " ", normalized)
     normalized = re.sub(r"\s+([)\]}>.,!?;:])", r"\1", normalized)
     return normalized
+
+
+def section_text_matches_expected(text_path: Path, expected_text: str) -> bool:
+    if not text_path.exists():
+        return False
+    existing_text = text_path.read_text(encoding="utf-8")
+    return normalize_chatgpt_web_copy(existing_text) == normalize_chatgpt_web_copy(expected_text)
+
+
+def is_chatgpt_web_rate_limit_text(text: str) -> bool:
+    normalized = normalize_chatgpt_web_copy(text)
+    return all(marker in normalized for marker in CHATGPT_WEB_RATE_LIMIT_MARKERS)
+
+
+def chatgpt_web_rate_limit_modal_visible(page) -> bool:
+    for selector in CHATGPT_WEB_RATE_LIMIT_MODAL_SELECTORS:
+        locator = page.locator(selector).first
+        try:
+            if locator.count() and locator.is_visible():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def wait_for_chatgpt_web_rate_limit_to_clear(
+    page,
+    *,
+    heartbeat: ProgressHeartbeat | None = None,
+    label: str | None = None,
+    section_prefix: str | None = None,
+    attempt: int | None = None,
+    max_wait_sec: int = CHATGPT_WEB_RATE_LIMIT_WAIT_SEC,
+) -> None:
+    deadline = time.time() + max_wait_sec
+    while chatgpt_web_rate_limit_modal_visible(page):
+        remaining = max(0, int(deadline - time.time()))
+        beat_heartbeat(
+            heartbeat,
+            stage="rate_limit_wait",
+            label=label,
+            section_prefix=section_prefix,
+            attempt=attempt,
+            detail=f"remaining={remaining}s",
+        )
+        if time.time() >= deadline:
+            raise RuntimeError("ChatGPT 웹 요청 속도 제한 모달이 지속되고 있습니다.")
+        try:
+            page.keyboard.press("Escape")
+        except Exception:
+            pass
+        page.wait_for_timeout(5000)
 
 
 def extract_chatgpt_conversation_id(url: str) -> str:
@@ -872,7 +1302,15 @@ def extract_chatgpt_conversation_id(url: str) -> str:
     return match.group(1) if match else ""
 
 
-def prepare_chatgpt_web_page(page, *, timeout_error_cls) -> None:
+def prepare_chatgpt_web_page(
+    page,
+    *,
+    timeout_error_cls,
+    heartbeat: ProgressHeartbeat | None = None,
+    label: str | None = None,
+    section_prefix: str | None = None,
+    attempt: int | None = None,
+) -> None:
     page.goto(CHATGPT_WEB_URL, wait_until="domcontentloaded", timeout=120000)
     page.wait_for_timeout(1500)
     try:
@@ -881,6 +1319,13 @@ def prepare_chatgpt_web_page(page, *, timeout_error_cls) -> None:
         raise RuntimeError(
             "ChatGPT 프롬프트 입력창을 찾지 못했습니다. chatgpt.com 로그인 상태를 확인하세요."
         ) from exc
+    wait_for_chatgpt_web_rate_limit_to_clear(
+        page,
+        heartbeat=heartbeat,
+        label=label,
+        section_prefix=section_prefix,
+        attempt=attempt,
+    )
 
 
 def fetch_chatgpt_web_voice_settings(page) -> tuple[str, tuple[str, ...]]:
@@ -918,15 +1363,53 @@ def fetch_chatgpt_web_voice_settings(page) -> tuple[str, tuple[str, ...]]:
     return selected, voices or chatgpt_web_voice_choices()
 
 
-def send_chatgpt_web_prompt(page, prompt: str, *, timeout_error_cls) -> None:
+def send_chatgpt_web_prompt(
+    page,
+    prompt: str,
+    *,
+    timeout_error_cls,
+    heartbeat: ProgressHeartbeat | None = None,
+    label: str | None = None,
+    section_prefix: str | None = None,
+    attempt: int | None = None,
+) -> None:
     box = page.locator("#prompt-textarea").first
-    box.click()
-    box.fill(prompt)
-    page.keyboard.press("Enter")
-    try:
-        page.wait_for_url(re.compile(r"https://chatgpt\.com/c/.*"), timeout=120000)
-    except timeout_error_cls:
-        pass
+    deadline = time.time() + CHATGPT_WEB_RATE_LIMIT_WAIT_SEC
+    while True:
+        wait_for_chatgpt_web_rate_limit_to_clear(
+            page,
+            heartbeat=heartbeat,
+            label=label,
+            section_prefix=section_prefix,
+            attempt=attempt,
+            max_wait_sec=max(5, int(deadline - time.time())),
+        )
+        try:
+            box.click(timeout=5000)
+            box.fill(prompt)
+            page.keyboard.press("Enter")
+            try:
+                page.wait_for_url(re.compile(r"https://chatgpt\.com/c/.*"), timeout=120000)
+            except timeout_error_cls:
+                pass
+            return
+        except Exception as exc:
+            if not (
+                is_chatgpt_web_rate_limit_text(str(exc))
+                or chatgpt_web_rate_limit_modal_visible(page)
+            ):
+                raise
+            if time.time() >= deadline:
+                raise RuntimeError("ChatGPT 웹 요청 속도 제한 모달이 지속되고 있습니다.") from exc
+            beat_heartbeat(
+                heartbeat,
+                stage="rate_limit_wait",
+                label=label,
+                section_prefix=section_prefix,
+                attempt=attempt,
+                detail="prompt_blocked",
+            )
+            page.wait_for_timeout(5000)
 
 
 def read_last_chatgpt_web_response(page) -> tuple[str, str]:
@@ -1121,7 +1604,11 @@ def synthesize_chatgpt_web_sections(
 
             settings_page = context.new_page()
             try:
-                prepare_chatgpt_web_page(settings_page, timeout_error_cls=timeout_error_cls)
+                prepare_chatgpt_web_page(
+                    settings_page,
+                    timeout_error_cls=timeout_error_cls,
+                    heartbeat=heartbeat,
+                )
                 selected_voice, available_voices = fetch_chatgpt_web_voice_settings(settings_page)
                 beat_heartbeat(
                     heartbeat,
@@ -1156,6 +1643,18 @@ def synthesize_chatgpt_web_sections(
             ) -> list[Path]:
                 text_path = work_dir / f"{prefix}.txt"
                 audio_path = work_dir / f"{prefix}.mp3"
+                prompt_path = work_dir / f"{prefix}_prompt.txt"
+                response_path = work_dir / f"{prefix}_response.txt"
+                meta_path = work_dir / f"{prefix}_chatgpt_web.json"
+                text_matches_existing = section_text_matches_expected(text_path, text)
+                if not text_matches_existing:
+                    if audio_path.exists():
+                        print(
+                            f"[{label}] 기존 오디오 재사용 건너뜀: 텍스트가 변경되었습니다: {audio_path.name}",
+                            file=sys.stderr,
+                        )
+                    for stale_path in (audio_path, prompt_path, response_path, meta_path):
+                        stale_path.unlink(missing_ok=True)
                 text_path.write_text(text + "\n", encoding="utf-8")
                 beat_heartbeat(
                     heartbeat,
@@ -1164,7 +1663,7 @@ def synthesize_chatgpt_web_sections(
                     section_prefix=prefix,
                     detail=f"chars={len(text)}",
                 )
-                if reuse_existing_audio_if_valid(audio_path, label=label):
+                if text_matches_existing and reuse_existing_audio_if_valid(audio_path, label=label):
                     print(
                         f"[{label}] 기존 ChatGPT 웹 오디오 재사용: {audio_path.name}",
                         file=sys.stderr,
@@ -1194,7 +1693,14 @@ def synthesize_chatgpt_web_sections(
                             section_prefix=prefix,
                             attempt=attempt,
                         )
-                        prepare_chatgpt_web_page(page, timeout_error_cls=timeout_error_cls)
+                        prepare_chatgpt_web_page(
+                            page,
+                            timeout_error_cls=timeout_error_cls,
+                            heartbeat=heartbeat,
+                            label=label,
+                            section_prefix=prefix,
+                            attempt=attempt,
+                        )
                         prompt = build_chatgpt_web_repeat_prompt(
                             text,
                             args.chatgpt_web_reading_instructions,
@@ -1206,7 +1712,15 @@ def synthesize_chatgpt_web_sections(
                             section_prefix=prefix,
                             attempt=attempt,
                         )
-                        send_chatgpt_web_prompt(page, prompt, timeout_error_cls=timeout_error_cls)
+                        send_chatgpt_web_prompt(
+                            page,
+                            prompt,
+                            timeout_error_cls=timeout_error_cls,
+                            heartbeat=heartbeat,
+                            label=label,
+                            section_prefix=prefix,
+                            attempt=attempt,
+                        )
                         beat_heartbeat(
                             heartbeat,
                             stage="prompt_submitted",
@@ -1240,8 +1754,9 @@ def synthesize_chatgpt_web_sections(
                         actual = normalize_chatgpt_web_copy(response_text)
                         if expected != actual:
                             preview = actual[:200].replace("\n", " ")
-                            raise RuntimeError(
-                                f"응답 텍스트가 입력과 일치하지 않습니다({text_path.name}, attempt {attempt}): {preview}"
+                            raise ChatGPTWebExactCopyMismatchError(
+                                f"응답 텍스트가 입력과 일치하지 않습니다({text_path.name}, attempt {attempt}): {preview}",
+                                response_text=response_text,
                             )
 
                         beat_heartbeat(
@@ -1348,12 +1863,8 @@ def synthesize_chatgpt_web_sections(
                         section_prefix=prefix,
                         detail=f"children={len(existing_split_audio)}",
                     )
-                    child_sections = build_retry_child_sections(
-                        work_dir,
-                        prefix=prefix,
-                        text=text,
-                    )
-                    if len(child_sections) <= 1:
+                    child_sections = load_direct_retry_child_sections(work_dir, prefix)
+                    if not child_sections:
                         return existing_split_audio
                     nested_audio: list[Path] = []
                     for child_index, child_section in enumerate(child_sections, start=1):
@@ -1374,6 +1885,7 @@ def synthesize_chatgpt_web_sections(
                         work_dir,
                         prefix=prefix,
                         text=text,
+                        last_error=exc,
                     )
                     if len(child_sections) <= 1:
                         raise
@@ -1523,6 +2035,7 @@ def manifest_provider_settings(
             "reading_instructions": args.chatgpt_web_reading_instructions,
             "chatgpt_url": CHATGPT_WEB_URL,
             "read_aloud_exact_copy": True,
+            "spokenize_domains_and_emails": True,
         }
     raise RuntimeError(f"지원하지 않는 provider 입니다: {args.provider}")
 
@@ -1568,7 +2081,7 @@ def main() -> int:
         output_path = resolve_output_path(args)
         ensure_runtime_ready(args, output_path)
 
-        source_text = normalize_text(load_source_text(args))
+        source_text = normalize_text(spokenize_text_for_readaloud(load_source_text(args)))
         if not source_text:
             raise RuntimeError("입력 텍스트가 비어 있습니다.")
 

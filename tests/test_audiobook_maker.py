@@ -3,6 +3,7 @@ import unittest
 from argparse import Namespace
 from json import loads
 from pathlib import Path
+from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
@@ -53,6 +54,136 @@ class SectionSplitTests(unittest.TestCase):
             )
 
         self.assertEqual([section.text for section in child_sections], ["첫 번째 조각", "두 번째 조각"])
+
+    def test_retry_split_uses_sentence_units_for_policy_refusal(self) -> None:
+        text = "첫 문장이다. 둘째 문장이다. 셋째 문장이다."
+        refusal = audiobook_maker.ChatGPTWebExactCopyMismatchError(
+            "응답 텍스트가 입력과 일치하지 않습니다",
+            response_text=(
+                "그 요청은 도와드릴 수 없습니다. "
+                "성적으로 노골적이고 동의가 불분명한 장면의 그대로 복제·낭독용 출력은 제공할 수 없습니다."
+            ),
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            child_sections = audiobook_maker.build_retry_child_sections(
+                Path(tmpdir),
+                prefix="157",
+                text=text,
+                last_error=refusal,
+            )
+
+        self.assertEqual(
+            [section.text for section in child_sections],
+            ["첫 문장이다.", "둘째 문장이다.", "셋째 문장이다."],
+        )
+
+    def test_retry_split_uses_breath_units_when_single_sentence_still_hits_policy_refusal(self) -> None:
+        text = "그는 숨을 고르고, 천천히 고개를 들며 다음 말을 이었다."
+        refusal = audiobook_maker.ChatGPTWebExactCopyMismatchError(
+            "응답 텍스트가 입력과 일치하지 않습니다",
+            response_text=(
+                "그 요청은 도와드릴 수 없습니다. "
+                "성적으로 노골적이고 동의가 불분명한 장면의 그대로 복제·낭독용 출력은 제공할 수 없습니다."
+            ),
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            child_sections = audiobook_maker.build_retry_child_sections(
+                Path(tmpdir),
+                prefix="157_02",
+                text=text,
+                last_error=refusal,
+            )
+
+        self.assertEqual(
+            [section.text for section in child_sections],
+            ["그는 숨을 고르고,", "천천히 고개를 들며", "다음 말을 이었다."],
+        )
+
+    def test_split_text_into_breath_units_balances_plain_word_runs(self) -> None:
+        self.assertEqual(
+            audiobook_maker.split_text_into_breath_units("하나 둘 셋 넷 다섯 여섯 일곱"),
+            ["하나 둘 셋 넷", "다섯 여섯 일곱"],
+        )
+
+    def test_retry_split_detects_wrapped_policy_refusal(self) -> None:
+        text = "첫 문장이다. 둘째 문장이다."
+        refusal = audiobook_maker.ChatGPTWebExactCopyMismatchError(
+            "응답 텍스트가 입력과 일치하지 않습니다",
+            response_text=(
+                "그 요청은 도와드릴 수 없습니다. "
+                "성적으로 노골적이고 동의가 불분명한 장면의 그대로 복제·낭독용 출력은 제공할 수 없습니다."
+            ),
+        )
+        wrapped = RuntimeError("ChatGPT 웹 섹션 합성 실패")
+        wrapped.__cause__ = refusal
+
+        with TemporaryDirectory() as tmpdir:
+            child_sections = audiobook_maker.build_retry_child_sections(
+                Path(tmpdir),
+                prefix="157",
+                text=text,
+                last_error=wrapped,
+            )
+
+        self.assertEqual(
+            [section.text for section in child_sections],
+            ["첫 문장이다.", "둘째 문장이다."],
+        )
+
+    def test_policy_refusal_detector_accepts_variant_refusal_wording(self) -> None:
+        response = (
+            "그건 그대로 재출력할 수 없어. "
+            "취한 상태와 강압이 섞인 성적 묘사라서 도와줄 수 없는 요청이야."
+        )
+
+        self.assertTrue(audiobook_maker.is_chatgpt_web_refusal_response(response))
+
+    def test_policy_refusal_detector_accepts_softened_reading_rewrite_offer(self) -> None:
+        response = (
+            "그 문장은 그대로 재출력해드릴 수 없습니다. "
+            "수위를 낮춘 낭독용 문장으로는 이렇게 바꿀 수 있습니다."
+        )
+
+        self.assertTrue(audiobook_maker.is_chatgpt_web_refusal_response(response))
+
+    def test_policy_refusal_detector_accepts_non_explicit_audiobook_rewrite_offer(self) -> None:
+        response = (
+            "그 요청은 도와드릴 수 없어요. "
+            "오디오북 낭독용으로는 수위를 낮춘 비노골적 문장으로 다듬거나, "
+            "감정선만 살린 문장으로 바꿔드릴 수 있어요."
+        )
+
+        self.assertTrue(audiobook_maker.is_chatgpt_web_refusal_response(response))
+
+
+class SpokenLiteralTests(unittest.TestCase):
+    def test_spokenize_text_for_readaloud_rewrites_known_domain_override(self) -> None:
+        text = "주소는 www.watch-mark-watney-die.com 입니다."
+
+        spoken = audiobook_maker.spokenize_text_for_readaloud(text)
+
+        self.assertEqual(spoken, "주소는 와치 마크 와트너 다이 닷 컴 입니다.")
+
+    def test_spokenize_text_for_readaloud_rewrites_email_address(self) -> None:
+        text = "문의는 mark.watney@naver.com 으로 보내 주세요."
+
+        spoken = audiobook_maker.spokenize_text_for_readaloud(text)
+
+        self.assertEqual(spoken, "문의는 마크 와트너 앳 네이버 닷 컴 으로 보내 주세요.")
+
+    def test_section_text_matches_expected_rejects_old_raw_domain_text(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            text_path = Path(tmpdir) / "195_02_02.txt"
+            text_path.write_text("www.watch-mark-watney-die.com\n", encoding="utf-8")
+
+            matches = audiobook_maker.section_text_matches_expected(
+                text_path,
+                "와치 마크 와트너 다이 닷 컴",
+            )
+
+        self.assertFalse(matches)
 
 
 class OutputPathTests(unittest.TestCase):
@@ -129,6 +260,23 @@ class ReadingInstructionTests(unittest.TestCase):
         self.assertIn("한국어 원어민 전문 성우", prompt)
         self.assertIn("안녕하세요.", prompt)
 
+
+class ChatGPTWebNormalizationTests(unittest.TestCase):
+    def test_normalize_chatgpt_web_copy_treats_newlines_like_spaces(self) -> None:
+        actual = audiobook_maker.normalize_chatgpt_web_copy("아마 와치 마크 와트너 다이 닷 컴\n같은 웹사이트도 있겠지.")
+        expected = audiobook_maker.normalize_chatgpt_web_copy("아마 와치 마크 와트너 다이 닷 컴 같은 웹사이트도 있겠지.")
+
+        self.assertEqual(actual, expected)
+
+    def test_is_chatgpt_web_rate_limit_text_detects_modal_message(self) -> None:
+        message = (
+            "Locator.click: Timeout 30000ms exceeded.\n"
+            "요청이 너무 빠릅니다. 데이터를 보호하기 위해 대화 액세스가 일시적으로 제한되었습니다."
+        )
+
+        self.assertTrue(audiobook_maker.is_chatgpt_web_rate_limit_text(message))
+
+
 class ChatGPTWebWorkflowTests(unittest.TestCase):
     def test_chatgpt_web_launch_args_hide_window_by_default(self) -> None:
         args = audiobook_maker.chatgpt_web_launch_args(visible=False)
@@ -142,6 +290,78 @@ class ChatGPTWebWorkflowTests(unittest.TestCase):
         )
 
         self.assertEqual(conversation_id, "1234-abcd")
+
+    def test_synthesize_chatgpt_web_recurses_into_single_existing_child_before_reusing_split_audio(self) -> None:
+        class FakePage:
+            def close(self) -> None:
+                return None
+
+        class FakeContext:
+            def new_page(self) -> FakePage:
+                return FakePage()
+
+            def add_cookies(self, _cookies: object) -> None:
+                return None
+
+            def close(self) -> None:
+                return None
+
+        class FakeBrowser:
+            def new_context(self, **_kwargs: object) -> FakeContext:
+                return FakeContext()
+
+            def close(self) -> None:
+                return None
+
+        class FakePlaywrightManager:
+            def __enter__(self) -> SimpleNamespace:
+                chromium = SimpleNamespace(launch=lambda **_kwargs: FakeBrowser())
+                return SimpleNamespace(chromium=chromium)
+
+            def __exit__(self, exc_type, exc, tb) -> bool:
+                return False
+
+        with TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir)
+            (work_dir / "001_01.txt").write_text("첫 하위 조각", encoding="utf-8")
+            (work_dir / "001_01_01.txt").write_text("첫 번째 더 깊은 조각", encoding="utf-8")
+            (work_dir / "001_01_02.txt").write_text("두 번째 더 깊은 조각", encoding="utf-8")
+            split_audio_1 = work_dir / "001_01_01.mp3"
+            split_audio_2 = work_dir / "001_01_02.mp3"
+            split_audio_1.write_bytes(b"audio-1")
+            split_audio_2.write_bytes(b"audio-2")
+
+            args = Namespace(
+                chatgpt_web_chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                chatgpt_web_max_attempts=3,
+                heartbeat_file=None,
+                chatgpt_web_visible=False,
+                voice="cove",
+            )
+            sections = [audiobook_maker.AudioSection(index=1, title=None, text="원본 전체 텍스트")]
+
+            with patch(
+                "audiobook_maker.load_chatgpt_web_modules",
+                return_value=(object(), lambda: FakePlaywrightManager(), RuntimeError),
+            ):
+                with patch("audiobook_maker.load_chatgpt_web_cookies", return_value=[]):
+                    with patch("audiobook_maker.prepare_chatgpt_web_page"):
+                        with patch(
+                            "audiobook_maker.fetch_chatgpt_web_voice_settings",
+                            return_value=("cove", ["cove"]),
+                        ):
+                            with patch(
+                                "audiobook_maker.reuse_existing_audio_if_valid",
+                                side_effect=lambda path, label: path in {split_audio_1, split_audio_2},
+                            ):
+                                audio_files = audiobook_maker.synthesize_chatgpt_web_sections(
+                                    sections,
+                                    args=args,
+                                    voice="cove",
+                                    work_dir=work_dir,
+                                )
+
+        self.assertEqual(audio_files, [split_audio_1, split_audio_2])
 
 
 class AudioFormatTests(unittest.TestCase):

@@ -38,18 +38,37 @@ log_line() {
 }
 
 file_mtime_epoch() {
-  local path="$1"
-  if [[ ! -e "${path}" ]]; then
+  local target_path="$1"
+  if [[ ! -e "${target_path}" ]]; then
     print 0
     return
   fi
-  stat -f "%m" "${path}" 2>/dev/null || print 0
+  stat -f "%m" "${target_path}" 2>/dev/null || print 0
+}
+
+heartbeat_json_epoch() {
+  local heartbeat_path="$1"
+  local raw
+  if [[ ! -f "${heartbeat_path}" ]]; then
+    print 0
+    return
+  fi
+  raw="$(
+    sed -En 's/.*"timestamp":[[:space:]]*([0-9]+)(\.[0-9]+)?.*/\1/p' "${heartbeat_path}" \
+      | head -n 1
+  )"
+  if [[ -z "${raw}" ]]; then
+    print 0
+    return
+  fi
+  print "${raw%.*}"
 }
 
 current_progress_epoch() {
   local newest=0
-  local path
+  local candidate_path
   local mtime
+  local heartbeat_epoch
   local -a candidates
 
   candidates=(
@@ -63,13 +82,18 @@ current_progress_epoch() {
     "${WORK_DIR}"/ffmpeg_concat.log(N)
   )
 
-  for path in "${candidates[@]}"; do
-    [[ -e "${path}" ]] || continue
-    mtime="$(file_mtime_epoch "${path}")"
+  for candidate_path in "${candidates[@]}"; do
+    [[ -e "${candidate_path}" ]] || continue
+    mtime="$(file_mtime_epoch "${candidate_path}")"
     if (( mtime > newest )); then
       newest="${mtime}"
     fi
   done
+
+  heartbeat_epoch="$(heartbeat_json_epoch "${HEARTBEAT_FILE}")"
+  if (( heartbeat_epoch > newest )); then
+    newest="${heartbeat_epoch}"
+  fi
 
   print "${newest}"
 }
