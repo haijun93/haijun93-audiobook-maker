@@ -1,11 +1,14 @@
+import base64
 import subprocess
 import unittest
+import zipfile
+import fitz
 from argparse import Namespace
 from json import loads
 from pathlib import Path
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import audiobook_maker
 
@@ -197,6 +200,17 @@ class OutputPathTests(unittest.TestCase):
 
         self.assertEqual(output_path, Path("/tmp/audiobooks/source_ko_audiobook.m4a"))
 
+    def test_default_output_path_uses_study_suffix_in_study_mode(self) -> None:
+        args = Namespace(
+            output_file=None,
+            input_file=Path("/tmp/source.epub"),
+            audiobook_mode="study",
+        )
+
+        output_path = audiobook_maker.default_output_path(args)
+
+        self.assertEqual(output_path, Path("/tmp/audiobooks/source_study_audiobook.m4a"))
+
     def test_resolve_output_path_without_input_uses_cwd_audiobooks_folder(self) -> None:
         args = Namespace(
             output_file=None,
@@ -225,6 +239,8 @@ class ProviderSurfaceTests(unittest.TestCase):
 
     def test_default_chunk_size_uses_chatgpt_web_value(self) -> None:
         self.assertEqual(audiobook_maker.default_max_chars_per_chunk("chatgpt_web"), 1800)
+        self.assertEqual(audiobook_maker.default_max_chars_per_chunk("gemini_web"), 1600)
+        self.assertEqual(audiobook_maker.default_max_chars_per_chunk("gemini_api_tts"), 2500)
         self.assertEqual(audiobook_maker.default_max_chars_per_chunk("unused"), 1800)
 
 
@@ -232,10 +248,26 @@ class VoiceSelectionTests(unittest.TestCase):
     def test_default_chatgpt_web_voice_is_cove(self) -> None:
         self.assertEqual(audiobook_maker.default_chatgpt_web_voice(), "cove")
 
+    def test_default_gemini_web_voice_is_account_default(self) -> None:
+        self.assertEqual(audiobook_maker.default_gemini_web_voice(), "account_default")
+
+    def test_default_gemini_api_tts_voice_is_sulafat(self) -> None:
+        self.assertEqual(audiobook_maker.default_gemini_api_tts_voice(), "Sulafat")
+
     def test_resolve_voice_defaults_chatgpt_web_voice(self) -> None:
         args = Namespace(voice=None, provider="chatgpt_web")
 
         self.assertEqual(audiobook_maker.resolve_voice(args), "cove")
+
+    def test_resolve_voice_defaults_gemini_web_voice(self) -> None:
+        args = Namespace(voice=None, provider="gemini_web")
+
+        self.assertEqual(audiobook_maker.resolve_voice(args), "account_default")
+
+    def test_resolve_voice_defaults_gemini_api_tts_voice(self) -> None:
+        args = Namespace(voice=None, provider="gemini_api_tts")
+
+        self.assertEqual(audiobook_maker.resolve_voice(args), "Sulafat")
 
     def test_resolve_voice_normalizes_chatgpt_web_voice(self) -> None:
         args = Namespace(
@@ -244,6 +276,44 @@ class VoiceSelectionTests(unittest.TestCase):
         )
 
         self.assertEqual(audiobook_maker.resolve_voice(args), "cove")
+
+    def test_resolve_voice_normalizes_gemini_api_tts_voice(self) -> None:
+        args = Namespace(
+            voice="sulafat",
+            provider="gemini_api_tts",
+        )
+
+        self.assertEqual(audiobook_maker.resolve_voice(args), "Sulafat")
+
+
+class GeminiApiTtsModelTests(unittest.TestCase):
+    def test_normalize_gemini_api_tts_model_defaults_to_flash_preview(self) -> None:
+        self.assertEqual(
+            audiobook_maker.normalize_gemini_api_tts_model_name(""),
+            "gemini-2.5-flash-preview-tts",
+        )
+
+    def test_normalize_gemini_api_tts_model_aliases_flash_name(self) -> None:
+        self.assertEqual(
+            audiobook_maker.normalize_gemini_api_tts_model_name("gemini-2.5-flash-tts"),
+            "gemini-2.5-flash-preview-tts",
+        )
+
+    def test_normalize_gemini_api_tts_model_aliases_pro_name(self) -> None:
+        self.assertEqual(
+            audiobook_maker.normalize_gemini_api_tts_model_name("gemini-2.5-pro-tts"),
+            "gemini-2.5-pro-preview-tts",
+        )
+
+
+class GeminiApiTtsRateLimitTests(unittest.TestCase):
+    def test_extract_retry_after_seconds_from_text_parses_retry_hint(self) -> None:
+        actual = audiobook_maker.extract_retry_after_seconds_from_text("Please retry in 39.174204654s.")
+
+        self.assertEqual(actual, 40.174204654)
+
+    def test_extract_retry_after_seconds_from_text_returns_none_without_hint(self) -> None:
+        self.assertIsNone(audiobook_maker.extract_retry_after_seconds_from_text("HTTP 429"))
 
 
 class ReadingInstructionTests(unittest.TestCase):
@@ -258,6 +328,36 @@ class ReadingInstructionTests(unittest.TestCase):
 
         self.assertIn("추가 낭독 지침", prompt)
         self.assertIn("한국어 원어민 전문 성우", prompt)
+        self.assertIn("안녕하세요.", prompt)
+
+    def test_chatgpt_web_study_prompt_includes_summary_and_transition_guidance(self) -> None:
+        section = audiobook_maker.AudioSection(
+            index=1,
+            title="1. 헌법 · 연혁",
+            text="헌법 제32조와 주요 연혁을 정리한다.",
+            next_title="2. 근로기준법 총론",
+            chapter_index=1,
+        )
+
+        prompt = audiobook_maker.build_chatgpt_web_study_prompt(section)
+
+        self.assertIn("암기 포인트", prompt)
+        self.assertIn("1. 헌법 · 연혁", prompt)
+        self.assertIn("2. 근로기준법 총론", prompt)
+
+    def test_gemini_web_prompt_includes_default_reading_instructions(self) -> None:
+        prompt = audiobook_maker.build_gemini_web_repeat_prompt("안녕하세요.")
+
+        self.assertIn("추가 참고 지침", prompt)
+        self.assertIn("한국어 원어민 전문 성우", prompt)
+        self.assertIn("안녕하세요.", prompt)
+
+    def test_gemini_api_tts_prompt_includes_transcript_and_direction(self) -> None:
+        prompt = audiobook_maker.build_gemini_api_tts_prompt("안녕하세요.")
+
+        self.assertIn("# AUDIO PROFILE", prompt)
+        self.assertIn("# TRANSCRIPT", prompt)
+        self.assertIn("반드시 아래 TRANSCRIPT만 읽고", prompt)
         self.assertIn("안녕하세요.", prompt)
 
 
@@ -275,6 +375,283 @@ class ChatGPTWebNormalizationTests(unittest.TestCase):
         )
 
         self.assertTrue(audiobook_maker.is_chatgpt_web_rate_limit_text(message))
+
+
+class SourceLoadingTests(unittest.TestCase):
+    def create_sample_epub(self, path: Path) -> None:
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("mimetype", "application/epub+zip")
+            archive.writestr(
+                "META-INF/container.xml",
+                """<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="EPUB/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>
+""",
+            )
+            archive.writestr(
+                "EPUB/content.opf",
+                """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="ch1" href="text/ch001.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ch2" href="text/ch002.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="nav"/>
+    <itemref idref="ch1"/>
+    <itemref idref="ch2"/>
+  </spine>
+</package>
+""",
+            )
+            archive.writestr(
+                "EPUB/nav.xhtml",
+                """<html xmlns="http://www.w3.org/1999/xhtml"><body><nav><ol><li>목차</li></ol></nav></body></html>""",
+            )
+            archive.writestr(
+                "EPUB/text/ch001.xhtml",
+                """<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>1. 헌법</h1><p>근로의 권리를 정리한다.</p></body></html>""",
+            )
+            archive.writestr(
+                "EPUB/text/ch002.xhtml",
+                """<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>2. 근로기준법</h1><ul><li>근로조건</li><li>해고 제한</li></ul></body></html>""",
+            )
+
+    def create_sample_docx(self, path: Path) -> None:
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr(
+                "[Content_Types].xml",
+                """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>
+""",
+            )
+            archive.writestr(
+                "_rels/.rels",
+                """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>
+""",
+            )
+            archive.writestr(
+                "word/document.xml",
+                """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>노동법 핵심 체계 정리</w:t></w:r></w:p>
+    <w:p><w:r><w:t>공인노무사 1차</w:t></w:r></w:p>
+    <w:p>
+      <w:pPr><w:pStyle w:val="1"/></w:pPr>
+      <w:r><w:t>1. 헌법 · 연혁</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr><w:pStyle w:val="2"/></w:pPr>
+      <w:r><w:t>1-1. 헌법 제32조 핵심</w:t></w:r>
+    </w:p>
+    <w:p><w:r><w:t>근로권과 적정임금 보장을 정리한다.</w:t></w:r></w:p>
+    <w:p>
+      <w:pPr><w:pStyle w:val="1"/></w:pPr>
+      <w:r><w:t>2. 임금</w:t></w:r>
+    </w:p>
+    <w:p><w:r><w:t>통상임금과 평균임금을 비교한다.</w:t></w:r></w:p>
+  </w:body>
+</w:document>
+""",
+            )
+
+    def create_sample_pdf(self, path: Path) -> None:
+        document = fitz.open()
+
+        intro_page = document.new_page()
+        intro_page.insert_text((72, 72), "Labor Law Notes")
+        intro_page.insert_text((72, 100), "Core precedents")
+        intro_page.insert_text((72, 128), "Contents")
+        intro_page.insert_text((72, 790), "1")
+
+        section_page = document.new_page()
+        section_page.insert_text((72, 72), "S E C T I O N")
+        section_page.insert_text((72, 100), "General")
+        section_page.insert_text((72, 124), "2 cases")
+        section_page.insert_text((72, 170), "No.001")
+        section_page.insert_text((72, 194), "Customary practice")
+        section_page.insert_text((72, 218), "Mnemonic")
+        section_page.insert_text((72, 242), "[sample cue]")
+        section_page.insert_text((72, 266), "Holding")
+        section_page.insert_text((72, 290), "Internal practice can become part of a labor contract.")
+        section_page.insert_text((72, 790), "2")
+
+        next_page = document.new_page()
+        next_page.insert_text((72, 72), "No.002")
+        next_page.insert_text((72, 100), "Favorability principle")
+        next_page.insert_text((72, 128), "Key point")
+        next_page.insert_text((72, 156), "A revised CBA includes priority application of the revised terms.")
+        next_page.insert_text((72, 790), "3")
+
+        another_section = document.new_page()
+        another_section.insert_text((72, 72), "S E C T I O N")
+        another_section.insert_text((72, 100), "Wages")
+        another_section.insert_text((72, 124), "1 case")
+        another_section.insert_text((72, 170), "No.003")
+        another_section.insert_text((72, 194), "Wage criteria")
+        another_section.insert_text((72, 218), "Money paid regularly in return for work.")
+        another_section.insert_text((72, 790), "4")
+
+        document.save(path)
+        document.close()
+
+    def test_load_epub_chapters_reads_spine_order_and_titles(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            epub_path = Path(tmpdir) / "sample.epub"
+            self.create_sample_epub(epub_path)
+
+            chapters = audiobook_maker.load_epub_chapters(epub_path)
+
+        self.assertEqual([chapter.title for chapter in chapters], ["1. 헌법", "2. 근로기준법"])
+        self.assertEqual(chapters[0].text, "근로의 권리를 정리한다.")
+        self.assertIn("근로조건", chapters[1].text)
+        self.assertIn("해고 제한", chapters[1].text)
+
+    def test_input_file_format_detects_docx(self) -> None:
+        self.assertEqual(audiobook_maker.input_file_format(Path("/tmp/sample.docx")), "docx")
+
+    def test_input_file_format_detects_pdf(self) -> None:
+        self.assertEqual(audiobook_maker.input_file_format(Path("/tmp/sample.pdf")), "pdf")
+
+    def test_load_docx_chapters_uses_heading_1_as_chapter_boundary(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            docx_path = Path(tmpdir) / "sample.docx"
+            self.create_sample_docx(docx_path)
+
+            chapters = audiobook_maker.load_docx_chapters(docx_path)
+
+        self.assertEqual([chapter.title for chapter in chapters], ["1. 헌법 · 연혁", "2. 임금"])
+        self.assertIn("노동법 핵심 체계 정리", chapters[0].text)
+        self.assertIn("1-1. 헌법 제32조 핵심", chapters[0].text)
+        self.assertIn("통상임금과 평균임금을 비교한다.", chapters[1].text)
+
+    def test_load_docx_chapters_accepts_heading1_style_id(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            docx_path = Path(tmpdir) / "sample_heading1.docx"
+            with zipfile.ZipFile(docx_path, "w") as archive:
+                archive.writestr(
+                    "[Content_Types].xml",
+                    """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>
+""",
+                )
+                archive.writestr(
+                    "_rels/.rels",
+                    """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>
+""",
+                )
+                archive.writestr(
+                    "word/document.xml",
+                    """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+      <w:r><w:t>1. 총론</w:t></w:r>
+    </w:p>
+    <w:p><w:r><w:t>첫 장 내용</w:t></w:r></w:p>
+    <w:p>
+      <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+      <w:r><w:t>2. 각론</w:t></w:r>
+    </w:p>
+    <w:p><w:r><w:t>둘째 장 내용</w:t></w:r></w:p>
+  </w:body>
+</w:document>
+""",
+                )
+
+            chapters = audiobook_maker.load_docx_chapters(docx_path)
+
+        self.assertEqual([chapter.title for chapter in chapters], ["1. 총론", "2. 각론"])
+
+    def test_load_docx_text_preserves_paragraph_order(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            docx_path = Path(tmpdir) / "sample.docx"
+            self.create_sample_docx(docx_path)
+
+            text = audiobook_maker.load_docx_text(docx_path)
+
+        self.assertIn("노동법 핵심 체계 정리", text)
+        self.assertIn("1. 헌법 · 연혁", text)
+        self.assertIn("2. 임금", text)
+
+    def test_load_pdf_chapters_groups_pages_by_section_marker(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            pdf_path = Path(tmpdir) / "sample.pdf"
+            self.create_sample_pdf(pdf_path)
+
+            chapters = audiobook_maker.load_pdf_chapters(pdf_path)
+
+        self.assertEqual([chapter.title for chapter in chapters], ["General", "Wages"])
+        self.assertIn("Labor Law Notes", chapters[0].text)
+        self.assertIn("Contents", chapters[0].text)
+        self.assertIn("No.001", chapters[0].text)
+        self.assertIn("No.002", chapters[0].text)
+        self.assertNotIn("\n2\n", f"\n{chapters[0].text}\n")
+        self.assertIn("No.003", chapters[1].text)
+
+    def test_load_pdf_text_omits_page_number_blocks(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            pdf_path = Path(tmpdir) / "sample.pdf"
+            self.create_sample_pdf(pdf_path)
+
+            text = audiobook_maker.load_pdf_text(pdf_path)
+
+        self.assertIn("Labor Law Notes", text)
+        self.assertIn("Favorability principle", text)
+        self.assertNotIn("\n1\n", f"\n{text}\n")
+
+    def test_looks_like_docx_top_level_heading_accepts_numbered_title(self) -> None:
+        self.assertTrue(audiobook_maker.looks_like_docx_top_level_heading("1. 헌법 · 연혁"))
+        self.assertFalse(audiobook_maker.looks_like_docx_top_level_heading("1-1. 헌법 제32조 핵심"))
+
+    def test_build_study_audio_sections_sets_next_title(self) -> None:
+        chapters = [
+            audiobook_maker.SourceChapter(index=1, title="1장", text="첫 장 내용"),
+            audiobook_maker.SourceChapter(index=2, title="2장", text="둘째 장 내용"),
+        ]
+
+        sections = audiobook_maker.build_study_audio_sections(chapters, max_source_chars=3500)
+
+        self.assertEqual(len(sections), 2)
+        self.assertEqual(sections[0].next_title, "2장")
+        self.assertIsNone(sections[1].next_title)
+
+    def test_merge_short_adjacent_chapters_combines_neighboring_short_chapters(self) -> None:
+        chapters = [
+            audiobook_maker.SourceChapter(index=1, title="1장", text="가" * 900),
+            audiobook_maker.SourceChapter(index=2, title="2장", text="나" * 120),
+            audiobook_maker.SourceChapter(index=3, title="3장", text="다" * 180),
+            audiobook_maker.SourceChapter(index=4, title="4장", text="라" * 950),
+            audiobook_maker.SourceChapter(index=5, title="5장", text="마" * 80),
+        ]
+
+        merged = audiobook_maker.merge_short_adjacent_chapters(chapters, min_chars=300)
+
+        self.assertEqual([chapter.title for chapter in merged], ["1장", "2장", "4장"])
+        self.assertEqual(len(merged), 3)
+        self.assertIn("2장", merged[1].text)
+        self.assertIn("3장", merged[1].text)
+        self.assertIn("5장", merged[2].text)
 
 
 class ChatGPTWebWorkflowTests(unittest.TestCase):
@@ -382,11 +759,102 @@ class AudioFormatTests(unittest.TestCase):
 
         self.assertEqual(audiobook_maker.temp_audio_suffix(args), ".mp3")
 
+    def test_gemini_web_uses_ogg_temp_audio(self) -> None:
+        args = Namespace(provider="gemini_web")
+
+        self.assertEqual(audiobook_maker.temp_audio_suffix(args), ".ogg")
+
+    def test_gemini_api_tts_uses_wav_temp_audio(self) -> None:
+        args = Namespace(provider="gemini_api_tts")
+
+        self.assertEqual(audiobook_maker.temp_audio_suffix(args), ".wav")
+
     def test_partial_audio_path_inserts_partial_before_suffix(self) -> None:
         self.assertEqual(
             audiobook_maker.partial_audio_path(Path("/tmp/book.m4a")),
             Path("/tmp/book.partial.m4a"),
         )
+
+    def test_extract_gemini_web_audio_bytes_from_batchexecute_decodes_ogg_payload(self) -> None:
+        expected = b"OggS" + (b"\x00" * 256)
+        encoded = base64.b64encode(expected).decode("ascii")
+        response = ')]}\'\n\n123\n[["wrb.fr","XqA3Ic","[\\"' + encoded + '\\"]"]]'
+
+        actual = audiobook_maker.extract_gemini_web_audio_bytes_from_batchexecute(response)
+
+        self.assertEqual(actual, expected)
+
+    def test_extract_gemini_web_audio_bytes_from_batchexecute_accepts_missing_padding(self) -> None:
+        expected = b"OggS" + (b"\x00" * 257)
+        encoded = base64.b64encode(expected).decode("ascii").rstrip("=")
+        response = ')]}\'\n\n123\n[["wrb.fr","XqA3Ic","[\\"' + encoded + '\\"]"]]'
+
+        actual = audiobook_maker.extract_gemini_web_audio_bytes_from_batchexecute(response)
+
+        self.assertEqual(actual, expected)
+
+    def test_extract_gemini_web_audio_bytes_from_blob_data_url_decodes_ogg_payload(self) -> None:
+        expected = b"OggS" + (b"\x00" * 256)
+        encoded = base64.b64encode(expected).decode("ascii")
+
+        actual = audiobook_maker.extract_gemini_web_audio_bytes_from_blob_data_url(
+            f"data:audio/ogg;base64,{encoded}"
+        )
+
+        self.assertEqual(actual, expected)
+
+    def test_fetch_gemini_web_audio_bytes_uses_blob_url_fallback(self) -> None:
+        expected = b"OggS" + (b"\x00" * 256)
+        encoded = base64.b64encode(expected).decode("ascii")
+        page = Mock()
+        page.evaluate.side_effect = [
+            None,
+            {"ok": True, "count": 1},
+            [
+                {"kind": "blob_url", "url": "blob:test-audio", "type": "audio/ogg", "size": len(expected)},
+                {"kind": "xhr_done", "status": 200, "responseText": "not-audio"},
+            ],
+            {"ok": True, "dataUrl": f"data:audio/ogg;base64,{encoded}", "type": "audio/ogg", "size": len(expected)},
+        ]
+        page.wait_for_timeout = Mock()
+
+        actual = audiobook_maker.fetch_gemini_web_audio_bytes(page, timeout_sec=10)
+
+        self.assertEqual(actual, expected)
+        page.wait_for_timeout.assert_not_called()
+
+    def test_extract_gemini_api_tts_pcm_bytes_decodes_inline_data(self) -> None:
+        expected = b"\x01\x02" * 100
+        encoded = base64.b64encode(expected).decode("ascii").rstrip("=")
+        payload = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "inlineData": {
+                                    "mimeType": "audio/pcm",
+                                    "data": encoded,
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+
+        actual, mime_type = audiobook_maker.extract_gemini_api_tts_pcm_bytes(payload)
+
+        self.assertEqual(actual, expected)
+        self.assertEqual(mime_type, "audio/pcm")
+
+    def test_wav_bytes_from_pcm_s16le_writes_valid_header(self) -> None:
+        pcm_bytes = b"\x01\x02" * 100
+
+        actual = audiobook_maker.wav_bytes_from_pcm_s16le(pcm_bytes)
+
+        self.assertTrue(actual.startswith(b"RIFF"))
+        self.assertIn(b"WAVE", actual[:16])
 
 
 class AudioValidationTests(unittest.TestCase):
