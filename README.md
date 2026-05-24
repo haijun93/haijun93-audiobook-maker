@@ -129,7 +129,7 @@ MAX_CHARS=2500 \
 ```
 
 기본적으로 watchdog가 켜져 있습니다.
-- `WATCHDOG_STALL_SEC=120`: heartbeat나 산출물 갱신이 120초 없으면 현재 합성 프로세스를 강제 종료하고 즉시 재시작합니다.
+- `WATCHDOG_STALL_SEC=1200`: heartbeat나 산출물 갱신이 1200초 없으면 현재 합성 프로세스를 강제 종료하고 즉시 재시작합니다. ChatGPT 웹 rate limit 대기보다 짧게 잡으면 정상 대기 중인 작업도 중복 재시작될 수 있습니다.
 - `WATCHDOG_POLL_SEC=15`: 정체 여부를 확인하는 주기입니다.
 - `WATCHDOG_KILL_GRACE_SEC=10`: 정상 종료를 기다린 뒤 강제 종료로 넘어가기 전 유예 시간입니다.
 
@@ -158,6 +158,65 @@ python3 ./scripts/export_docx_to_pdf_epub.py "/path/to/book.docx"
 - Pages로 DOCX를 PDF와 EPUB로 내보냅니다.
 - 생성된 PDF의 첫 페이지를 렌더링합니다.
 - 그 이미지를 EPUB cover metadata에 넣어, EPUB 표지가 항상 첫 페이지 내용이 되도록 고정합니다.
+
+## 웹 서비스로 문서 분석하기
+
+문서 분석은 두 가지 모드로 지원합니다.
+
+### 1. 기본 문서 분석
+
+기본 분석은 `ChatGPT 웹 서비스`만 사용합니다.
+
+```bash
+python3 ./scripts/analyze_document_with_web_services.py \
+  --analysis-mode basic \
+  --input-file "./book.docx" \
+  --output-file "./analysis/book.analysis.md"
+```
+
+또는 wrapper 스크립트:
+
+```bash
+ANALYSIS_MODE=basic \
+./scripts/run_multi_web_document_analysis.sh \
+  "./book.docx" \
+  "./analysis/book.analysis.md"
+```
+
+### 2. 문서 심화 분석
+
+심화 분석은 `ChatGPT 웹 → 클라우드(Claude) 웹 → Gemini 웹` 순서로 같은 문서를 단계적으로 분석하고 검증합니다.
+만약 분석 도중 Claude 웹이 사용량 한도로 중단되면, 이후 단계는 자동으로 `ChatGPT 웹 + Gemini 웹` 교차 검증 방식으로 이어집니다.
+
+```bash
+python3 ./scripts/analyze_document_with_web_services.py \
+  --analysis-mode deep \
+  --input-file "./book.docx" \
+  --output-file "./analysis/book.deep.md" \
+  --apply-results-to-docx-pdf
+```
+
+또는 wrapper 스크립트:
+
+```bash
+ANALYSIS_MODE=deep \
+./scripts/run_multi_web_document_analysis.sh \
+  "./book.docx" \
+  "./analysis/book.deep.md"
+```
+
+`deep + docx` 조합에서는 wrapper 스크립트가 기본적으로 `심화분석 완료 → deep.md 저장 → 원본 docx 반영 → pdf 재생성` 루틴까지 자동 실행합니다.
+원하지 않으면 `APPLY_RESULTS_AFTER_ANALYSIS=0`으로 끌 수 있습니다.
+
+문서 분석 스크립트 특징:
+- `docx` / `pdf` / `epub` / `txt` 입력 지원
+- 문서를 큰 조각으로 나눈 뒤 웹 서비스에 순차 전달
+- `basic`: ChatGPT 웹 분석 후 통합
+- `deep`: ChatGPT 초안 → 클라우드(Claude) 검토 → Gemini 검증 → 최종 통합본까지 순차 수행
+- Claude 웹 사용량 한도 발생 시 자동으로 Claude 단계를 건너뛰고 `ChatGPT + Gemini`로 계속 진행
+- `deep + docx`: 분석이 끝나면 `문서심화분석 반영` 섹션을 자동 교체하고 PDF도 다시 생성
+- 작업 폴더에 프롬프트, 응답, heartbeat, manifest를 함께 저장
+- Chrome의 `chatgpt.com`, `claude.ai`, `gemini.google.com` 로그인 세션이 필요
 
 ## 산출물
 

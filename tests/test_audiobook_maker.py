@@ -20,6 +20,12 @@ class HeadingDetectionTests(unittest.TestCase):
     def test_rejects_regular_sentence(self) -> None:
         self.assertFalse(audiobook_maker.looks_like_heading("그날 밤은 유난히 조용했다."))
 
+    def test_rejects_answer_marker_line_as_heading(self) -> None:
+        self.assertFalse(audiobook_maker.looks_like_heading("● 정답: O"))
+
+    def test_rejects_korean_mixed_ox_title_as_uppercase_heading(self) -> None:
+        self.assertFalse(audiobook_maker.looks_like_heading("노동법 OX 통합본"))
+
 
 class SectionSplitTests(unittest.TestCase):
     def test_heading_stays_with_first_body_chunk(self) -> None:
@@ -53,7 +59,7 @@ class SectionSplitTests(unittest.TestCase):
             child_sections = audiobook_maker.build_retry_child_sections(
                 work_dir,
                 prefix="138_02",
-                text="원본 전체 텍스트",
+                text="첫 번째 조각\n\n두 번째 조각",
             )
 
         self.assertEqual([section.text for section in child_sections], ["첫 번째 조각", "두 번째 조각"])
@@ -104,6 +110,29 @@ class SectionSplitTests(unittest.TestCase):
             ["그는 숨을 고르고,", "천천히 고개를 들며", "다음 말을 이었다."],
         )
 
+    def test_retry_split_merges_overly_short_exact_copy_fragments(self) -> None:
+        text = "1. 사회보장수급권은 정당한 권한이 있는 기관에 서면으로 통지하여 포기할 수 있고, 그 포기는 취소할 수 있다."
+        mismatch = audiobook_maker.ChatGPTWebExactCopyMismatchError(
+            "응답 텍스트가 입력과 일치하지 않습니다",
+            response_text="사회보장수급권은 정당한 권한이 있는",
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            child_sections = audiobook_maker.build_retry_child_sections(
+                Path(tmpdir),
+                prefix="004_23",
+                text=text,
+                last_error=mismatch,
+            )
+
+        self.assertEqual(
+            [audiobook_maker.normalize_chatgpt_web_copy(section.text) for section in child_sections],
+            [
+                "1. 사회보장수급권은 정당한 권한이 있는 기관에 서면으로 통지하여",
+                "포기할 수 있고, 그 포기는 취소할 수 있다.",
+            ],
+        )
+
     def test_split_text_into_breath_units_balances_plain_word_runs(self) -> None:
         self.assertEqual(
             audiobook_maker.split_text_into_breath_units("하나 둘 셋 넷 다섯 여섯 일곱"),
@@ -134,6 +163,81 @@ class SectionSplitTests(unittest.TestCase):
             [section.text for section in child_sections],
             ["첫 문장이다.", "둘째 문장이다."],
         )
+
+    def test_merge_short_adjacent_audio_sections_groups_small_neighbors(self) -> None:
+        sections = [
+            audiobook_maker.AudioSection(index=1, title="제1장", text="가" * 120),
+            audiobook_maker.AudioSection(index=2, title=None, text="나" * 180),
+            audiobook_maker.AudioSection(index=3, title=None, text="다" * 210),
+            audiobook_maker.AudioSection(index=4, title=None, text="라" * 220),
+        ]
+
+        merged = audiobook_maker.merge_short_adjacent_audio_sections(
+            sections,
+            min_chars=600,
+            max_chars=1800,
+        )
+
+        self.assertEqual(len(merged), 1)
+        self.assertGreaterEqual(len(merged[0].text), 600)
+        self.assertEqual(merged[0].title, "제1장")
+
+    def test_merge_short_adjacent_audio_sections_flushes_before_new_title(self) -> None:
+        sections = [
+            audiobook_maker.AudioSection(index=1, title="제1장", text="가" * 350),
+            audiobook_maker.AudioSection(index=2, title="제2장", text="나" * 350),
+        ]
+
+        merged = audiobook_maker.merge_short_adjacent_audio_sections(
+            sections,
+            min_chars=600,
+            max_chars=1800,
+        )
+
+        self.assertEqual(len(merged), 2)
+        self.assertEqual(merged[0].title, "제1장")
+        self.assertEqual(merged[1].title, "제2장")
+
+    def test_merge_short_adjacent_audio_sections_waits_for_word_minimum(self) -> None:
+        def words(start: int, count: int) -> str:
+            return " ".join(f"단어{n}" for n in range(start, start + count))
+
+        sections = [
+            audiobook_maker.AudioSection(index=1, title=None, text=words(1, 120)),
+            audiobook_maker.AudioSection(index=2, title=None, text=words(121, 120)),
+            audiobook_maker.AudioSection(index=3, title=None, text=words(241, 120)),
+            audiobook_maker.AudioSection(index=4, title=None, text=words(361, 120)),
+            audiobook_maker.AudioSection(index=5, title=None, text=words(481, 120)),
+        ]
+
+        merged = audiobook_maker.merge_short_adjacent_audio_sections(
+            sections,
+            min_chars=30,
+            max_chars=3000,
+        )
+
+        self.assertEqual(len(merged), 1)
+        self.assertGreaterEqual(audiobook_maker.count_text_words(merged[0].text), 600)
+
+    def test_merge_retry_breath_sections_waits_for_word_minimum(self) -> None:
+        def words(start: int, count: int) -> str:
+            return " ".join(f"단어{n}" for n in range(start, start + count))
+
+        sections = [
+            audiobook_maker.AudioSection(index=1, title=None, text=words(1, 120)),
+            audiobook_maker.AudioSection(index=2, title=None, text=words(121, 120)),
+            audiobook_maker.AudioSection(index=3, title=None, text=words(241, 120)),
+            audiobook_maker.AudioSection(index=4, title=None, text=words(361, 120)),
+            audiobook_maker.AudioSection(index=5, title=None, text=words(481, 120)),
+        ]
+
+        merged = audiobook_maker.merge_retry_breath_sections(
+            sections,
+            min_chars=30,
+        )
+
+        self.assertEqual(len(merged), 1)
+        self.assertGreaterEqual(audiobook_maker.count_text_words(merged[0].text), 600)
 
     def test_policy_refusal_detector_accepts_variant_refusal_wording(self) -> None:
         response = (
@@ -376,8 +480,357 @@ class ChatGPTWebNormalizationTests(unittest.TestCase):
 
         self.assertTrue(audiobook_maker.is_chatgpt_web_rate_limit_text(message))
 
+    def test_classify_chatgpt_web_notice_text_detects_rate_limit_notice(self) -> None:
+        notice = audiobook_maker.classify_chatgpt_web_notice_text(
+            "요청을 너무 빠르게 보내고 있습니다. 데이터를 보호하기 위해 대화 액세스가 일시적으로 제한되었습니다."
+        )
+
+        self.assertEqual(
+            notice,
+            audiobook_maker.ChatGPTWebNotice(
+                kind="conversation_rate_limit",
+                action="reset_chat",
+                message=audiobook_maker.normalize_chatgpt_web_copy(
+                    "요청을 너무 빠르게 보내고 있습니다. 데이터를 보호하기 위해 대화 액세스가 일시적으로 제한되었습니다."
+                ),
+            ),
+        )
+
+    def test_classify_chatgpt_web_notice_text_detects_speed_only_rate_limit_notice(self) -> None:
+        notice = audiobook_maker.classify_chatgpt_web_notice_text(
+            "요청을 너무 빠르게 보내고 있습니다. 몇 분 후 다시 시도해 주세요."
+        )
+
+        self.assertEqual(
+            notice,
+            audiobook_maker.ChatGPTWebNotice(
+                kind="rate_limit",
+                action="wait",
+                message=audiobook_maker.normalize_chatgpt_web_copy(
+                    "요청을 너무 빠르게 보내고 있습니다. 몇 분 후 다시 시도해 주세요."
+                ),
+            ),
+        )
+
+    def test_classify_chatgpt_web_notice_text_detects_login_required_notice(self) -> None:
+        notice = audiobook_maker.classify_chatgpt_web_notice_text(
+            "세션이 만료되었습니다. 다시 로그인해 주세요."
+        )
+
+        self.assertEqual(notice.kind, "login_required")
+        self.assertEqual(notice.action, "raise")
+
+    def test_classify_chatgpt_web_notice_text_detects_retryable_error_notice(self) -> None:
+        notice = audiobook_maker.classify_chatgpt_web_notice_text(
+            "Something went wrong while generating the response."
+        )
+
+        self.assertEqual(notice.kind, "retryable_error")
+        self.assertEqual(notice.action, "retry")
+
+    def test_choose_chatgpt_web_notice_prioritizes_login_over_retryable_error(self) -> None:
+        notice = audiobook_maker.choose_chatgpt_web_notice(
+            [
+                "Something went wrong while generating the response.",
+                "세션이 만료되었습니다. 다시 로그인해 주세요.",
+            ]
+        )
+
+        self.assertEqual(notice.kind, "login_required")
+
+    def test_read_chatgpt_web_notice_messages_consumes_dialog_messages(self) -> None:
+        class FakePage:
+            def __init__(self) -> None:
+                self._chatgpt_dialog_messages = ["요청을 너무 빠르게 보내고 있습니다."]
+
+            def evaluate(self, _script: str, _payload: object) -> list[str]:
+                return []
+
+        page = FakePage()
+
+        first = audiobook_maker.read_chatgpt_web_notice_messages(page)
+        second = audiobook_maker.read_chatgpt_web_notice_messages(page)
+
+        self.assertEqual(first, ["요청을 너무 빠르게 보내고 있습니다."])
+        self.assertEqual(second, [])
+
+    def test_close_chatgpt_web_notice_ui_uses_dismiss_button_first(self) -> None:
+        with patch("audiobook_maker.click_chatgpt_web_notice_button", return_value=True):
+            page = Mock()
+
+            closed = audiobook_maker.close_chatgpt_web_notice_ui(page)
+
+        self.assertTrue(closed)
+        page.evaluate.assert_not_called()
+
+    def test_chatgpt_web_dismiss_button_labels_include_korean_acknowledge(self) -> None:
+        self.assertIn("알겠습니다", audiobook_maker.CHATGPT_WEB_DISMISS_BUTTON_LABELS)
+
+    def test_close_chatgpt_web_notice_ui_uses_dom_modal_button_fallback(self) -> None:
+        page = Mock()
+
+        with patch("audiobook_maker.click_chatgpt_web_notice_button", return_value=False):
+            with patch(
+                "audiobook_maker.click_chatgpt_web_notice_button_via_dom",
+                side_effect=[True],
+            ) as dom_click:
+                closed = audiobook_maker.close_chatgpt_web_notice_ui(page)
+
+        self.assertTrue(closed)
+        dom_click.assert_called_once()
+
+    def test_close_chatgpt_web_notice_ui_falls_back_to_escape(self) -> None:
+        page = Mock()
+        page.evaluate.side_effect = RuntimeError("no dom")
+        page.keyboard = Mock()
+
+        with patch("audiobook_maker.click_chatgpt_web_notice_button", return_value=False):
+            closed = audiobook_maker.close_chatgpt_web_notice_ui(page)
+
+        self.assertTrue(closed)
+        page.keyboard.press.assert_called_once_with("Escape")
+
 
 class SourceLoadingTests(unittest.TestCase):
+    def test_is_low_quality_ox_statement_detects_choice_only_lines(self) -> None:
+        self.assertTrue(audiobook_maker.is_low_quality_ox_statement("ㄱ"))
+        self.assertTrue(audiobook_maker.is_low_quality_ox_statement("ㄱ, ㄴ"))
+        self.assertTrue(audiobook_maker.is_low_quality_ox_statement("①, ③"))
+        self.assertFalse(audiobook_maker.is_low_quality_ox_statement("근로조건의 기준은 인간의 존엄성을 보장하도록 법률로 정한다."))
+
+    def test_remove_low_quality_ox_blocks_drops_entire_question_blocks(self) -> None:
+        text = (
+            "■ 헌법·총론\n"
+            "27. ㄱ\n"
+            "● 정답: O\n"
+            "근거: 대한민국 헌법\n"
+            "해설: 정답은 O입니다.\n"
+            "출처: 2016 A형 26번\n"
+            "28. 제대로 된 문장이다.\n"
+            "● 정답: X\n"
+            "근거: 대한민국 헌법\n"
+            "해설: 기존 해설\n"
+            "출처: 2016 A형 27번\n"
+        )
+
+        stripped = audiobook_maker.remove_low_quality_ox_blocks(text)
+
+        self.assertNotIn("27. ㄱ", stripped)
+        self.assertNotIn("출처: 2016 A형 26번", stripped)
+        self.assertIn("28. 제대로 된 문장이다.", stripped)
+
+    def test_build_correct_choice_explanation_map_uses_matching_o_entry(self) -> None:
+        entries = [
+            {
+                "number": 1,
+                "year": "2014",
+                "question_no": 17,
+                "option_no": "1",
+                "statement": "문제 [선택지 1: 첫 번째 보기]",
+                "answer": "X",
+                "source": "2014 A형 17번",
+            },
+            {
+                "number": 2,
+                "year": "2014",
+                "question_no": 17,
+                "option_no": "3",
+                "statement": "문제 [선택지 3: 올바른 보기]",
+                "answer": "O",
+                "source": "2014 A형 17번",
+            },
+        ]
+
+        explanation_map = audiobook_maker.build_correct_choice_explanation_map(entries)
+
+        self.assertEqual(
+            explanation_map["2014 A형 17번"],
+            "정답은 X입니다. 이 원문 문제의 정답 선택지는 3번입니다. 올바른 보기.",
+        )
+
+    def test_replace_x_explanations_with_correct_answers_rewrites_only_x_entries(self) -> None:
+        text = (
+            "1. 첫 문제 [선택지 1: 보기]\n"
+            "● 정답: X\n"
+            "해설: 기존 해설\n"
+            "출처: 2014 A형 17번\n"
+            "2. 둘째 문제\n"
+            "● 정답: O\n"
+            "해설: 유지 해설"
+        )
+
+        rewritten = audiobook_maker.replace_x_explanations_with_correct_answers(
+            text,
+            {"2014 A형 17번": "정답은 X입니다. 이 원문 문제의 정답 선택지는 3번입니다. 올바른 보기."},
+        )
+
+        self.assertIn(
+            "해설: 정답은 X입니다. 이 원문 문제의 정답 선택지는 3번입니다. 올바른 보기.",
+            rewritten,
+        )
+        self.assertIn("해설: 유지 해설", rewritten)
+
+    def test_strip_repetitive_audio_guidance_sentences_removes_requested_sentence(self) -> None:
+        text = (
+            "해설: 정답은 O입니다. "
+            "관련 조문의 정확한 표현과 요건을 법령 원문에서 확인하고 암기하시기 바랍니다. "
+            "다음 문장입니다."
+        )
+
+        stripped = audiobook_maker.strip_repetitive_audio_guidance_sentences(text)
+
+        self.assertEqual(stripped, "해설: 정답은 O입니다. 다음 문장입니다.")
+
+    def test_strip_repetitive_audio_guidance_sentences_removes_legal_match_sentence(self) -> None:
+        text = (
+            "해설: 정답은 O입니다. "
+            "위 진술은 대한민국 헌법에서 규정하는 내용과 일치합니다. "
+            "다음 문장입니다."
+        )
+
+        stripped = audiobook_maker.strip_repetitive_audio_guidance_sentences(text)
+
+        self.assertEqual(stripped, "해설: 정답은 O입니다. 다음 문장입니다.")
+
+    def test_strip_repetitive_audio_guidance_sentences_removes_any_matching_law_sentence(self) -> None:
+        text = (
+            "해설: 정답은 O입니다. "
+            "위 진술은 노동조합 및 노동관계조정법에서 규정하는 내용과 일치합니다. "
+            "다음 문장입니다."
+        )
+
+        stripped = audiobook_maker.strip_repetitive_audio_guidance_sentences(text)
+
+        self.assertEqual(stripped, "해설: 정답은 O입니다. 다음 문장입니다.")
+
+    def test_strip_repetitive_audio_guidance_sentences_removes_ox_answer_sheet_phrase(self) -> None:
+        text = (
+            "머리말입니다. "
+            "OX 정답표 구간 정답 최종 정오표 항목 최종 확인 "
+            "다음 문장입니다."
+        )
+
+        stripped = audiobook_maker.strip_repetitive_audio_guidance_sentences(text)
+
+        self.assertEqual(stripped, "머리말입니다. 다음 문장입니다.")
+
+    def test_strip_repetitive_audio_guidance_sentences_removes_nine_answer_pattern_phrase(self) -> None:
+        text = (
+            "머리말입니다. "
+            "정답표 · 최종 정오표 정답은 9개씩 묶어서 확인하면 오답 패턴이 더 잘 보인다. "
+            "다음 문장입니다."
+        )
+
+        stripped = audiobook_maker.strip_repetitive_audio_guidance_sentences(text)
+
+        self.assertEqual(stripped, "머리말입니다. 다음 문장입니다.")
+
+    def test_strip_audio_source_lines_removes_source_paragraphs(self) -> None:
+        text = (
+            "1. 첫 문제\n\n"
+            "정답: O\n\n"
+            "출처: 2014 A형 14번\n\n"
+            "2. 둘째 문제"
+        )
+
+        stripped = audiobook_maker.strip_audio_source_lines(text)
+
+        self.assertEqual(stripped, "1. 첫 문제\n\n정답: O\n\n2. 둘째 문제")
+
+    def test_strip_audio_source_lines_keeps_non_source_mentions(self) -> None:
+        text = "해설: 판례의 출처를 함께 검토한다."
+
+        stripped = audiobook_maker.strip_audio_source_lines(text)
+
+        self.assertEqual(stripped, audiobook_maker.normalize_text(text))
+
+    def test_strip_ox_answer_checklist_lines_removes_dense_answer_summary(self) -> None:
+        text = (
+            "10. X 11. O 12. O 13. X 14. O 15. O 16. X 17. O 18. O\n\n"
+            "다음 문제 본문"
+        )
+
+        stripped = audiobook_maker.strip_ox_answer_checklist_lines(text)
+
+        self.assertEqual(stripped, "다음 문제 본문")
+
+    def test_strip_ox_answer_checklist_lines_removes_grouped_answer_summary_with_ranges(self) -> None:
+        text = (
+            "19~27 19. X 20. X 21. O 22. X 23. O 24. O 25. O 26. X 27. O "
+            "28~36 28. O 29. X 30. X 31. O 32. O 33. O 34. O 35. O 36. X\n\n"
+            "다음 본문"
+        )
+
+        stripped = audiobook_maker.strip_ox_answer_checklist_lines(text)
+
+        self.assertEqual(stripped, "다음 본문")
+
+    def test_strip_ox_answer_checklist_lines_keeps_single_answer_statement(self) -> None:
+        text = "10. X가 정답이라는 설명은 뒤 문단에서 다룬다."
+
+        stripped = audiobook_maker.strip_ox_answer_checklist_lines(text)
+
+        self.assertEqual(stripped, text)
+
+    def test_strip_ox_answer_checklist_lines_removes_range_only_lines(self) -> None:
+        text = "19~27\n28~36\n\n다음 본문"
+
+        stripped = audiobook_maker.strip_ox_answer_checklist_lines(text)
+
+        self.assertEqual(stripped, "다음 본문")
+
+    def test_strip_non_learning_ascii_lines_removes_url_and_domain_lines(self) -> None:
+        text = (
+            "https://www.law.go.kr/lsLinkProc.do?foo=bar\n"
+            "www.openai.com/docs\n"
+            "남는 본문"
+        )
+
+        stripped = audiobook_maker.strip_non_learning_ascii_lines(text)
+
+        self.assertEqual(stripped, "남는 본문")
+
+    def test_strip_non_learning_ascii_lines_removes_long_pure_english_sentence(self) -> None:
+        text = (
+            "OpenAI API quickstart guide for speech synthesis and browser automation\n\n"
+            "다음 본문"
+        )
+
+        stripped = audiobook_maker.strip_non_learning_ascii_lines(text)
+
+        self.assertEqual(stripped, "다음 본문")
+
+    def test_strip_non_learning_ascii_lines_keeps_short_study_terms(self) -> None:
+        text = "SWOT\nBCG matrix\nERP\n본문"
+
+        stripped = audiobook_maker.strip_non_learning_ascii_lines(text)
+
+        self.assertEqual(stripped, audiobook_maker.normalize_text(text))
+
+    def test_strip_trailing_official_law_reference_section_removes_reference_appendix(self) -> None:
+        text = (
+            "458. 마지막 문제\n\n"
+            "정답: O\n\n"
+            "5. 공식 법령 확인 경로\n\n"
+            "사회보장기본법\n"
+            "https://www.law.go.kr/lsLinkProc.do?foo=bar\n"
+        )
+
+        stripped = audiobook_maker.strip_trailing_official_law_reference_section(text)
+
+        self.assertEqual(stripped, "458. 마지막 문제\n\n정답: O")
+
+    def test_strip_trailing_official_law_reference_section_keeps_regular_mid_document_heading(self) -> None:
+        text = (
+            "1. 공식 법령 확인 경로\n\n"
+            "이 부분은 본문 중간 안내일 뿐입니다.\n\n"
+            "마지막 문단"
+        )
+
+        stripped = audiobook_maker.strip_trailing_official_law_reference_section(text)
+
+        self.assertEqual(stripped, audiobook_maker.normalize_text(text))
+
     def create_sample_epub(self, path: Path) -> None:
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr("mimetype", "application/epub+zip")
@@ -700,7 +1153,8 @@ class ChatGPTWebWorkflowTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             work_dir = Path(tmpdir)
-            (work_dir / "001_01.txt").write_text("첫 하위 조각", encoding="utf-8")
+            combined_child_text = "첫 번째 더 깊은 조각\n\n두 번째 더 깊은 조각"
+            (work_dir / "001_01.txt").write_text(combined_child_text, encoding="utf-8")
             (work_dir / "001_01_01.txt").write_text("첫 번째 더 깊은 조각", encoding="utf-8")
             (work_dir / "001_01_02.txt").write_text("두 번째 더 깊은 조각", encoding="utf-8")
             split_audio_1 = work_dir / "001_01_01.mp3"
@@ -715,7 +1169,7 @@ class ChatGPTWebWorkflowTests(unittest.TestCase):
                 chatgpt_web_visible=False,
                 voice="cove",
             )
-            sections = [audiobook_maker.AudioSection(index=1, title=None, text="원본 전체 텍스트")]
+            sections = [audiobook_maker.AudioSection(index=1, title=None, text=combined_child_text)]
 
             with patch(
                 "audiobook_maker.load_chatgpt_web_modules",

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import difflib
 import html
 import io
 import json
@@ -85,6 +86,13 @@ class GeminiApiTtsRateLimitError(RuntimeError):
         self.retry_after_sec = retry_after_sec
 
 
+@dataclass(frozen=True)
+class ChatGPTWebNotice:
+    kind: str
+    action: str
+    message: str
+
+
 @dataclass
 class ProgressHeartbeat:
     path: Path
@@ -149,6 +157,7 @@ HEADING_PATTERNS = (
     re.compile(r"^(prologue|epilogue|프롤로그|에필로그|서문|후기|감사의 말|작가의 말)$", re.IGNORECASE),
     re.compile(r"^[ivxlcdm]+\b.*$", re.IGNORECASE),
     re.compile(r"^\d+$"),
+    re.compile(r"^\d+[.)]$"),
 )
 
 DEFAULT_KOREAN_AUDIOBOOK_READING_INSTRUCTIONS = """
@@ -226,12 +235,104 @@ CHATGPT_WEB_RATE_LIMIT_MARKERS = (
     "요청이 너무 빠릅니다",
     "대화 액세스가 일시적으로 제한되었습니다",
 )
+CHATGPT_WEB_RATE_LIMIT_SPEED_MARKERS = (
+    "요청이 너무 빠릅니다",
+    "요청을 너무 빠르게",
+    "too many requests",
+    "sending messages too quickly",
+)
+CHATGPT_WEB_RATE_LIMIT_LIMIT_MARKERS = (
+    "대화 액세스가 일시적으로 제한되었습니다",
+    "대화에 대한 액세스가 일시적으로 제한되었습니다",
+    "conversation access is temporarily limited",
+    "access to this conversation has been temporarily limited",
+)
 CHATGPT_WEB_RATE_LIMIT_MODAL_SELECTORS = (
     "#modal-conversation-history-rate-limit",
     '[data-testid="modal-conversation-history-rate-limit"]',
 )
+CHATGPT_WEB_NOTICE_SCAN_SELECTORS = (
+    '[role="alert"]',
+    '[role="status"]',
+    '[aria-live="assertive"]',
+    '[aria-live="polite"]',
+    '[role="dialog"]',
+    '[data-testid*="toast"]',
+    '[data-testid*="notification"]',
+    '[data-testid*="modal"]',
+    '[data-testid*="banner"]',
+)
+CHATGPT_WEB_LOGIN_REQUIRED_MARKERS = (
+    "로그인이 필요",
+    "다시 로그인",
+    "로그아웃되었습니다",
+    "세션이 만료",
+    "log in",
+    "log back in",
+    "session expired",
+    "sign in",
+)
+CHATGPT_WEB_RETRYABLE_NOTICE_MARKERS = (
+    "문제가 발생했습니다",
+    "문제가 발생했어요",
+    "오류가 발생했습니다",
+    "something went wrong",
+    "an error occurred",
+    "network error",
+    "connection failed",
+    "failed to get response",
+    "there was an error generating",
+)
+CHATGPT_WEB_ACCOUNT_RESTRICTED_MARKERS = (
+    "suspicious activity",
+    "unusual activity",
+    "account has been restricted",
+    "계정이 제한",
+    "의심스러운 활동",
+)
+CHATGPT_WEB_RETRY_BUTTON_LABELS = (
+    "Try again",
+    "Retry",
+    "다시 시도",
+    "재시도",
+    "다시 생성",
+    "Regenerate",
+)
+CHATGPT_WEB_DISMISS_BUTTON_LABELS = (
+    "Close",
+    "Dismiss",
+    "닫기",
+    "닫음",
+    "무시",
+    "취소",
+    "닫기",
+    "확인",
+    "알겠습니다",
+    "OK",
+    "Okay",
+    "확인했습니다",
+    "Got it",
+)
+CHATGPT_WEB_CLOSE_CONTROL_KEYWORDS = (
+    "close",
+    "dismiss",
+    "cancel",
+    "toast-close",
+    "notification-close",
+    "modal-close",
+    "닫기",
+    "닫음",
+    "무시",
+    "취소",
+    "알겠습니다",
+    "x",
+    "×",
+    "✕",
+)
 CHATGPT_WEB_RATE_LIMIT_WAIT_SEC = 900
+CHATGPT_WEB_RATE_LIMIT_RETRY_BACKOFF_SEC = 180
 DEFAULT_CHATGPT_WEB_MAX_ATTEMPTS = 8
+MIN_AUDIO_SEGMENT_WORDS = 600
 CHATGPT_WEB_SPOKEN_DOMAIN_SUFFIXES = {
     "ai": "에이아이",
     "app": "앱",
@@ -496,7 +597,7 @@ GEMINI_WEB_TTS_HOOK_SCRIPT = """
 DEFAULT_AUDIOBOOK_OUTPUT_DIRNAME = "audiobooks"
 AUDIO_FILE_SUFFIXES = {".m4a", ".mp3", ".wav", ".aiff", ".aif", ".ogg"}
 DEFAULT_AUDIOBOOK_MODE = "plain"
-AUDIOBOOK_MODES = ("plain", "study")
+AUDIOBOOK_MODES = ("plain", "material_only", "study")
 DEFAULT_STUDY_MAX_SOURCE_CHARS = 3500
 DOCX_MAIN_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 DOCX_NAMESPACE = {"w": DOCX_MAIN_NS}
@@ -563,6 +664,25 @@ CHATGPT_WEB_STUDY_PROMPT_TEMPLATE = """
 장 위치: {location}
 다음 연결 정보: {transition_target}
 마무리 지시: {transition_instruction}
+
+SOURCE:
+{text}
+""".strip()
+
+CHATGPT_WEB_MATERIAL_ONLY_PROMPT_TEMPLATE = """
+너는 한국어 수험생을 위한 자료 중심 오디오북 대본 작가다.
+
+낭독 톤 참고:
+{reading_instructions}
+
+작성 규칙:
+1) 아래 SOURCE에 있는 정보만 사용하고, 없는 사실을 추가하지 않는다.
+2) 응답은 한국어 낭독문으로만 쓴다. 해설용 머리말, 코드블록, 표 장식, 따옴표 장식은 금지한다.
+3) 공부 방법, 회독 요령, 학습 루틴, 자료 체계 설명, 다음 장 예고, 동기부여 문장은 넣지 않는다.
+4) 장 제목, 조문 번호, 숫자, 날짜, 두문자 암기어, 표의 핵심 항목은 빠뜨리지 않는다.
+5) SOURCE의 내용을 듣기 좋은 문장으로 자연스럽게 정리하되, 내용 중심으로만 구성한다.
+6) 불필요한 군더더기 없이 본문 핵심만 또렷하게 읽히게 한다.
+7) 응답 본문만 출력한다.
 
 SOURCE:
 {text}
@@ -637,7 +757,7 @@ def parse_args() -> argparse.Namespace:
         "--audiobook-mode",
         choices=AUDIOBOOK_MODES,
         default=DEFAULT_AUDIOBOOK_MODE,
-        help="`plain`은 원문 낭독, `study`는 장별 요약/암기/전환을 넣는 학습용 오디오북",
+        help="`plain`은 원문 낭독, `material_only`는 자료 중심 재구성, `study`는 장별 요약/암기/전환을 넣는 학습용 오디오북",
     )
     parser.add_argument(
         "--provider",
@@ -1591,6 +1711,402 @@ def load_source_text(args: argparse.Namespace) -> str:
     raise RuntimeError("--text 또는 --input-file 또는 stdin 입력이 필요합니다.")
 
 
+def strip_trailing_official_law_reference_section(text: str) -> str:
+    normalized = normalize_text(text)
+    if not normalized:
+        return normalized
+
+    marker_pattern = re.compile(r"(?mi)^(?:\d+\.\s*)?공식\s+법령\s+확인\s+경로\s*$")
+    for match in marker_pattern.finditer(normalized):
+        suffix = normalized[match.start():]
+        if "law.go.kr" not in suffix.lower():
+            continue
+        return normalized[:match.start()].rstrip()
+    return normalized
+
+
+def strip_audio_source_lines(text: str) -> str:
+    normalized = normalize_text(text)
+    if not normalized:
+        return normalized
+
+    stripped = re.sub(r"(?mi)^\s*출처:\s*.+(?:\n|$)", "", normalized)
+    return normalize_text(stripped)
+
+
+def is_ox_answer_checklist_line(line: str) -> bool:
+    normalized = normalize_text(line)
+    if not normalized:
+        return False
+
+    answer_items = re.findall(r"\d+\.\s*[OX]", normalized, flags=re.IGNORECASE)
+    if len(answer_items) < 3:
+        return False
+
+    remainder = re.sub(r"\d+\.\s*[OX]", " ", normalized, flags=re.IGNORECASE)
+    remainder = re.sub(r"\d+\s*~\s*\d+", " ", remainder)
+    remainder = re.sub(r"[,:;|/()\[\]{}·\-–—]+", " ", remainder)
+    remainder = re.sub(r"\s+", "", remainder)
+    return not remainder
+
+
+def is_ox_answer_checklist_range_line(line: str) -> bool:
+    normalized = normalize_text(line)
+    if not normalized:
+        return False
+
+    ranges = re.findall(r"\d+\s*~\s*\d+", normalized)
+    if not ranges:
+        return False
+
+    remainder = re.sub(r"\d+\s*~\s*\d+", " ", normalized)
+    remainder = re.sub(r"[,:;|/()\[\]{}·\-–—]+", " ", remainder)
+    remainder = re.sub(r"\s+", "", remainder)
+    return not remainder
+
+
+def strip_ox_answer_checklist_lines(text: str) -> str:
+    normalized = normalize_text(text)
+    if not normalized:
+        return normalized
+
+    kept_lines = [
+        line
+        for line in normalized.splitlines()
+        if not is_ox_answer_checklist_line(line)
+        and not is_ox_answer_checklist_range_line(line)
+    ]
+    return normalize_text("\n".join(kept_lines))
+
+
+def is_non_learning_ascii_line(line: str) -> bool:
+    normalized = normalize_text(line)
+    if not normalized:
+        return False
+    if re.search(r"[가-힣]", normalized):
+        return False
+    if (
+        URL_LITERAL_PATTERN.search(normalized)
+        or EMAIL_LITERAL_PATTERN.search(normalized)
+        or BARE_DOMAIN_LITERAL_PATTERN.search(normalized)
+    ):
+        return True
+
+    ascii_letters = sum(1 for char in normalized if char.isascii() and char.isalpha())
+    non_space_len = len(re.sub(r"\s+", "", normalized))
+    word_count = len(re.findall(r"[A-Za-z]+", normalized))
+    if not non_space_len:
+        return False
+    ascii_ratio = ascii_letters / non_space_len
+    return ascii_letters >= 20 and word_count >= 4 and ascii_ratio >= 0.7
+
+
+def strip_non_learning_ascii_lines(text: str) -> str:
+    normalized = normalize_text(text)
+    if not normalized:
+        return normalized
+
+    kept_lines = [
+        line
+        for line in normalized.splitlines()
+        if not is_non_learning_ascii_line(line)
+    ]
+    return normalize_text("\n".join(kept_lines))
+
+
+def looks_like_ox_source_text(text: str) -> bool:
+    preview = normalize_text(text)[:4000]
+    if not preview:
+        return False
+    if "정답:" in preview:
+        return True
+    return " ox " in f" {preview.lower()} "
+
+
+def strip_leading_ox_preface_before_first_question(text: str) -> str:
+    normalized = normalize_text(text)
+    if not normalized or not looks_like_ox_source_text(normalized):
+        return normalized
+
+    blocks = [part.strip() for part in re.split(r"\n\s*\n", normalized) if part.strip()]
+    if not blocks:
+        return normalized
+
+    question_pattern = re.compile(r"^\d+\.\s+")
+    answer_prefixes = ("정답:", "● 정답:")
+    first_question_index: int | None = None
+
+    for index, block in enumerate(blocks):
+        if not question_pattern.match(block):
+            continue
+        if len(block) < 20:
+            continue
+        lookahead = blocks[index + 1 : index + 5]
+        if any(candidate.startswith(answer_prefixes) for candidate in lookahead):
+            first_question_index = index
+            break
+
+    if first_question_index is None or first_question_index == 0:
+        return normalized
+
+    return "\n\n".join(blocks[first_question_index:])
+
+
+LOW_QUALITY_OX_STATEMENT_RE = re.compile(
+    r"^(?:[ㄱ-ㅎ](?:\s*,\s*[ㄱ-ㅎ]){0,5}|[①-⑤](?:\s*,\s*[①-⑤]){0,5})$"
+)
+
+
+def is_low_quality_ox_statement(statement: str) -> bool:
+    normalized = normalize_text(statement)
+    if not normalized:
+        return False
+    return bool(LOW_QUALITY_OX_STATEMENT_RE.fullmatch(normalized))
+
+
+def remove_low_quality_ox_blocks(text: str) -> str:
+    normalized = normalize_text(text)
+    if not normalized:
+        return normalized
+
+    lines = normalized.splitlines()
+    kept_lines: list[str] = []
+    current_block: list[str] = []
+
+    def flush_block() -> None:
+        nonlocal current_block
+        if not current_block:
+            return
+        first_line = current_block[0].strip()
+        match = re.match(r"^\d+\.\s*(.*)$", first_line)
+        if match and is_low_quality_ox_statement(match.group(1)):
+            current_block = []
+            return
+        kept_lines.extend(current_block)
+        current_block = []
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if re.match(r"^\d+\.\s*", line):
+            flush_block()
+            current_block = [raw_line]
+            continue
+        if current_block:
+            current_block.append(raw_line)
+        else:
+            kept_lines.append(raw_line)
+    flush_block()
+
+    return normalize_text("\n".join(kept_lines))
+
+
+OX_AUDIO_EXPLANATION_JSONS: dict[str, Path] = {
+    "노동법": ROOT / ".work/labor_ox_2026/노동법_OX_통합본_2026최종검수.json",
+    "민법": ROOT / ".work/civil_management_ox_2026/민법_OX_통합본_2026최종검수.json",
+    "경영학": ROOT / ".work/civil_management_ox_2026/경영학_OX_통합본_2026최종검수.json",
+}
+_OX_CORRECT_ANSWER_EXPLANATION_CACHE: dict[Path, dict[str, str]] = {}
+
+
+def ensure_audio_sentence_ending(text: str) -> str:
+    normalized = normalize_text(text)
+    if not normalized:
+        return normalized
+    if normalized.endswith((".", "!", "?", "…")):
+        return normalized
+    return f"{normalized}."
+
+
+def extract_choice_payload(
+    statement: str,
+    fallback_option_no: str | None = None,
+) -> tuple[str | None, str | None]:
+    normalized = normalize_text(statement)
+    if not normalized:
+        return fallback_option_no, None
+
+    match = re.search(r"\[선택지\s*([^:\]]+)\s*:\s*(.+?)\]\s*$", normalized)
+    if match:
+        option_no = normalize_text(match.group(1)) or fallback_option_no
+        option_text = normalize_text(match.group(2))
+        return option_no, option_text
+
+    return fallback_option_no, normalized
+
+
+def build_correct_choice_explanation_map(entries: list[dict[str, object]]) -> dict[str, str]:
+    by_question: dict[str, list[dict[str, object]]] = {}
+    for entry in entries:
+        source = normalize_text(str(entry.get("source", "")))
+        by_question.setdefault(source, []).append(entry)
+
+    explanation_map: dict[str, str] = {}
+    for question_key, group in by_question.items():
+        correct_entries = [entry for entry in group if str(entry.get("answer", "")).strip().upper() == "O"]
+        wrong_entries = [entry for entry in group if str(entry.get("answer", "")).strip().upper() == "X"]
+        if not correct_entries or not wrong_entries:
+            continue
+
+        choice_details: list[tuple[str | None, str | None]] = []
+        for correct_entry in correct_entries:
+            option_no, option_text = extract_choice_payload(
+                str(correct_entry.get("statement", "")),
+                str(correct_entry.get("option_no", "")).strip() or None,
+            )
+            choice_details.append((option_no, option_text))
+
+        if not any(option_no or option_text for option_no, option_text in choice_details):
+            continue
+
+        if len(choice_details) == 1:
+            option_no, option_text = choice_details[0]
+            if option_no and option_text:
+                explanation = (
+                    f"정답은 X입니다. 이 원문 문제의 정답 선택지는 {option_no}번입니다. "
+                    f"{ensure_audio_sentence_ending(option_text)}"
+                )
+            elif option_no:
+                explanation = f"정답은 X입니다. 이 원문 문제의 정답 선택지는 {option_no}번입니다."
+            else:
+                explanation = (
+                    "정답은 X입니다. 이 원문 문제의 정답 선택지 내용은 다음과 같습니다. "
+                    f"{ensure_audio_sentence_ending(option_text or '')}"
+                )
+        else:
+            parts: list[str] = []
+            for option_no, option_text in choice_details:
+                if option_no and option_text:
+                    parts.append(f"선택지 {option_no}번은 {ensure_audio_sentence_ending(option_text)}")
+                elif option_no:
+                    parts.append(f"선택지 {option_no}번입니다.")
+                elif option_text:
+                    parts.append(ensure_audio_sentence_ending(option_text))
+            explanation = (
+                "정답은 X입니다. 이 원문 문제의 정답 선택지는 여러 개입니다. "
+                + " ".join(parts)
+            )
+
+        explanation_map[question_key] = normalize_text(explanation)
+
+    return explanation_map
+
+
+def ox_explanation_json_path(input_file: Path | None) -> Path | None:
+    if input_file is None:
+        return None
+    stem = input_file.stem
+    if "_OX_통합본_" not in stem:
+        return None
+    for subject, path in OX_AUDIO_EXPLANATION_JSONS.items():
+        if subject in stem and path.exists():
+            return path
+    return None
+
+
+def load_ox_correct_answer_explanation_map(input_file: Path | None) -> dict[str, str]:
+    json_path = ox_explanation_json_path(input_file)
+    if json_path is None:
+        return {}
+    cached = _OX_CORRECT_ANSWER_EXPLANATION_CACHE.get(json_path)
+    if cached is not None:
+        return cached
+
+    try:
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        return {}
+    explanation_map = build_correct_choice_explanation_map(entries)
+    _OX_CORRECT_ANSWER_EXPLANATION_CACHE[json_path] = explanation_map
+    return explanation_map
+
+
+def replace_x_explanations_with_correct_answers(
+    text: str,
+    explanation_map: dict[str, str],
+) -> str:
+    normalized = normalize_text(text)
+    if not normalized or not explanation_map:
+        return normalized
+
+    def rewrite_block(block_lines: list[str]) -> list[str]:
+        if not block_lines:
+            return block_lines
+        first_line = block_lines[0].strip()
+        first_match = re.match(r"^(\d+)\.\s*(.*)$", first_line)
+        if not first_match:
+            return block_lines
+
+        statement_lines = [first_match.group(2).strip()]
+        answer: str | None = None
+        source: str | None = None
+        explanation_index: int | None = None
+
+        for index, raw_line in enumerate(block_lines[1:], start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("● 정답:") or line.startswith("정답:"):
+                answer = "X" if re.search(r":\s*X\b", line) else "O"
+                continue
+            if line.startswith("출처:"):
+                source = normalize_text(line.split(":", 1)[1])
+                continue
+            if line.startswith("해설:"):
+                explanation_index = index
+                continue
+            if answer is None and not line.startswith(("근거:",)):
+                statement_lines.append(line)
+
+        if answer != "X" or explanation_index is None or source is None:
+            return block_lines
+
+        replacement = explanation_map.get(source)
+        if replacement:
+            block_lines[explanation_index] = f"해설: {replacement}"
+        return block_lines
+
+    lines = normalized.splitlines()
+    rewritten_lines: list[str] = []
+    current_block: list[str] = []
+    for raw_line in lines:
+        line = raw_line.strip()
+        if re.match(r"^\d+\.\s*", line):
+            if current_block:
+                rewritten_lines.extend(rewrite_block(current_block))
+            current_block = [raw_line]
+            continue
+        if current_block:
+            current_block.append(raw_line)
+        else:
+            rewritten_lines.append(raw_line)
+    if current_block:
+        rewritten_lines.extend(rewrite_block(current_block))
+
+    return normalize_text("\n".join(rewritten_lines))
+
+
+def strip_repetitive_audio_guidance_sentences(text: str) -> str:
+    normalized = normalize_text(text)
+    if not normalized:
+        return normalized
+
+    targets = (
+        "관련 조문의 정확한 표현과 요건을 법령 원문에서 확인하고 암기하시기 바랍니다.",
+        "정답표 · 최종 정오표 정답은 9개씩 묶어서 확인하면 오답 패턴이 더 잘 보인다.",
+        "OX 정답표 구간 정답 최종 정오표 항목 최종 확인",
+    )
+    updated = normalized
+    for target in targets:
+        updated = updated.replace(target, "")
+    updated = re.sub(r"위 진술은\s+.+?내용과\s+일치합니다\.", "", updated)
+    updated = re.sub(r"[ ]{2,}", " ", updated)
+    updated = re.sub(r"\n{3,}", "\n\n", updated)
+    return normalize_text(updated)
+
+
 def default_audiobook_output_dir(input_file: Path) -> Path:
     if input_file.parent.name == DEFAULT_AUDIOBOOK_OUTPUT_DIRNAME:
         return input_file.parent
@@ -1919,9 +2435,16 @@ def looks_like_heading(paragraph: str) -> bool:
     text = paragraph.strip()
     if not text or "\n" in text or len(text) > 48:
         return False
+    if text.startswith(("● 정답:", "정답:", "근거:", "해설:", "출처:")):
+        return False
     if any(pattern.match(text) for pattern in HEADING_PATTERNS):
         return True
-    return text.isupper() and len(text.split()) <= 6
+    return (
+        text.isupper()
+        and len(text.split()) <= 6
+        and bool(re.search(r"[A-Z]", text))
+        and not bool(re.search(r"[가-힣]", text))
+    )
 
 
 def hard_split_text(text: str, max_chars: int) -> list[str]:
@@ -1957,6 +2480,31 @@ def split_text_into_sentence_units(text: str) -> list[str]:
     matches = re.finditer(r'.+?(?:[.!?…]+(?:"|”|’)?)(?=\s+|$)|.+$', normalized, re.S)
     parts = [match.group(0).strip() for match in matches if match.group(0).strip()]
     return parts or [normalized]
+
+
+def count_text_words(text: str) -> int:
+    normalized = normalize_text(text)
+    if not normalized:
+        return 0
+    return len(re.findall(r"\S+", normalized))
+
+
+def count_text_sentences(text: str) -> int:
+    normalized = normalize_text(text)
+    if not normalized:
+        return 0
+    return len(split_text_into_sentence_units(normalized))
+
+
+def meets_min_audio_segment_units(
+    text: str,
+    *,
+    min_words: int = MIN_AUDIO_SEGMENT_WORDS,
+) -> bool:
+    normalized = normalize_text(text)
+    if not normalized:
+        return False
+    return count_text_words(normalized) >= min_words
 
 
 def token_ends_with_strong_pause(token: str) -> bool:
@@ -2110,7 +2658,7 @@ def split_into_sections(text: str, max_chars: int) -> list[AudioSection]:
         current_title = pending_heading
 
     flush()
-    return sections
+    return merge_problematic_audio_sections(sections)
 
 
 def load_audio_sections(
@@ -2140,8 +2688,26 @@ def load_audio_sections(
             max_source_chars=study_max_source_chars,
         )
 
-    source_text = normalize_text(spokenize_text_for_readaloud(load_source_text(args)))
-    return split_into_sections(source_text, max_chars=max_chars_per_chunk)
+    source_text = strip_trailing_official_law_reference_section(load_source_text(args))
+    source_text = strip_leading_ox_preface_before_first_question(source_text)
+    source_text = remove_low_quality_ox_blocks(source_text)
+    source_text = strip_audio_source_lines(source_text)
+    source_text = strip_ox_answer_checklist_lines(source_text)
+    source_text = strip_non_learning_ascii_lines(source_text)
+    source_text = strip_repetitive_audio_guidance_sentences(source_text)
+    source_text = normalize_text(spokenize_text_for_readaloud(source_text))
+    is_ox_source = looks_like_ox_source_text(source_text)
+    plain_sections = split_into_sections(source_text, max_chars=max_chars_per_chunk)
+    return merge_short_adjacent_audio_sections(
+        plain_sections,
+        min_chars=(
+            max(1400, min(2600, max_chars_per_chunk * 2 // 3))
+            if is_ox_source
+            else max(600, min(1000, max_chars_per_chunk // 2))
+        ),
+        max_chars=max_chars_per_chunk,
+        preserve_title_boundaries=not is_ox_source,
+    )
 
 
 def retry_split_target_max_chars(
@@ -2188,6 +2754,300 @@ def build_text_units_as_sections(parts: list[str]) -> list[AudioSection]:
     ]
 
 
+def looks_like_unusable_audio_fragment(text: str) -> bool:
+    normalized = normalize_text(text)
+    if not normalized:
+        return True
+
+    compact = re.sub(r"\s+", " ", normalized).strip()
+    if not compact:
+        return True
+    if len(compact) <= 2:
+        return True
+    if any(pattern.match(compact) for pattern in HEADING_PATTERNS):
+        return True
+    if re.fullmatch(r"[\d\W_]+", compact):
+        return True
+    return False
+
+
+def merge_problematic_audio_sections(sections: list[AudioSection]) -> list[AudioSection]:
+    if len(sections) <= 1:
+        return sections
+
+    merged: list[AudioSection] = []
+    pending_fragments: list[AudioSection] = []
+
+    def flush_pending_into(target: AudioSection) -> AudioSection:
+        if not pending_fragments:
+            return target
+        merged_text = normalize_text(
+            "\n\n".join([fragment.text for fragment in pending_fragments] + [target.text])
+        )
+        return AudioSection(
+            index=target.index,
+            title=target.title or pending_fragments[0].title,
+            text=merged_text,
+            next_title=target.next_title,
+            chapter_index=target.chapter_index,
+            part_index=target.part_index,
+            part_count=target.part_count,
+        )
+
+    for section in sections:
+        text = normalize_text(section.text)
+        if not text:
+            continue
+        normalized_section = AudioSection(
+            index=section.index,
+            title=section.title,
+            text=text,
+            next_title=section.next_title,
+            chapter_index=section.chapter_index,
+            part_index=section.part_index,
+            part_count=section.part_count,
+        )
+        if looks_like_unusable_audio_fragment(text):
+            pending_fragments.append(normalized_section)
+            continue
+
+        normalized_section = flush_pending_into(normalized_section)
+        pending_fragments = []
+        merged.append(normalized_section)
+
+    if pending_fragments:
+        if merged:
+            previous = merged[-1]
+            trailing_text = normalize_text(
+                "\n\n".join(fragment.text for fragment in pending_fragments)
+            )
+            merged[-1] = AudioSection(
+                index=previous.index,
+                title=previous.title,
+                text=normalize_text("\n\n".join([previous.text, trailing_text])),
+                next_title=previous.next_title,
+                chapter_index=previous.chapter_index,
+                part_index=previous.part_index,
+                part_count=previous.part_count,
+            )
+        else:
+            merged = pending_fragments
+
+    return [
+        AudioSection(
+            index=index + 1,
+            title=section.title,
+            text=section.text,
+            next_title=section.next_title,
+            chapter_index=section.chapter_index,
+            part_index=section.part_index,
+            part_count=section.part_count,
+        )
+        for index, section in enumerate(merged)
+    ]
+
+
+def merge_short_adjacent_audio_sections(
+    sections: list[AudioSection],
+    *,
+    min_chars: int,
+    max_chars: int,
+    preserve_title_boundaries: bool = True,
+) -> list[AudioSection]:
+    if len(sections) <= 1:
+        return sections
+
+    normalized_min_chars = max(300, min_chars)
+    normalized_max_chars = max(normalized_min_chars, max_chars)
+    merged: list[AudioSection] = []
+    pending: list[AudioSection] = []
+
+    def section_length(section: AudioSection) -> int:
+        return len(normalize_text(section.text))
+
+    def pending_length() -> int:
+        return sum(section_length(section) for section in pending)
+
+    def pending_meets_unit_minimum() -> bool:
+        if not pending:
+            return False
+        merged_text = normalize_text("\n\n".join(section.text for section in pending))
+        return meets_min_audio_segment_units(merged_text)
+
+    def flush_pending() -> None:
+        nonlocal pending
+        if not pending:
+            return
+        first = pending[0]
+        last = pending[-1]
+        merged_text = normalize_text("\n\n".join(section.text for section in pending))
+        merged.append(
+            AudioSection(
+                index=len(merged) + 1,
+                title=first.title,
+                text=merged_text,
+                next_title=last.next_title,
+                chapter_index=first.chapter_index,
+                part_index=1,
+                part_count=1,
+            )
+        )
+        pending = []
+
+    for section in sections:
+        text = normalize_text(section.text)
+        if not text:
+            continue
+        normalized_section = AudioSection(
+            index=section.index,
+            title=section.title,
+            text=text,
+            next_title=section.next_title,
+            chapter_index=section.chapter_index,
+            part_index=section.part_index,
+            part_count=section.part_count,
+        )
+
+        if pending and normalized_section.title and preserve_title_boundaries:
+            flush_pending()
+
+        if pending and pending_length() >= normalized_min_chars and pending_meets_unit_minimum():
+            proposed_length = pending_length() + 2 + section_length(normalized_section)
+            if proposed_length > normalized_max_chars:
+                flush_pending()
+
+        pending.append(normalized_section)
+
+        if pending_length() >= normalized_min_chars and pending_meets_unit_minimum():
+            flush_pending()
+
+    if pending:
+        if (
+            merged
+            and (pending_length() < normalized_min_chars or not pending_meets_unit_minimum())
+            and not pending[0].title
+        ):
+            previous = merged.pop()
+            pending = [previous] + pending
+        flush_pending()
+
+    return [
+        AudioSection(
+            index=index + 1,
+            title=section.title,
+            text=section.text,
+            next_title=section.next_title,
+            chapter_index=section.chapter_index,
+            part_index=section.part_index,
+            part_count=section.part_count,
+        )
+        for index, section in enumerate(merged)
+    ]
+
+
+def merge_retry_breath_sections(
+    sections: list[AudioSection],
+    *,
+    min_chars: int,
+    enforce_unit_minimum: bool = True,
+) -> list[AudioSection]:
+    if len(sections) <= 1:
+        return sections
+
+    normalized_min_chars = max(20, min_chars)
+    merged: list[AudioSection] = []
+    pending: list[AudioSection] = []
+    pending_len = 0
+
+    def section_length(section: AudioSection) -> int:
+        return len(normalize_text(section.text))
+
+    def pending_meets_unit_minimum() -> bool:
+        if not pending:
+            return False
+        if not enforce_unit_minimum:
+            return True
+        merged_text = normalize_text("\n\n".join(section.text for section in pending))
+        return meets_min_audio_segment_units(merged_text)
+
+    def flush_pending() -> None:
+        nonlocal pending, pending_len
+        if not pending:
+            return
+        first = pending[0]
+        last = pending[-1]
+        merged_text = normalize_text("\n\n".join(section.text for section in pending))
+        merged.append(
+            AudioSection(
+                index=len(merged) + 1,
+                title=first.title,
+                text=merged_text,
+                next_title=last.next_title,
+                chapter_index=first.chapter_index,
+                part_index=1,
+                part_count=1,
+            )
+        )
+        pending = []
+        pending_len = 0
+
+    for index, section in enumerate(sections):
+        normalized_section = AudioSection(
+            index=section.index,
+            title=section.title,
+            text=normalize_text(section.text),
+            next_title=section.next_title,
+            chapter_index=section.chapter_index,
+            part_index=section.part_index,
+            part_count=section.part_count,
+        )
+        pending.append(normalized_section)
+        pending_len += section_length(normalized_section)
+
+        remaining = len(sections) - index - 1
+        if pending_len >= normalized_min_chars and pending_meets_unit_minimum() and remaining > 0:
+            flush_pending()
+
+    flush_pending()
+    return [
+        AudioSection(
+            index=index + 1,
+            title=section.title,
+            text=section.text,
+            next_title=section.next_title,
+            chapter_index=section.chapter_index,
+            part_index=section.part_index,
+            part_count=section.part_count,
+        )
+        for index, section in enumerate(merged)
+    ]
+
+
+def retry_child_sections_match_parent_text(
+    child_sections: list[AudioSection],
+    parent_text: str,
+) -> bool:
+    if not child_sections:
+        return False
+    expected = normalize_chatgpt_web_copy(parent_text)
+    actual = normalize_chatgpt_web_copy("\n\n".join(section.text for section in child_sections))
+    return bool(expected and actual and expected == actual)
+
+
+def discard_retry_descendant_artifacts(work_dir: Path, prefix: str) -> list[Path]:
+    stale_paths: list[Path] = []
+    descendant_pattern = re.compile(rf"^{re.escape(prefix)}(?:_\d+)+(?:[._].+)?$")
+    for path in work_dir.iterdir():
+        if not path.is_file():
+            continue
+        if not descendant_pattern.match(path.stem) and not descendant_pattern.match(path.name):
+            continue
+        stale_paths.append(path)
+    for path in stale_paths:
+        path.unlink(missing_ok=True)
+    return sorted(stale_paths)
+
+
 def load_direct_retry_child_sections(work_dir: Path, prefix: str) -> list[AudioSection]:
     pattern = re.compile(rf"^{re.escape(prefix)}_(\d+)\.txt$")
     child_sections: list[tuple[int, str]] = []
@@ -2198,15 +3058,16 @@ def load_direct_retry_child_sections(work_dir: Path, prefix: str) -> list[AudioS
         if not match:
             continue
         text = spokenize_text_for_readaloud(path.read_text(encoding="utf-8")).strip()
-        if not text:
+        if not text or looks_like_unusable_audio_fragment(text):
             continue
         child_sections.append((int(match.group(1)), text))
 
     child_sections.sort(key=lambda item: item[0])
-    return [
+    sections = [
         AudioSection(index=index + 1, title=None, text=text)
         for index, (_, text) in enumerate(child_sections)
     ]
+    return merge_problematic_audio_sections(sections)
 
 
 def build_retry_child_sections(
@@ -2218,19 +3079,41 @@ def build_retry_child_sections(
     min_chars: int = RETRY_SPLIT_MIN_CHARS,
     max_chars_cap: int = RETRY_SPLIT_MAX_CHARS,
 ) -> list[AudioSection]:
+    mismatch_error = find_exact_copy_mismatch_error(last_error)
+    mismatch_is_refusal = bool(
+        mismatch_error
+        and mismatch_error.response_text
+        and is_chatgpt_web_refusal_response(mismatch_error.response_text)
+    )
     existing_sections = load_direct_retry_child_sections(work_dir, prefix)
-    if len(existing_sections) > 1:
+    if (
+        len(existing_sections) > 1
+        and retry_child_sections_match_parent_text(existing_sections, text)
+        and not (mismatch_error and not mismatch_is_refusal)
+    ):
         return existing_sections
+    if existing_sections:
+        discard_retry_descendant_artifacts(work_dir, prefix)
 
     normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-    mismatch_error = find_exact_copy_mismatch_error(last_error)
-    if mismatch_error and is_chatgpt_web_refusal_response(mismatch_error.response_text):
+    if mismatch_error:
         sentence_sections = build_text_units_as_sections(split_text_into_sentence_units(normalized))
+        sentence_sections = merge_problematic_audio_sections(sentence_sections)
         if len(sentence_sections) > 1:
             return sentence_sections
 
         breath_sections = build_text_units_as_sections(split_text_into_breath_units(normalized))
+        breath_sections = merge_problematic_audio_sections(breath_sections)
         if len(breath_sections) > 1:
+            if mismatch_is_refusal:
+                return breath_sections
+            merged_breath_sections = merge_retry_breath_sections(
+                breath_sections,
+                min_chars=max(30, min(60, len(normalized) // 2)),
+                enforce_unit_minimum=meets_min_audio_segment_units(normalized),
+            )
+            if len(merged_breath_sections) > 1:
+                return merged_breath_sections
             return breath_sections
 
     # Allow retries to keep splitting shorter failed snippets instead of
@@ -2251,6 +3134,7 @@ def build_retry_child_sections(
                 AudioSection(index=index + 1, title=None, text=part)
                 for index, part in enumerate(hard_split_text(text, target_max_chars))
             ]
+        child_sections = merge_problematic_audio_sections(child_sections)
         if len(child_sections) > 1:
             return child_sections
         if target_max_chars <= effective_min_chars:
@@ -2374,9 +3258,15 @@ def chatgpt_web_section_prompt(
         "chatgpt_web_reading_instructions",
         DEFAULT_CHATGPT_INSTRUCTIONS,
     )
-    if resolve_audiobook_mode(args) == "study":
+    audiobook_mode = resolve_audiobook_mode(args)
+    if audiobook_mode == "study":
         return build_chatgpt_web_study_prompt(
             section,
+            reading_instructions,
+        )
+    if audiobook_mode == "material_only":
+        return build_chatgpt_web_material_only_prompt(
+            section.text,
             reading_instructions,
         )
     return build_chatgpt_web_repeat_prompt(
@@ -2428,6 +3318,14 @@ def build_chatgpt_web_study_prompt(section: AudioSection, reading_instructions: 
     )
 
 
+def build_chatgpt_web_material_only_prompt(text: str, reading_instructions: str = "") -> str:
+    style = resolve_common_reading_instructions(reading_instructions)
+    return CHATGPT_WEB_MATERIAL_ONLY_PROMPT_TEMPLATE.format(
+        reading_instructions=style,
+        text=text,
+    )
+
+
 def build_gemini_web_repeat_prompt(text: str, reading_instructions: str = "") -> str:
     prompt = GEMINI_WEB_REPEAT_PROMPT_TEMPLATE.format(text=text)
     style = resolve_common_reading_instructions(reading_instructions)
@@ -2447,6 +3345,22 @@ def normalize_chatgpt_web_copy(text: str) -> str:
     normalized = re.sub(r"\s+", " ", normalized)
     normalized = re.sub(r"\s+([)\]}>.,!?;:])", r"\1", normalized)
     return normalized
+
+
+def chatgpt_web_copy_similarity(expected_text: str, actual_text: str) -> float:
+    expected = normalize_chatgpt_web_copy(expected_text)
+    actual = normalize_chatgpt_web_copy(actual_text)
+    if not expected or not actual:
+        return 0.0
+    return difflib.SequenceMatcher(a=expected, b=actual).ratio()
+
+
+def use_relaxed_ox_copy_check(args: argparse.Namespace, text: str) -> bool:
+    input_file = getattr(args, "input_file", None)
+    if input_file is not None and "_OX_" in input_file.stem:
+        return True
+    preview = normalize_chatgpt_web_copy(text)[:200]
+    return " ox " in f" {preview.lower()} " or "정답:" in preview
 
 
 def normalized_file_text(text: str) -> str:
@@ -2469,7 +3383,411 @@ def file_text_matches_expected(text_path: Path, expected_text: str) -> bool:
 
 def is_chatgpt_web_rate_limit_text(text: str) -> bool:
     normalized = normalize_chatgpt_web_copy(text)
-    return all(marker in normalized for marker in CHATGPT_WEB_RATE_LIMIT_MARKERS)
+    lowered = normalized.lower()
+    return (
+        all(marker in normalized for marker in CHATGPT_WEB_RATE_LIMIT_MARKERS)
+        or (
+            any(marker in lowered for marker in CHATGPT_WEB_RATE_LIMIT_SPEED_MARKERS)
+            and any(marker in lowered for marker in CHATGPT_WEB_RATE_LIMIT_LIMIT_MARKERS)
+        )
+    )
+
+
+def classify_chatgpt_web_notice_text(text: str) -> ChatGPTWebNotice | None:
+    normalized = normalize_chatgpt_web_copy(text)
+    lowered = normalized.lower()
+    if not normalized:
+        return None
+    if any(marker in lowered for marker in CHATGPT_WEB_RATE_LIMIT_LIMIT_MARKERS):
+        return ChatGPTWebNotice(kind="conversation_rate_limit", action="reset_chat", message=normalized)
+    if any(marker in lowered for marker in CHATGPT_WEB_RATE_LIMIT_SPEED_MARKERS):
+        return ChatGPTWebNotice(kind="rate_limit", action="wait", message=normalized)
+    if is_chatgpt_web_rate_limit_text(normalized):
+        return ChatGPTWebNotice(kind="rate_limit", action="wait", message=normalized)
+    if any(marker in lowered for marker in CHATGPT_WEB_ACCOUNT_RESTRICTED_MARKERS):
+        return ChatGPTWebNotice(kind="account_restricted", action="raise", message=normalized)
+    if any(marker in lowered for marker in CHATGPT_WEB_LOGIN_REQUIRED_MARKERS):
+        return ChatGPTWebNotice(kind="login_required", action="raise", message=normalized)
+    if any(marker in lowered for marker in CHATGPT_WEB_RETRYABLE_NOTICE_MARKERS):
+        return ChatGPTWebNotice(kind="retryable_error", action="retry", message=normalized)
+    return None
+
+
+def choose_chatgpt_web_notice(messages: list[str]) -> ChatGPTWebNotice | None:
+    priority = {
+        "account_restricted": 0,
+        "login_required": 1,
+        "conversation_rate_limit": 2,
+        "rate_limit": 3,
+        "retryable_error": 4,
+    }
+    notices = [
+        notice
+        for notice in (classify_chatgpt_web_notice_text(message) for message in messages)
+        if notice is not None
+    ]
+    if not notices:
+        return None
+    notices.sort(key=lambda notice: priority.get(notice.kind, 99))
+    return notices[0]
+
+
+def install_chatgpt_web_notice_hooks(page) -> None:
+    if getattr(page, "_chatgpt_notice_hooks_installed", False):
+        return
+
+    dialog_messages: list[str] = []
+
+    def handle_dialog(dialog) -> None:
+        try:
+            message = normalize_chatgpt_web_copy(dialog.message or "")
+            if message:
+                dialog_messages.append(message)
+                del dialog_messages[:-10]
+        finally:
+            try:
+                dialog.dismiss()
+            except Exception:
+                pass
+
+    page.on("dialog", handle_dialog)
+    setattr(page, "_chatgpt_notice_hooks_installed", True)
+    setattr(page, "_chatgpt_dialog_messages", dialog_messages)
+
+
+def read_chatgpt_web_notice_messages(page) -> list[str]:
+    dialog_messages_store = getattr(page, "_chatgpt_dialog_messages", [])
+    dialog_messages = list(dialog_messages_store)
+    if dialog_messages_store:
+        dialog_messages_store.clear()
+    dom_messages = page.evaluate(
+        """({selectors}) => {
+          const results = [];
+          const seen = new Set();
+          const isVisible = (node) => {
+            if (!(node instanceof Element)) return false;
+            const style = window.getComputedStyle(node);
+            if (style.visibility === 'hidden' || style.display === 'none') return false;
+            const rect = node.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          };
+          for (const selector of selectors) {
+            for (const node of document.querySelectorAll(selector)) {
+              if (!isVisible(node)) continue;
+              const text = String(node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim();
+              if (!text || text.length < 4) continue;
+              const normalized = text.slice(0, 500);
+              if (seen.has(normalized)) continue;
+              seen.add(normalized);
+              results.push(normalized);
+              if (results.length >= 20) return results;
+            }
+          }
+          return results;
+        }""",
+        {"selectors": list(CHATGPT_WEB_NOTICE_SCAN_SELECTORS)},
+    )
+    messages: list[str] = []
+    for raw in [*dialog_messages, *(dom_messages or [])]:
+        normalized = normalize_chatgpt_web_copy(str(raw))
+        if normalized and normalized not in messages:
+            messages.append(normalized)
+    return messages
+
+
+def click_chatgpt_web_notice_button(page, labels: tuple[str, ...]) -> bool:
+    for label in labels:
+        patterns = (
+            re.compile(rf"^{re.escape(label)}$", re.IGNORECASE),
+            re.compile(rf".*{re.escape(label)}.*", re.IGNORECASE),
+        )
+        for pattern in patterns:
+            locator = page.get_by_role("button", name=pattern).first
+            try:
+                if locator.count() and locator.is_visible() and locator.is_enabled():
+                    locator.click(timeout=3000)
+                    return True
+            except Exception:
+                continue
+    return False
+
+
+def click_chatgpt_web_notice_button_via_dom(
+    page,
+    *,
+    selectors: tuple[str, ...],
+    labels: tuple[str, ...] = (),
+    accept_single_button: bool = False,
+) -> bool:
+    try:
+        return bool(
+            page.evaluate(
+                """({selectors, labels, acceptSingleButton}) => {
+                  const roots = [];
+                  for (const selector of selectors) {
+                    for (const node of document.querySelectorAll(selector)) {
+                      roots.push(node);
+                    }
+                  }
+                  const isVisible = (node) => {
+                    if (!(node instanceof Element)) return false;
+                    const style = window.getComputedStyle(node);
+                    if (style.visibility === 'hidden' || style.display === 'none') return false;
+                    const rect = node.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0;
+                  };
+                  const labelMatches = (node) => {
+                    const text = [
+                      node.getAttribute('aria-label') || '',
+                      node.getAttribute('title') || '',
+                      node.getAttribute('data-testid') || '',
+                      node.textContent || '',
+                    ]
+                      .join(' ')
+                      .replace(/\\s+/g, ' ')
+                      .trim()
+                      .toLowerCase();
+                    if (!text) return false;
+                    return labels.some((label) => text === label || text.includes(label));
+                  };
+                  for (const root of roots) {
+                    if (!isVisible(root)) continue;
+                    const controls = Array.from(
+                      root.matches('button,[role="button"],input[type="button"],input[type="submit"]')
+                        ? [root, ...root.querySelectorAll('button,[role="button"],input[type="button"],input[type="submit"]')]
+                        : root.querySelectorAll('button,[role="button"],input[type="button"],input[type="submit"]')
+                    ).filter(isVisible);
+                    for (const control of controls) {
+                      if (labelMatches(control)) {
+                        control.click();
+                        return true;
+                      }
+                    }
+                    if (acceptSingleButton && controls.length === 1) {
+                      controls[0].click();
+                      return true;
+                    }
+                  }
+                  return false;
+                }""",
+                {
+                    "selectors": list(selectors),
+                    "labels": [label.lower() for label in labels],
+                    "acceptSingleButton": accept_single_button,
+                },
+            )
+        )
+    except Exception:
+        return False
+
+
+def close_chatgpt_web_notice_ui(page) -> bool:
+    if click_chatgpt_web_notice_button(page, CHATGPT_WEB_DISMISS_BUTTON_LABELS):
+        return True
+    if click_chatgpt_web_notice_button_via_dom(
+        page,
+        selectors=CHATGPT_WEB_RATE_LIMIT_MODAL_SELECTORS,
+        labels=CHATGPT_WEB_DISMISS_BUTTON_LABELS,
+        accept_single_button=True,
+    ):
+        return True
+    if click_chatgpt_web_notice_button_via_dom(
+        page,
+        selectors=CHATGPT_WEB_NOTICE_SCAN_SELECTORS,
+        labels=CHATGPT_WEB_DISMISS_BUTTON_LABELS,
+        accept_single_button=False,
+    ):
+        return True
+    try:
+        closed = page.evaluate(
+            """({selectors, keywords}) => {
+              const roots = [];
+              for (const selector of selectors) {
+                for (const node of document.querySelectorAll(selector)) {
+                  roots.push(node);
+                }
+              }
+              const seen = new Set();
+              const isVisible = (node) => {
+                if (!(node instanceof Element)) return false;
+                const style = window.getComputedStyle(node);
+                if (style.visibility === 'hidden' || style.display === 'none') return false;
+                const rect = node.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+              };
+              const matchesClose = (node) => {
+                const parts = [
+                  node.getAttribute('aria-label') || '',
+                  node.getAttribute('title') || '',
+                  node.getAttribute('data-testid') || '',
+                  node.textContent || '',
+                ]
+                  .join(' ')
+                  .replace(/\\s+/g, ' ')
+                  .trim()
+                  .toLowerCase();
+                if (!parts) return false;
+                return keywords.some((keyword) => parts === keyword || parts.includes(keyword));
+              };
+              for (const root of roots) {
+                if (!isVisible(root)) continue;
+                const controls = root.matches('button,[role="button"]')
+                  ? [root, ...root.querySelectorAll('button,[role="button"]')]
+                  : root.querySelectorAll('button,[role="button"]');
+                for (const control of controls) {
+                  if (!(control instanceof Element)) continue;
+                  if (!isVisible(control)) continue;
+                  if (seen.has(control)) continue;
+                  seen.add(control);
+                  if (!matchesClose(control)) continue;
+                  control.click();
+                  return true;
+                }
+              }
+              return false;
+            }""",
+            {
+                "selectors": list(CHATGPT_WEB_NOTICE_SCAN_SELECTORS),
+                "keywords": [keyword.lower() for keyword in CHATGPT_WEB_CLOSE_CONTROL_KEYWORDS],
+            },
+        )
+    except Exception:
+        closed = False
+    if closed:
+        return True
+    try:
+        page.keyboard.press("Escape")
+        return True
+    except Exception:
+        return False
+
+
+def recover_chatgpt_web_from_conversation_limit(
+    page,
+    *,
+    heartbeat: ProgressHeartbeat | None = None,
+    label: str | None = None,
+    section_prefix: str | None = None,
+    attempt: int | None = None,
+) -> None:
+    beat_heartbeat(
+        heartbeat,
+        stage="conversation_rate_limit_recover_start",
+        label=label,
+        section_prefix=section_prefix,
+        attempt=attempt,
+        detail="goto_home",
+    )
+    try:
+        page.goto(CHATGPT_WEB_URL, wait_until="domcontentloaded", timeout=120000)
+    except Exception:
+        pass
+    page.wait_for_timeout(1500)
+    try:
+        page.locator("#prompt-textarea").first.wait_for(timeout=30000)
+    except Exception:
+        pass
+    close_chatgpt_web_notice_ui(page)
+    beat_heartbeat(
+        heartbeat,
+        stage="conversation_rate_limit_recover_done",
+        label=label,
+        section_prefix=section_prefix,
+        attempt=attempt,
+        detail=page.url,
+    )
+
+
+def handle_chatgpt_web_page_notices(
+    page,
+    *,
+    heartbeat: ProgressHeartbeat | None = None,
+    label: str | None = None,
+    section_prefix: str | None = None,
+    attempt: int | None = None,
+    max_wait_sec: int = 0,
+) -> None:
+    deadline = time.time() + max_wait_sec if max_wait_sec > 0 else None
+
+    while True:
+        notice = choose_chatgpt_web_notice(read_chatgpt_web_notice_messages(page))
+        if notice is None:
+            return
+
+        excerpt = notice.message[:180]
+        if notice.action == "raise":
+            beat_heartbeat(
+                heartbeat,
+                stage="chatgpt_notice_raise",
+                label=label,
+                section_prefix=section_prefix,
+                attempt=attempt,
+                detail=f"{notice.kind}: {excerpt}",
+            )
+            if notice.kind == "login_required":
+                raise RuntimeError("ChatGPT 웹 로그인 또는 세션이 만료되었습니다. chatgpt.com 로그인 상태를 확인하세요.")
+            raise RuntimeError(f"ChatGPT 웹 계정 제한 알림이 감지되었습니다: {excerpt}")
+
+        if notice.action == "retry":
+            beat_heartbeat(
+                heartbeat,
+                stage="chatgpt_notice_retry",
+                label=label,
+                section_prefix=section_prefix,
+                attempt=attempt,
+                detail=excerpt,
+            )
+            if click_chatgpt_web_notice_button(page, CHATGPT_WEB_RETRY_BUTTON_LABELS):
+                page.wait_for_timeout(2000)
+                continue
+            close_chatgpt_web_notice_ui(page)
+            raise RuntimeError(f"ChatGPT 웹 오류 알림이 반복되고 있습니다: {excerpt}")
+
+        if notice.action == "reset_chat":
+            remaining = max(0, int(deadline - time.time())) if deadline is not None else 0
+            beat_heartbeat(
+                heartbeat,
+                stage="conversation_rate_limit_wait",
+                label=label,
+                section_prefix=section_prefix,
+                attempt=attempt,
+                detail=f"remaining={remaining}s text={excerpt}",
+            )
+            if deadline is not None and time.time() >= deadline:
+                raise RuntimeError(f"ChatGPT 웹 대화 접근 제한 알림이 지속되고 있습니다: {excerpt}")
+            close_chatgpt_web_notice_ui(page)
+            recover_chatgpt_web_from_conversation_limit(
+                page,
+                heartbeat=heartbeat,
+                label=label,
+                section_prefix=section_prefix,
+                attempt=attempt,
+            )
+            page.wait_for_timeout(CHATGPT_WEB_RATE_LIMIT_RETRY_BACKOFF_SEC * 1000)
+            continue
+
+        remaining = max(0, int(deadline - time.time())) if deadline is not None else 0
+        beat_heartbeat(
+            heartbeat,
+            stage="rate_limit_wait" if notice.kind == "rate_limit" else "chatgpt_notice_wait",
+            label=label,
+            section_prefix=section_prefix,
+            attempt=attempt,
+            detail=f"{notice.kind}: remaining={remaining}s text={excerpt}",
+        )
+        if deadline is not None and time.time() >= deadline:
+            raise RuntimeError(f"ChatGPT 웹 알림이 지속되고 있습니다: {excerpt}")
+        closed = close_chatgpt_web_notice_ui(page)
+        if closed:
+            beat_heartbeat(
+                heartbeat,
+                stage="chatgpt_notice_closed",
+                label=label,
+                section_prefix=section_prefix,
+                attempt=attempt,
+                detail=f"{notice.kind}: {excerpt}",
+            )
+        page.wait_for_timeout(CHATGPT_WEB_RATE_LIMIT_RETRY_BACKOFF_SEC * 1000)
 
 
 def chatgpt_web_rate_limit_modal_visible(page) -> bool:
@@ -2493,7 +3811,17 @@ def wait_for_chatgpt_web_rate_limit_to_clear(
     max_wait_sec: int = CHATGPT_WEB_RATE_LIMIT_WAIT_SEC,
 ) -> None:
     deadline = time.time() + max_wait_sec
-    while chatgpt_web_rate_limit_modal_visible(page):
+    while True:
+        handle_chatgpt_web_page_notices(
+            page,
+            heartbeat=heartbeat,
+            label=label,
+            section_prefix=section_prefix,
+            attempt=attempt,
+            max_wait_sec=max(1, int(deadline - time.time())),
+        )
+        if not chatgpt_web_rate_limit_modal_visible(page):
+            return
         remaining = max(0, int(deadline - time.time()))
         beat_heartbeat(
             heartbeat,
@@ -2509,7 +3837,7 @@ def wait_for_chatgpt_web_rate_limit_to_clear(
             page.keyboard.press("Escape")
         except Exception:
             pass
-        page.wait_for_timeout(5000)
+        page.wait_for_timeout(CHATGPT_WEB_RATE_LIMIT_RETRY_BACKOFF_SEC * 1000)
 
 
 def extract_chatgpt_conversation_id(url: str) -> str:
@@ -2526,14 +3854,34 @@ def prepare_chatgpt_web_page(
     section_prefix: str | None = None,
     attempt: int | None = None,
 ) -> None:
-    page.goto(CHATGPT_WEB_URL, wait_until="domcontentloaded", timeout=120000)
-    page.wait_for_timeout(1500)
+    install_chatgpt_web_notice_hooks(page)
+    navigation_error: Exception | None = None
     try:
-        page.locator("#prompt-textarea").first.wait_for(timeout=120000)
+        page.goto(CHATGPT_WEB_URL, wait_until="domcontentloaded", timeout=120000)
     except timeout_error_cls as exc:
+        navigation_error = exc
+    page.wait_for_timeout(1500)
+    prompt_box = page.locator("#prompt-textarea").first
+    prompt_timeout_ms = 30000 if navigation_error is not None else 120000
+    try:
+        prompt_box.wait_for(timeout=prompt_timeout_ms)
+    except timeout_error_cls as exc:
+        if navigation_error is not None:
+            raise RuntimeError(
+                "ChatGPT 홈 화면 로딩이 지연되고 있으며 프롬프트 입력창도 준비되지 않았습니다. "
+                "chatgpt.com 연결 상태를 확인하세요."
+            ) from navigation_error
         raise RuntimeError(
             "ChatGPT 프롬프트 입력창을 찾지 못했습니다. chatgpt.com 로그인 상태를 확인하세요."
         ) from exc
+    handle_chatgpt_web_page_notices(
+        page,
+        heartbeat=heartbeat,
+        label=label,
+        section_prefix=section_prefix,
+        attempt=attempt,
+        max_wait_sec=15,
+    )
     wait_for_chatgpt_web_rate_limit_to_clear(
         page,
         heartbeat=heartbeat,
@@ -2591,6 +3939,14 @@ def send_chatgpt_web_prompt(
     box = page.locator("#prompt-textarea").first
     deadline = time.time() + CHATGPT_WEB_RATE_LIMIT_WAIT_SEC
     while True:
+        handle_chatgpt_web_page_notices(
+            page,
+            heartbeat=heartbeat,
+            label=label,
+            section_prefix=section_prefix,
+            attempt=attempt,
+            max_wait_sec=max(5, int(deadline - time.time())),
+        )
         wait_for_chatgpt_web_rate_limit_to_clear(
             page,
             heartbeat=heartbeat,
@@ -2603,6 +3959,14 @@ def send_chatgpt_web_prompt(
             box.click(timeout=5000)
             box.fill(prompt)
             page.keyboard.press("Enter")
+            handle_chatgpt_web_page_notices(
+                page,
+                heartbeat=heartbeat,
+                label=label,
+                section_prefix=section_prefix,
+                attempt=attempt,
+                max_wait_sec=max(5, int(deadline - time.time())),
+            )
             try:
                 page.wait_for_url(re.compile(r"https://chatgpt\.com/c/.*"), timeout=120000)
             except timeout_error_cls:
@@ -2624,7 +3988,7 @@ def send_chatgpt_web_prompt(
                 attempt=attempt,
                 detail="prompt_blocked",
             )
-            page.wait_for_timeout(5000)
+            page.wait_for_timeout(CHATGPT_WEB_RATE_LIMIT_RETRY_BACKOFF_SEC * 1000)
 
 
 def read_last_chatgpt_web_response(page) -> tuple[str, str]:
@@ -2648,17 +4012,28 @@ def wait_for_chatgpt_web_response(
     last_message_id = ""
     last_text = ""
     stable_polls = 0
+    empty_polls = 0
+    max_empty_polls = max(10, min(20, timeout_sec // 15))
 
     while time.time() < deadline:
+        handle_chatgpt_web_page_notices(
+            page,
+            heartbeat=heartbeat,
+            label=label,
+            section_prefix=section_prefix,
+            attempt=attempt,
+            max_wait_sec=max(5, int(deadline - time.time())),
+        )
         message_id, text = read_last_chatgpt_web_response(page)
         normalized = normalize_chatgpt_web_copy(text)
+        empty_polls = empty_polls + 1 if not normalized else 0
         beat_heartbeat(
             heartbeat,
             stage="wait_for_response",
             label=label,
             section_prefix=section_prefix,
             attempt=attempt,
-            detail=f"stable_polls={stable_polls} chars={len(normalized)}",
+            detail=f"stable_polls={stable_polls} empty_polls={empty_polls} chars={len(normalized)}",
         )
         if message_id and normalized and message_id == last_message_id and normalized == last_text:
             stable_polls += 1
@@ -2669,6 +4044,8 @@ def wait_for_chatgpt_web_response(
 
         if last_message_id and last_text and stable_polls >= 3:
             return last_message_id, last_text
+        if empty_polls >= max_empty_polls:
+            raise TimeoutError("ChatGPT 웹 응답 본문이 시작되지 않아 재시도합니다.")
 
         page.wait_for_timeout(3000)
 
@@ -2683,63 +4060,71 @@ def fetch_chatgpt_web_audio_bytes(
     voice: str,
     audio_format: str = "mp3",
 ) -> bytes:
-    result = page.evaluate(
-        """async ({conversationId, messageId, voice, audioFormat}) => {
-          try {
-            const sessionResp = await fetch('/api/auth/session', {credentials: 'include'});
-            if (!sessionResp.ok) return {ok: false, error: `session ${sessionResp.status}`};
-            const session = await sessionResp.json();
-            if (!session.accessToken) return {ok: false, error: 'missing access token'};
-            const query = new URLSearchParams({
-              conversation_id: conversationId,
-              message_id: messageId,
-              voice,
-              format: audioFormat,
-            }).toString();
-            const response = await fetch(`/backend-api/synthesize?${query}`, {
-              credentials: 'include',
-              headers: {
-                Authorization: `Bearer ${session.accessToken}`,
-                Accept: 'audio/mpeg,audio/*;q=0.9,*/*;q=0.1',
-              },
-            });
-            const bytes = new Uint8Array(await response.arrayBuffer());
-            if (!response.ok) {
-              const bodyText = new TextDecoder().decode(bytes).slice(0, 400);
-              return {
-                ok: false,
-                status: response.status,
-                contentType: response.headers.get('content-type') || '',
-                error: bodyText,
-              };
-            }
-            let binary = '';
-            const chunkSize = 0x8000;
-            for (let i = 0; i < bytes.length; i += chunkSize) {
-              binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-            }
-            return {
-              ok: true,
-              contentType: response.headers.get('content-type') || '',
-              audioB64: btoa(binary),
-            };
-          } catch (error) {
-            return {ok: false, error: String(error)};
-          }
-        }""",
-        {
-            "conversationId": conversation_id,
-            "messageId": message_id,
-            "voice": voice,
-            "audioFormat": audio_format,
-        },
-    )
-    if not result.get("ok"):
-        raise RuntimeError(f"ChatGPT 웹 오디오 다운로드 실패: {result.get('error') or 'unknown error'}")
-    try:
-        return base64.b64decode(result["audioB64"])
-    except Exception as exc:
-        raise RuntimeError("ChatGPT 웹 오디오 base64 디코딩 실패") from exc
+    last_error = "unknown error"
+    for attempt in range(1, 4):
+        result = page.evaluate(
+            """async ({conversationId, messageId, voice, audioFormat}) => {
+              try {
+                const sessionResp = await fetch('/api/auth/session', {credentials: 'include'});
+                if (!sessionResp.ok) return {ok: false, error: `session ${sessionResp.status}`};
+                const session = await sessionResp.json();
+                if (!session.accessToken) return {ok: false, error: 'missing access token'};
+                const query = new URLSearchParams({
+                  conversation_id: conversationId,
+                  message_id: messageId,
+                  voice,
+                  format: audioFormat,
+                }).toString();
+                const response = await fetch(`/backend-api/synthesize?${query}`, {
+                  credentials: 'include',
+                  headers: {
+                    Authorization: `Bearer ${session.accessToken}`,
+                    Accept: 'audio/mpeg,audio/*;q=0.9,*/*;q=0.1',
+                  },
+                });
+                const bytes = new Uint8Array(await response.arrayBuffer());
+                if (!response.ok) {
+                  const bodyText = new TextDecoder().decode(bytes).slice(0, 400);
+                  return {
+                    ok: false,
+                    status: response.status,
+                    contentType: response.headers.get('content-type') || '',
+                    error: bodyText,
+                  };
+                }
+                let binary = '';
+                const chunkSize = 0x8000;
+                for (let i = 0; i < bytes.length; i += chunkSize) {
+                  binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+                }
+                return {
+                  ok: true,
+                  contentType: response.headers.get('content-type') || '',
+                  audioB64: btoa(binary),
+                };
+              } catch (error) {
+                return {ok: false, error: String(error)};
+              }
+            }""",
+            {
+                "conversationId": conversation_id,
+                "messageId": message_id,
+                "voice": voice,
+                "audioFormat": audio_format,
+            },
+        )
+        if result.get("ok"):
+            try:
+                return base64.b64decode(result["audioB64"])
+            except Exception as exc:
+                raise RuntimeError("ChatGPT 웹 오디오 base64 디코딩 실패") from exc
+
+        last_error = str(result.get("error") or "unknown error")
+        if "Failed to fetch" not in last_error or attempt >= 3:
+            break
+        page.wait_for_timeout(3000)
+
+    raise RuntimeError(f"ChatGPT 웹 오디오 다운로드 실패: {last_error}")
 
 
 def chatgpt_web_launch_args(*, visible: bool) -> list[str]:
@@ -3989,6 +5374,12 @@ def synthesize_chatgpt_web_sections(
                         )
                     for stale_path in (audio_path, prompt_path, response_path, meta_path):
                         stale_path.unlink(missing_ok=True)
+                    stale_descendants = discard_retry_descendant_artifacts(work_dir, prefix)
+                    if stale_descendants:
+                        print(
+                            f"[{label}] 기존 재분할 하위 산출물 정리: {len(stale_descendants)}개",
+                            file=sys.stderr,
+                        )
                 text_path.write_text(text + "\n", encoding="utf-8")
                 beat_heartbeat(
                     heartbeat,
@@ -4084,24 +5475,39 @@ def synthesize_chatgpt_web_sections(
                             detail=f"message_id={message_id}",
                         )
 
-                        if audiobook_mode == "study":
+                        if audiobook_mode != "plain":
                             normalized_response = normalized_file_text(response_text)
                             if not normalized_response:
-                                raise RuntimeError("ChatGPT 학습용 응답이 비어 있습니다.")
+                                raise RuntimeError("ChatGPT 응답이 비어 있습니다.")
                             if is_chatgpt_web_refusal_response(response_text):
                                 preview = normalized_response[:200].replace("\n", " ")
                                 raise RuntimeError(
-                                    f"ChatGPT 학습용 응답이 거절되었습니다({text_path.name}, attempt {attempt}): {preview}"
+                                    f"ChatGPT 응답이 거절되었습니다({text_path.name}, attempt {attempt}): {preview}"
                                 )
                         else:
                             expected = normalize_chatgpt_web_copy(text)
                             actual = normalize_chatgpt_web_copy(response_text)
                             if expected != actual:
-                                preview = actual[:200].replace("\n", " ")
-                                raise ChatGPTWebExactCopyMismatchError(
-                                    f"응답 텍스트가 입력과 일치하지 않습니다({text_path.name}, attempt {attempt}): {preview}",
-                                    response_text=response_text,
-                                )
+                                similarity = chatgpt_web_copy_similarity(text, response_text)
+                                if (
+                                    use_relaxed_ox_copy_check(args, text)
+                                    and similarity >= 0.90
+                                    and len(actual) >= int(len(expected) * 0.85)
+                                ):
+                                    beat_heartbeat(
+                                        heartbeat,
+                                        stage="relaxed_copy_accept",
+                                        label=label,
+                                        section_prefix=prefix,
+                                        attempt=attempt,
+                                        detail=f"similarity={similarity:.3f}",
+                                    )
+                                else:
+                                    preview = actual[:200].replace("\n", " ")
+                                    raise ChatGPTWebExactCopyMismatchError(
+                                        f"응답 텍스트가 입력과 일치하지 않습니다({text_path.name}, attempt {attempt}, similarity={similarity:.3f}): {preview}",
+                                        response_text=response_text,
+                                    )
 
                         beat_heartbeat(
                             heartbeat,
@@ -4166,7 +5572,16 @@ def synthesize_chatgpt_web_sections(
                 label: str,
             ) -> list[Path]:
                 existing_child_sections = load_direct_retry_child_sections(work_dir, prefix)
-                if len(existing_child_sections) > 1:
+                existing_split_audio = [
+                    path
+                    for path in split_audio_paths_for_prefix(prefix)
+                    if reuse_existing_audio_if_valid(path, label=label)
+                ]
+                if (
+                    existing_child_sections
+                    and retry_child_sections_match_parent_text(existing_child_sections, section.text)
+                    and (len(existing_child_sections) > 1 or existing_split_audio)
+                ):
                     print(
                         f"[{label}] 기존 재분할 텍스트 재사용: {prefix}_*.txt",
                         file=sys.stderr,
@@ -4195,12 +5610,14 @@ def synthesize_chatgpt_web_sections(
                             )
                         )
                     return nested_audio
+                elif existing_child_sections:
+                    stale_descendants = discard_retry_descendant_artifacts(work_dir, prefix)
+                    if stale_descendants:
+                        print(
+                            f"[{label}] 부모 텍스트와 맞지 않는 기존 재분할 산출물 정리: {len(stale_descendants)}개",
+                            file=sys.stderr,
+                        )
 
-                existing_split_audio = [
-                    path
-                    for path in split_audio_paths_for_prefix(prefix)
-                    if reuse_existing_audio_if_valid(path, label=label)
-                ]
                 if existing_split_audio:
                     print(
                         f"[{label}] 기존 분할 ChatGPT 웹 오디오 재사용: {prefix}_*.mp3",
