@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Iterable
 
 from docx import Document
-from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Pt
@@ -1033,8 +1032,6 @@ def build_document(
     doc.add_heading("Ⅱ. 최근 3년 출제 경향 분석", level=1)
     topic_year_counts = trend["topic_year_counts"]
     trap_counts = trend["trap_counts"]
-    committee_count = trend["committee_count"]
-
     table = doc.add_table(rows=1, cols=4)
     table.style = "Table Grid"
     hdr = table.rows[0].cells

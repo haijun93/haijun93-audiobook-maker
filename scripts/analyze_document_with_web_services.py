@@ -14,7 +14,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from audiobook_maker import (
+from audiobook_maker import (  # noqa: E402
     CHATGPT_WEB_CHROME_PATH,
     DEFAULT_CHATGPT_WEB_MAX_ATTEMPTS,
     GEMINI_WEB_CHROME_PATH,
@@ -998,7 +998,6 @@ def run_deep_analysis(
     work_dir: Path,
     heartbeat: ProgressHeartbeat | None,
 ) -> tuple[str, dict[str, object]]:
-    providers = analysis_provider_sequence("deep")
     claude_available = True
     claude_fallback_triggered = False
     claude_fallback_reason = ""

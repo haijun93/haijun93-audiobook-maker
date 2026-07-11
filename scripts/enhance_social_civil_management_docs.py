@@ -8,7 +8,6 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH

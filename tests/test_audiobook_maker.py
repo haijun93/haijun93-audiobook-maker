@@ -264,6 +264,14 @@ class SectionSplitTests(unittest.TestCase):
 
         self.assertTrue(audiobook_maker.is_chatgpt_web_refusal_response(response))
 
+    def test_policy_refusal_detector_accepts_safety_reasons_model_spec_message(self) -> None:
+        response = (
+            "This content can’t be shown for safety reasons "
+            "Learn more about our intended model behavior in our Model Spec."
+        )
+
+        self.assertTrue(audiobook_maker.is_chatgpt_web_refusal_response(response))
+
 
 class SpokenLiteralTests(unittest.TestCase):
     def test_spokenize_text_for_readaloud_rewrites_known_domain_override(self) -> None:

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.enum.text import WD_BREAK
 from docx.oxml.ns import qn
 from docx.shared import Pt
 

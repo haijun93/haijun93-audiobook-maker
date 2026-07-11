@@ -194,6 +194,9 @@ CHATGPT_WEB_VOICES = (
     "ember",
 )
 CHATGPT_WEB_REFUSAL_MARKERS = (
+    "This content can’t be shown for safety reasons",
+    "This content can't be shown for safety reasons",
+    "intended model behavior in our Model Spec",
     "그 요청은 도와드릴 수 없습니다",
     "그 요청은 도와드릴 수 없어요",
     "성적으로 노골적이고 동의가 불분명한 장면의 그대로 복제·낭독용 출력은 제공할 수 없습니다",
@@ -246,6 +249,27 @@ CHATGPT_WEB_RATE_LIMIT_LIMIT_MARKERS = (
     "대화에 대한 액세스가 일시적으로 제한되었습니다",
     "conversation access is temporarily limited",
     "access to this conversation has been temporarily limited",
+    "usage limit",
+    "message limit",
+    "request limit",
+    "limit exceeded",
+    "limit reached",
+    "you've reached your limit",
+    "you’ve reached your limit",
+    "you have reached your limit",
+    "temporarily limited",
+    "temporarily unavailable",
+    "try again later",
+    "come back later",
+    "한도초과",
+    "한도 초과",
+    "사용량 한도",
+    "메시지 한도",
+    "요청 한도",
+    "한도에 도달",
+    "일시적으로 제한",
+    "잠시 후 다시",
+    "나중에 다시",
 )
 CHATGPT_WEB_RATE_LIMIT_MODAL_SELECTORS = (
     "#modal-conversation-history-rate-limit",
@@ -289,6 +313,8 @@ CHATGPT_WEB_ACCOUNT_RESTRICTED_MARKERS = (
     "account has been restricted",
     "계정이 제한",
     "의심스러운 활동",
+    "비정상적인 접근",
+    "비정상적 접근",
 )
 CHATGPT_WEB_RETRY_BUTTON_LABELS = (
     "Try again",
@@ -3286,7 +3312,7 @@ def build_chatgpt_web_study_prompt(section: AudioSection, reading_instructions: 
     if section.part_count > 1:
         location = f"전체 장 중 {section.part_index}부 / {section.part_count}부"
         if section.part_index < section.part_count:
-            transition_target = f"같은 장의 다음 파트로 이어짐"
+            transition_target = "같은 장의 다음 파트로 이어짐"
             transition_instruction = "마지막에는 같은 장의 다음 파트로 자연스럽게 이어지는 한두 문장으로 마무리한다."
         elif section.next_title:
             transition_target = section.next_title
@@ -3968,9 +3994,25 @@ def send_chatgpt_web_prompt(
                 max_wait_sec=max(5, int(deadline - time.time())),
             )
             try:
-                page.wait_for_url(re.compile(r"https://chatgpt\.com/c/.*"), timeout=120000)
+                beat_heartbeat(
+                    heartbeat,
+                    stage="chatgpt_prompt_submitted",
+                    label=label,
+                    section_prefix=section_prefix,
+                    attempt=attempt,
+                    detail=page.url,
+                )
+                page.wait_for_url(re.compile(r"https://chatgpt\.com/c/.*"), timeout=15000)
             except timeout_error_cls:
                 pass
+            beat_heartbeat(
+                heartbeat,
+                stage="chatgpt_prompt_submit_done",
+                label=label,
+                section_prefix=section_prefix,
+                attempt=attempt,
+                detail=page.url,
+            )
             return
         except Exception as exc:
             if not (
@@ -4013,7 +4055,10 @@ def wait_for_chatgpt_web_response(
     last_text = ""
     stable_polls = 0
     empty_polls = 0
-    max_empty_polls = max(10, min(20, timeout_sec // 15))
+    if section_prefix and section_prefix.startswith("chunk_"):
+        max_empty_polls = max(40, min(120, timeout_sec // 10))
+    else:
+        max_empty_polls = max(10, min(20, timeout_sec // 15))
 
     while time.time() < deadline:
         handle_chatgpt_web_page_notices(
@@ -4042,7 +4087,8 @@ def wait_for_chatgpt_web_response(
             last_text = normalized
             stable_polls = 0
 
-        if last_message_id and last_text and stable_polls >= 3:
+        required_stable_polls = 8 if section_prefix == "relationship_guide" else 3
+        if last_message_id and last_text and stable_polls >= required_stable_polls:
             return last_message_id, last_text
         if empty_polls >= max_empty_polls:
             raise TimeoutError("ChatGPT 웹 응답 본문이 시작되지 않아 재시도합니다.")
