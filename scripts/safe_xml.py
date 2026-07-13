@@ -14,11 +14,11 @@ XmlSource = str | bytes | PathLike[str] | PathLike[bytes] | BinaryIO | TextIO
 
 
 def safe_fromstring(data: str | bytes) -> Element:
-    """Parse XML while rejecting entities, DTDs, and external references."""
+    """Parse XML without expanding entities or loading external resources."""
 
     return DefusedElementTree.fromstring(
         data,
-        forbid_dtd=True,
+        forbid_dtd=False,
         forbid_entities=True,
         forbid_external=True,
     )
@@ -29,7 +29,7 @@ def safe_parse(source: XmlSource) -> ElementTree:
 
     return DefusedElementTree.parse(
         source,
-        forbid_dtd=True,
+        forbid_dtd=False,
         forbid_entities=True,
         forbid_external=True,
     )

@@ -46,7 +46,7 @@ Record softer review candidates such as unusual length ratios, missing numbers, 
 - Derive `[k]` from the verified `[k-e]` output and remove every English study block.
 - Preserve table of contents, cover, metadata, reading order, and valid XML.
 - Validate ZIP paths and CRC, `mimetype` placement, container/package documents, manifest targets, spine IDs, navigation/NCX links and fragments, and cover metadata before publishing an output.
-- Parse source XML with DTD, entity, and external-reference expansion disabled.
+- Parse source XML with entity and external-reference expansion disabled. Accept inert legacy EPUB2/NCX DTD declarations for compatibility, without loading the referenced DTD.
 
 ## 6. Final reviews
 

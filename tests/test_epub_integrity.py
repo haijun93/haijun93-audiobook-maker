@@ -118,6 +118,16 @@ def test_xml_entities_are_forbidden() -> None:
         safe_fromstring(payload)
 
 
+def test_legacy_ncx_external_dtd_declaration_is_accepted_without_loading_it() -> None:
+    payload = b'''<?xml version="1.0"?>
+<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"/>'''
+
+    root = safe_fromstring(payload)
+
+    assert root.tag.endswith("ncx")
+
+
 def test_korean_only_conversion_keeps_navigation_and_cover_valid(tmp_path: Path) -> None:
     source = tmp_path / "[k-e] source.epub"
     output = tmp_path / "[k] source.epub"
