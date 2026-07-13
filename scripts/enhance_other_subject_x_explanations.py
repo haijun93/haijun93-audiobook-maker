@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 from docx import Document
 
 
-BASE_DIR = Path("/Users/hyeokjunkong/Desktop/1차 시험/#STD/260416")
+BASE_DIR = Path(str(Path.home()) + "/Desktop/1차 시험/#STD/260416")
 BACKUP_DIR = BASE_DIR / "backup"
 
 CONFIGS = [

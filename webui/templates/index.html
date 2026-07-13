@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Audiobook Studio</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand" aria-label="Audiobook Studio">
+      <div class="brand-wave" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div>
+        <strong>Audiobook Studio</strong>
+        <span data-i18n="brandSub">Korean Audiobook Maker</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div id="system-summary" class="system-summary" aria-live="polite"></div>
+      <div class="segmented compact" role="group" aria-label="Language">
+        <button type="button" class="segment active" data-lang="ko">한국어</button>
+        <button type="button" class="segment" data-lang="en">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="creator-pane" aria-labelledby="create-title">
+      <div class="section-heading">
+        <div>
+          <span class="step-index">01</span>
+          <h1 id="create-title" data-i18n="newJob">새 오디오북</h1>
+        </div>
+      </div>
+
+      <form id="job-form" novalidate>
+        <div class="field-group">
+          <div class="segmented full" role="tablist" aria-label="Source type">
+            <button type="button" class="segment active" id="file-tab" data-source-tab="file" role="tab" aria-selected="true" data-i18n="file">파일</button>
+            <button type="button" class="segment" id="text-tab" data-source-tab="text" role="tab" aria-selected="false" data-i18n="text">텍스트</button>
+          </div>
+          <input type="hidden" name="source_kind" id="source-kind" value="file">
+
+          <div id="file-source" class="source-panel">
+            <label class="drop-zone" id="drop-zone" for="source-file">
+              <input id="source-file" name="file" type="file" accept=".txt,.epub,.docx,.pdf">
+              <span class="drop-symbol" aria-hidden="true"><img src="{{ url_for('static', filename='icons/plus.svg') }}" alt=""></span>
+              <strong id="file-label" data-i18n="chooseFile">파일 선택</strong>
+              <small>TXT · EPUB · DOCX · PDF</small>
+            </label>
+          </div>
+
+          <div id="text-source" class="source-panel" hidden>
+            <label for="direct-text" data-i18n="sourceText">원문</label>
+            <textarea id="direct-text" name="text" rows="9" data-i18n-placeholder="textPlaceholder" placeholder="낭독할 한국어 텍스트를 입력하세요"></textarea>
+            <input type="hidden" name="text_name" value="direct_text.txt">
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label data-i18n="provider">음성 제공자</label>
+          <div class="segmented provider-control" role="radiogroup" aria-label="Provider">
+            <label class="radio-segment active">
+              <input type="radio" name="provider" value="gemini_api_tts" checked>
+              <span>Gemini API</span>
+            </label>
+            <label class="radio-segment">
+              <input type="radio" name="provider" value="gemini_web">
+              <span>Gemini Web</span>
+            </label>
+            <label class="radio-segment">
+              <input type="radio" name="provider" value="chatgpt_web">
+              <span>ChatGPT Web</span>
+            </label>
+          </div>
+          <div id="provider-state" class="inline-status" aria-live="polite"></div>
+        </div>
+
+        <div class="form-grid">
+          <div class="field-group">
+            <label for="mode" data-i18n="mode">구성</label>
+            <select id="mode" name="mode">
+              <option value="plain" data-i18n="modePlain">원문 낭독</option>
+              <option value="material_only" data-i18n="modeMaterial">자료 중심</option>
+              <option value="study" data-i18n="modeStudy">학습용</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label for="voice" data-i18n="voice">음성</label>
+            <select id="voice" name="voice"></select>
+          </div>
+        </div>
+
+        <details class="advanced-settings">
+          <summary data-i18n="advanced">고급 설정</summary>
+          <div class="advanced-body">
+            <div class="form-grid three">
+              <div class="field-group">
+                <label for="max-chars" data-i18n="chunkSize">조각 크기</label>
+                <input id="max-chars" name="max_chars" type="number" min="200" max="20000" step="100" value="2500">
+              </div>
+              <div class="field-group">
+                <label for="bitrate" data-i18n="bitrate">비트레이트</label>
+                <select id="bitrate" name="bitrate">
+                  <option value="64">64 kbps</option>
+                  <option value="96" selected>96 kbps</option>
+                  <option value="128">128 kbps</option>
+                  <option value="192">192 kbps</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="max-attempts" data-i18n="retries">재시도</label>
+                <input id="max-attempts" name="max_attempts" type="number" min="1" max="20" value="3">
+              </div>
+            </div>
+            <div class="field-group" id="model-field">
+              <label for="model" data-i18n="model">모델</label>
+              <input id="model" name="model" value="gemini-2.5-flash-preview-tts" maxlength="120">
+            </div>
+            <label class="check-row" id="visible-field" hidden>
+              <input type="checkbox" name="visible" value="true">
+              <span data-i18n="showBrowser">브라우저 창 표시</span>
+            </label>
+          </div>
+        </details>
+
+        <div id="form-error" class="form-error" role="alert" hidden></div>
+        <button class="primary-action" id="submit-job" type="submit">
+          <img class="ui-icon" src="{{ url_for('static', filename='icons/play.svg') }}" alt="">
+          <span data-i18n="start">만들기 시작</span>
+        </button>
+      </form>
+    </section>
+
+    <section class="queue-pane" aria-labelledby="queue-title">
+      <div class="section-heading queue-heading">
+        <div>
+          <span class="step-index">02</span>
+          <h2 id="queue-title" data-i18n="jobs">작업</h2>
+        </div>
+        <button class="icon-button" id="refresh-jobs" type="button" title="Refresh" aria-label="Refresh"><img class="ui-icon" src="{{ url_for('static', filename='icons/refresh-cw.svg') }}" alt=""></button>
+      </div>
+
+      <div class="queue-summary">
+        <div><strong id="active-count">0</strong><span data-i18n="active">진행 중</span></div>
+        <div><strong id="done-count">0</strong><span data-i18n="ready">완료</span></div>
+        <div><strong id="failed-count">0</strong><span data-i18n="attention">확인 필요</span></div>
+      </div>
+
+      <div id="job-list" class="job-list" aria-live="polite"></div>
+      <div id="empty-state" class="empty-state">
+        <div class="empty-wave" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <strong data-i18n="emptyTitle">대기 중인 작업이 없습니다</strong>
+        <span data-i18n="emptyBody">원문과 음성을 선택해 시작하세요.</span>
+      </div>
+
+      <section id="job-detail" class="job-detail" aria-labelledby="detail-title" hidden>
+        <div class="detail-header">
+          <div>
+            <span class="status-dot" id="detail-dot"></span>
+            <h3 id="detail-title"></h3>
+          </div>
+          <button class="icon-button" id="close-detail" type="button" title="Close" aria-label="Close"><img class="ui-icon" src="{{ url_for('static', filename='icons/x.svg') }}" alt=""></button>
+        </div>
+        <div class="detail-meta" id="detail-meta"></div>
+        <div class="progress-track large" id="detail-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="detail-progress"></span></div>
+        <div class="detail-actions" id="detail-actions"></div>
+        <audio id="audio-player" controls preload="metadata" hidden></audio>
+        <div class="log-heading">
+          <span data-i18n="log">실행 로그</span>
+          <button class="text-button" id="copy-log" type="button"><img class="ui-icon" src="{{ url_for('static', filename='icons/copy.svg') }}" alt=""><span data-i18n="copy">복사</span></button>
+        </div>
+        <pre id="job-log" tabindex="0"></pre>
+      </section>
+    </section>
+  </main>
+
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+</body>
+</html>

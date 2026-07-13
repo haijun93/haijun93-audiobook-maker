@@ -37,18 +37,18 @@ from translate_epub_with_chatgpt_web_to_study_epub import request_web_translatio
 
 
 DEFAULT_KE = Path(
-    "/Users/hyeokjunkong/Desktop/소설2/[k-e]/Romance_Dark_Romance/Pam Godwin/"
+    str(Path.home()) + "/Desktop/소설2/[k-e]/Romance_Dark_Romance/Pam Godwin/"
     "[k-e] Lessons in Sin Pam Godwin.epub"
 )
 DEFAULT_K = Path(
-    "/Users/hyeokjunkong/Desktop/소설2/[k]/Romance_Dark_Romance/Pam Godwin/"
+    str(Path.home()) + "/Desktop/소설2/[k]/Romance_Dark_Romance/Pam Godwin/"
     "[k] Lessons in Sin Pam Godwin.epub"
 )
 DEFAULT_WORK = Path(
-    "/Users/hyeokjunkong/Desktop/소설2/_chatgpt_translate_work/"
+    str(Path.home()) + "/Desktop/소설2/_chatgpt_translate_work/"
     "readrobe.com__Lessons_in_Sin_-_Pam_Godwin/honorific_refinement"
 )
-BACKUP_DIR = Path("/Users/hyeokjunkong/Desktop/소설2/_manual_backups")
+BACKUP_DIR = Path(str(Path.home()) + "/Desktop/소설2/_manual_backups")
 MANUAL_OVERRIDES = {
     "D00274": (
         "“여기서 기다려. 내가 처리할게.” 나는 옆에 있던 여자아이에게 말했다. “캐리. 같이 가자.”"

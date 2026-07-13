@@ -14,3 +14,10 @@ work_you_chatgpt_web/
 run_logs/
 .cache/
 .work/
+.webui/
+build/
+dist/
+*.egg-info/
+RESUME_*.md
+work_you_chatgpt/
+*_ko_web.txt

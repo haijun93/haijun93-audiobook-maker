@@ -15,7 +15,7 @@ from kiwipiepy import Kiwi
 
 
 DEFAULT_INPUT = Path(
-    "/Users/hyeokjunkong/Desktop/1차 시험/#STD/260416/civil_law_OX_integrated_2026_v1.docx"
+    str(Path.home()) + "/Desktop/1차 시험/#STD/260416/civil_law_OX_integrated_2026_v1.docx"
 )
 KIWI = Kiwi()
 

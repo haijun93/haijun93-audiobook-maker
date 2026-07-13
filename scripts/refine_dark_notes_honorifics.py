@@ -16,9 +16,9 @@ from safe_xml import safe_fromstring
 
 
 DEFAULT_EPUB = Path(
-    "/Users/hyeokjunkong/Desktop/소설2/[k]/#must read/[k] Dark Notes Pam Godwin.epub"
+    str(Path.home()) + "/Desktop/소설2/[k]/#must read/[k] Dark Notes Pam Godwin.epub"
 )
-BACKUP_DIR = Path("/Users/hyeokjunkong/Desktop/소설2/_manual_backups")
+BACKUP_DIR = Path(str(Path.home()) + "/Desktop/소설2/_manual_backups")
 
 TEXT_SUFFIXES = {".xhtml", ".html", ".htm", ".xml", ".opf", ".ncx"}
 HTML_SUFFIXES = {".xhtml", ".html", ".htm"}

@@ -24,17 +24,17 @@ DEFAULT_WORK_DIR = ROOT / ".work" / "ted_transcript_study_work"
 DEFAULT_OUTPUT = ROOT / ".work" / "TED_Transcript_Based_Korean_English_Study.epub"
 
 DEFAULT_ATTACHMENT_PATHS = [
-    "/Users/hyeokjunkong/.codex/attachments/f2c8fc01-080a-49b6-8ddb-afc2b565e5d1/pasted-text.txt",
-    "/Users/hyeokjunkong/.codex/attachments/43ba054b-915f-4fdf-9fcb-abf42712b4b3/pasted-text.txt",
-    "/Users/hyeokjunkong/.codex/attachments/15b66b61-04a5-4768-b27a-149e9656bca3/pasted-text.txt",
-    "/Users/hyeokjunkong/.codex/attachments/a1e09361-2016-4399-8cc0-80b5ad844bc0/pasted-text.txt",
-    "/Users/hyeokjunkong/.codex/attachments/a48c641a-58be-4c6a-8c44-82bdabd9d41d/pasted-text.txt",
-    "/Users/hyeokjunkong/.codex/attachments/a4214182-ba5e-469b-919c-a3b4a6996afc/pasted-text.txt",
-    "/Users/hyeokjunkong/.codex/attachments/bd78bc92-c12f-4e78-bd4d-bb5c1b801b36/pasted-text.txt",
-    "/Users/hyeokjunkong/.codex/attachments/5a2e3d7a-f5b7-4285-8dfc-b79498ca99e1/pasted-text.txt",
-    "/Users/hyeokjunkong/.codex/attachments/6f7d1d30-93a0-415c-8eb0-4a8005e17ba4/pasted-text.txt",
-    "/Users/hyeokjunkong/.codex/attachments/99a92e8a-3080-4f88-b494-c3d2dcd7fc6a/pasted-text.txt",
-    "/Users/hyeokjunkong/.codex/attachments/c79a4323-09e9-4f4e-9e1c-bcba702f162f/pasted-text.txt",
+    str(Path.home()) + "/.codex/attachments/f2c8fc01-080a-49b6-8ddb-afc2b565e5d1/pasted-text.txt",
+    str(Path.home()) + "/.codex/attachments/43ba054b-915f-4fdf-9fcb-abf42712b4b3/pasted-text.txt",
+    str(Path.home()) + "/.codex/attachments/15b66b61-04a5-4768-b27a-149e9656bca3/pasted-text.txt",
+    str(Path.home()) + "/.codex/attachments/a1e09361-2016-4399-8cc0-80b5ad844bc0/pasted-text.txt",
+    str(Path.home()) + "/.codex/attachments/a48c641a-58be-4c6a-8c44-82bdabd9d41d/pasted-text.txt",
+    str(Path.home()) + "/.codex/attachments/a4214182-ba5e-469b-919c-a3b4a6996afc/pasted-text.txt",
+    str(Path.home()) + "/.codex/attachments/bd78bc92-c12f-4e78-bd4d-bb5c1b801b36/pasted-text.txt",
+    str(Path.home()) + "/.codex/attachments/5a2e3d7a-f5b7-4285-8dfc-b79498ca99e1/pasted-text.txt",
+    str(Path.home()) + "/.codex/attachments/6f7d1d30-93a0-415c-8eb0-4a8005e17ba4/pasted-text.txt",
+    str(Path.home()) + "/.codex/attachments/99a92e8a-3080-4f88-b494-c3d2dcd7fc6a/pasted-text.txt",
+    str(Path.home()) + "/.codex/attachments/c79a4323-09e9-4f4e-9e1c-bcba702f162f/pasted-text.txt",
 ]
 
 URL_BY_TITLE = {

@@ -19,6 +19,9 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 REMOVE_EXACT_LINES = {
     "정답은 9개씩 묶어서 확인하면 오답 패턴이 더 잘 보인다.",
     "OX 정답표",
@@ -221,12 +224,8 @@ def clean_docx_in_place(docx_path: Path) -> Path:
 
 
 def export_outputs(docx_path: Path) -> tuple[Path, Path]:
-    optimize_helpers = runpy.run_path(
-        "/Users/hyeokjunkong/Desktop/myproject_python/haijun93-audiobook-maker/scripts/optimize_pdfs_for_kindle_scribe.py"
-    )
-    export_helpers = runpy.run_path(
-        "/Users/hyeokjunkong/Desktop/myproject_python/haijun93-audiobook-maker/scripts/export_docx_to_pdf_epub.py"
-    )
+    optimize_helpers = runpy.run_path(str(ROOT / "scripts" / "optimize_pdfs_for_kindle_scribe.py"))
+    export_helpers = runpy.run_path(str(ROOT / "scripts" / "export_docx_to_pdf_epub.py"))
 
     optimize_docx_for_kindle = optimize_helpers["optimize_docx_for_kindle"]
     export_docx_with_pages = export_helpers["export_docx_with_pages"]

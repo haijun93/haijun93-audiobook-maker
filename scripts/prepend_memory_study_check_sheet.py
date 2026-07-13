@@ -12,7 +12,7 @@ from docx.oxml.ns import qn
 from docx.shared import Pt
 
 
-BASE_DIR = Path("/Users/hyeokjunkong/Desktop/1차 시험/#STD/260416")
+BASE_DIR = Path(str(Path.home()) + "/Desktop/1차 시험/#STD/260416")
 BACKUP_DIR = BASE_DIR / "backup"
 SUBJECT_DOCS = [
     BASE_DIR / "[doc] labor_law_OX_integrated_2026_v1.docx",

@@ -21,19 +21,19 @@ KIWI = Kiwi()
 
 SUBJECT_CONFIG = {
     "social_insurance": {
-        "input": Path("/Users/hyeokjunkong/Desktop/1차 시험/#STD/#Here/사회보험법_OX_통합본_2026_enhanced.docx"),
+        "input": Path(str(Path.home()) + "/Desktop/1차 시험/#STD/#Here/사회보험법_OX_통합본_2026_enhanced.docx"),
         "json": ROOT / ".work/social_insurance_ox_2026/social_insurance_ox_integrated_2026_final.json",
         "title": "사회보험법 OX 통합본",
         "subtitle": "2026 대비 심화 보강판",
     },
     "civil": {
-        "input": Path("/Users/hyeokjunkong/Desktop/1차 시험/#STD/#Here/민법_OX_통합본_2026_cleaned_v1.docx"),
+        "input": Path(str(Path.home()) + "/Desktop/1차 시험/#STD/#Here/민법_OX_통합본_2026_cleaned_v1.docx"),
         "json": ROOT / ".work/civil_management_ox_2026/민법_OX_통합본_2026최종검수.json",
         "title": "민법 OX 통합본",
         "subtitle": "2014~2025 기출 반영 / 2026 대비 심화 보강판",
     },
     "management": {
-        "input": Path("/Users/hyeokjunkong/Desktop/1차 시험/#STD/#Here/경영학_OX_통합본_2026_cleaned_v1.docx"),
+        "input": Path(str(Path.home()) + "/Desktop/1차 시험/#STD/#Here/경영학_OX_통합본_2026_cleaned_v1.docx"),
         "json": ROOT / ".work/civil_management_ox_2026/경영학_OX_통합본_2026최종검수.json",
         "title": "경영학 OX 통합본",
         "subtitle": "2014~2025 기출 반영 / 2026 대비 심화 보강판",

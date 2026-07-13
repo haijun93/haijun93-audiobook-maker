@@ -15,8 +15,8 @@ from safe_xml import safe_fromstring
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_DIR = Path("/Users/hyeokjunkong/Desktop/소설/#books_source")
-OUTPUT_DIR = Path("/Users/hyeokjunkong/Desktop/소설/#[k-e]")
+SOURCE_DIR = Path(str(Path.home()) + "/Desktop/소설/#books_source")
+OUTPUT_DIR = Path(str(Path.home()) + "/Desktop/소설/#[k-e]")
 LOG_DIR = OUTPUT_DIR / "_batch_logs"
 TRANSLATE_SCRIPT = ROOT / "scripts" / "translate_epub_with_chatgpt_web_to_study_epub.py"
 DEFAULT_COOLDOWN_SECONDS = 60 * 60

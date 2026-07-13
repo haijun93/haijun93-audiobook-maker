@@ -12,7 +12,7 @@ from pathlib import Path
 from make_korean_only_epubs import convert_epub
 
 
-FOLDER = Path("/Users/hyeokjunkong/Desktop/소설/#[k-e]")
+FOLDER = Path(str(Path.home()) + "/Desktop/소설/#[k-e]")
 KE_EPUB = FOLDER / "[k-e] Artemis.epub"
 K_EPUB = FOLDER / "[k] Artemis.epub"
 BACKUP = FOLDER / "_batch_logs" / "[k-e] Artemis.before_honorific_refine.epub"

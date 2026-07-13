@@ -24,7 +24,7 @@ from safe_xml import safe_fromstring
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_DIR = Path("/Users/hyeokjunkong/Desktop/소설2")
+SOURCE_DIR = Path(str(Path.home()) + "/Desktop/소설2")
 READROBE_SOURCE_DIR = SOURCE_DIR / "readrobe.com"
 EXTRA_SOURCE_DIRS = (SOURCE_DIR / "new books from vk",)
 KE_DIR = SOURCE_DIR / "[k-e]"

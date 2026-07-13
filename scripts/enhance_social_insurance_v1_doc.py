@@ -18,7 +18,7 @@ from kiwipiepy import Kiwi
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_INPUT = Path(
-    "/Users/hyeokjunkong/Desktop/1차 시험/#STD/260416/social_insurance_law_OX_integrated_2026_v1.docx"
+    str(Path.home()) + "/Desktop/1차 시험/#STD/260416/social_insurance_law_OX_integrated_2026_v1.docx"
 )
 SOURCE_JSON = ROOT / ".work/social_insurance_ox_2026/social_insurance_ox_integrated_2026_final.json"
 KIWI = Kiwi()

@@ -1,13 +1,18 @@
 #!/bin/zsh
 set -euo pipefail
 
-SOURCE_ROOT="/Users/hyeokjunkong/Desktop/소설2"
-DEST_ROOT="/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books"
-LOG_DIR="/Users/hyeokjunkong/Library/Logs/soseol2"
+SOURCE_ROOT="${SOURCE_ROOT:-${HOME}/Desktop/소설2}"
+DEST_ROOT="${DEST_ROOT:-}"
+LOG_DIR="${LOG_DIR:-${HOME}/Library/Logs/soseol2}"
 LOG_FILE="${LOG_DIR}/gdrive_books_sync.log"
 LOCK_DIR="${LOG_DIR}/gdrive_books_sync.lock"
 
 mkdir -p "$LOG_DIR"
+
+if [[ -z "$DEST_ROOT" ]]; then
+  print -u2 -- "Set DEST_ROOT to the destination Google Drive folder."
+  exit 2
+fi
 
 log() {
   print -r -- "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"

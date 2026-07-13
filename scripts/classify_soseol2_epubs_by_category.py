@@ -24,7 +24,7 @@ from remove_readrobe_text_from_epubs import scrub_epub
 from safe_xml import safe_fromstring
 
 
-SOURCE_DIR = Path("/Users/hyeokjunkong/Desktop/소설2")
+SOURCE_DIR = Path(str(Path.home()) + "/Desktop/소설2")
 K_ROOT = SOURCE_DIR / "[k]"
 KE_ROOT = SOURCE_DIR / "[k-e]"
 CLASSIFICATION_DIR = SOURCE_DIR / "_classification"

@@ -21,7 +21,7 @@ from final_epub_tone_review import review_epub_tone
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SOURCE_DIR = Path("/Users/hyeokjunkong/Desktop/소설2")
+DEFAULT_SOURCE_DIR = Path(str(Path.home()) + "/Desktop/소설2")
 REFINE_DARK_NOTES = ROOT / "scripts" / "refine_dark_notes_honorifics.py"
 REFINE_CORRUPT = ROOT / "scripts" / "refine_corrupt_honorifics.py"
 

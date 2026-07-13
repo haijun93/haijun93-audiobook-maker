@@ -1,10 +1,11 @@
 #!/bin/zsh
 set -euo pipefail
 
-SYNC_SCRIPT="/Users/hyeokjunkong/Library/Scripts/sync_soseol2_books_to_gdrive.sh"
-LOG_DIR="/Users/hyeokjunkong/Library/Logs/soseol2"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SYNC_SCRIPT="${SYNC_SCRIPT:-${SCRIPT_DIR}/sync_soseol2_books_to_gdrive.sh}"
+LOG_DIR="${LOG_DIR:-${HOME}/Library/Logs/soseol2}"
 LOOP_LOG="${LOG_DIR}/gdrive_books_sync_loop.log"
-INTERVAL_SECONDS=43200
+INTERVAL_SECONDS="${INTERVAL_SECONDS:-43200}"
 
 mkdir -p "$LOG_DIR"
 

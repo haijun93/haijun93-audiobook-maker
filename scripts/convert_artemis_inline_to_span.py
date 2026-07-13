@@ -12,7 +12,7 @@ from pathlib import Path
 from safe_xml import safe_fromstring
 
 
-DEFAULT_EPUB = Path("/Users/hyeokjunkong/Desktop/소설/#[k-e]/[k-e] Artemis.epub")
+DEFAULT_EPUB = Path(str(Path.home()) + "/Desktop/소설/#[k-e]/[k-e] Artemis.epub")
 P_RE = re.compile(r"<p(?P<attrs>[^>]*)>(?P<body>.*?)</p>", re.S)
 TAG_RE = re.compile(r"<[^>]+>")
 LATIN_RE = re.compile(r"[A-Za-z]")

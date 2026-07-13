@@ -222,11 +222,11 @@ def main() -> int:
     parser.add_argument("--root-dir", default=str(Path(__file__).resolve().parents[1]))
     parser.add_argument(
         "--input-dir",
-        default="/Users/hyeokjunkong/Desktop/1차 시험/#STD/#Here",
+        default=str(Path.home()) + "/Desktop/1차 시험/#STD/#Here",
     )
     parser.add_argument(
         "--output-dir",
-        default="/Users/hyeokjunkong/Desktop/1차 시험/#STD/오디오북",
+        default=str(Path.home()) + "/Desktop/1차 시험/#STD/오디오북",
     )
     parser.add_argument(
         "--batch-script",
@@ -239,11 +239,11 @@ def main() -> int:
     parser.add_argument("--progress-log-sec", type=int, default=300)
     parser.add_argument(
         "--log-file",
-        default="/Users/hyeokjunkong/Desktop/1차 시험/#STD/오디오북/ox_audiobook_batch_supervisor.log",
+        default=str(Path.home()) + "/Desktop/1차 시험/#STD/오디오북/ox_audiobook_batch_supervisor.log",
     )
     parser.add_argument(
         "--status-file",
-        default="/Users/hyeokjunkong/Desktop/1차 시험/#STD/오디오북/ox_audiobook_batch_status.json",
+        default=str(Path.home()) + "/Desktop/1차 시험/#STD/오디오북/ox_audiobook_batch_status.json",
     )
     parser.add_argument(
         "--stems",

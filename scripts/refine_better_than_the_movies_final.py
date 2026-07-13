@@ -28,18 +28,18 @@ from remove_readrobe_text_from_epubs import WATERMARK_PATTERN, scrub_epub  # noq
 
 
 DEFAULT_KE = Path(
-    "/Users/hyeokjunkong/Desktop/소설2/[k-e]/Young_Adult_Children/"
+    str(Path.home()) + "/Desktop/소설2/[k-e]/Young_Adult_Children/"
     "[k-e] Better Than the Movies Lynn Painter.epub"
 )
 DEFAULT_K = Path(
-    "/Users/hyeokjunkong/Desktop/소설2/[k]/Young_Adult_Children/"
+    str(Path.home()) + "/Desktop/소설2/[k]/Young_Adult_Children/"
     "[k] Better Than the Movies Lynn Painter.epub"
 )
 DEFAULT_WORK = Path(
-    "/Users/hyeokjunkong/Desktop/소설2/_chatgpt_translate_work/"
+    str(Path.home()) + "/Desktop/소설2/_chatgpt_translate_work/"
     "readrobe.com__Better_then_the_movies_-_Lynn_painter"
 )
-BACKUP_DIR = Path("/Users/hyeokjunkong/Desktop/소설2/_manual_backups")
+BACKUP_DIR = Path(str(Path.home()) + "/Desktop/소설2/_manual_backups")
 
 PAIR_RE = re.compile(
     r'(<p\b[^>]*class=["\'][^"\']*\bpair\b[^"\']*["\'][^>]*>\s*'

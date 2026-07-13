@@ -5,8 +5,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-INPUT_DIR="${INPUT_DIR:-/Users/hyeokjunkong/Desktop/1차 시험/#STD/#Here}"
-OUTPUT_DIR="${OUTPUT_DIR:-/Users/hyeokjunkong/Desktop/1차 시험/#STD/오디오북}"
+INPUT_DIR="${INPUT_DIR:-${HOME}/Desktop/1차 시험/#STD/#Here}"
+OUTPUT_DIR="${OUTPUT_DIR:-${HOME}/Desktop/1차 시험/#STD/오디오북}"
 
 MAX_CHARS="${MAX_CHARS:-1800}"
 REQUEST_TIMEOUT_SEC="${REQUEST_TIMEOUT_SEC:-600}"

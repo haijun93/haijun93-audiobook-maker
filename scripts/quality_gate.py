@@ -24,7 +24,17 @@ def main() -> int:
     run("Ruff", ruff_command)
     run(
         "Python bytecode compilation",
-        [sys.executable, "-m", "compileall", "-q", "audiobook_maker.py", "scripts", "tests"],
+        [
+            sys.executable,
+            "-m",
+            "compileall",
+            "-q",
+            "audiobook_maker.py",
+            "web_app.py",
+            "webui",
+            "scripts",
+            "tests",
+        ],
     )
 
     zsh = shutil.which("zsh")

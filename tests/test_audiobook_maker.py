@@ -13,6 +13,26 @@ from unittest.mock import Mock, patch
 import audiobook_maker
 
 
+class ChromeDiscoveryTests(unittest.TestCase):
+    def test_environment_override_takes_precedence(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            executable = Path(tmpdir) / "chrome"
+            executable.touch()
+            with patch.dict("os.environ", {"AUDIOBOOK_CHROME_PATH": str(executable)}):
+                self.assertEqual(audiobook_maker.discover_chrome_executable(), str(executable))
+
+    def test_returns_empty_string_when_chrome_is_unavailable(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("audiobook_maker.Path.is_file", return_value=False):
+                with patch("audiobook_maker.shutil.which", return_value=None):
+                    self.assertEqual(audiobook_maker.discover_chrome_executable(), "")
+
+    def test_session_probe_rejects_empty_chrome_path(self) -> None:
+        with patch("audiobook_maker.load_chatgpt_web_modules") as load_modules:
+            self.assertFalse(audiobook_maker.chatgpt_web_session_available(""))
+        load_modules.assert_not_called()
+
+
 class HeadingDetectionTests(unittest.TestCase):
     def test_detects_korean_chapter_heading(self) -> None:
         self.assertTrue(audiobook_maker.looks_like_heading("제1장"))

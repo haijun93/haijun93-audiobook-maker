@@ -184,7 +184,34 @@ RETRY_SPLIT_MIN_CHARS = 220
 RETRY_SPLIT_MAX_CHARS = 900
 GEMINI_API_KEY_ENV_NAMES = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
 CHATGPT_WEB_URL = "https://chatgpt.com/"
-CHATGPT_WEB_CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+
+def discover_chrome_executable() -> str:
+    """Find Chrome on common desktop platforms, with an environment override."""
+
+    configured = os.getenv("AUDIOBOOK_CHROME_PATH", "").strip()
+    if configured:
+        return str(Path(configured).expanduser())
+
+    candidates = [
+        Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    ]
+    for env_name in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+        base = os.getenv(env_name, "").strip()
+        if base:
+            candidates.append(Path(base) / "Google/Chrome/Application/chrome.exe")
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    for command in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+        executable = shutil.which(command)
+        if executable:
+            return executable
+    return ""
+
+
+CHATGPT_WEB_CHROME_PATH = discover_chrome_executable()
 CHATGPT_WEB_DEFAULT_VOICE = "cove"
 CHATGPT_WEB_VOICES = (
     "fathom",
@@ -1280,7 +1307,7 @@ def browser_cookie_session_available(browser_cookie3_module, *, domain_names: tu
 
 
 def chatgpt_web_session_available(chrome_path: str = CHATGPT_WEB_CHROME_PATH) -> bool:
-    if not Path(chrome_path).exists():
+    if not chrome_path or not Path(chrome_path).is_file():
         return False
     try:
         browser_cookie3, _, _ = load_chatgpt_web_modules()
@@ -1293,7 +1320,7 @@ def chatgpt_web_session_available(chrome_path: str = CHATGPT_WEB_CHROME_PATH) ->
 
 
 def gemini_web_session_available(chrome_path: str = GEMINI_WEB_CHROME_PATH) -> bool:
-    if not Path(chrome_path).exists():
+    if not chrome_path or not Path(chrome_path).is_file():
         return False
     try:
         browser_cookie3, _, _ = load_gemini_web_modules()
@@ -3284,16 +3311,22 @@ def ensure_runtime_ready(args: argparse.Namespace, output_path: Path) -> None:
     if args.provider == "chatgpt_web":
         load_chatgpt_web_modules()
         chrome_path = Path(args.chatgpt_web_chrome_path).expanduser()
-        if not chrome_path.exists():
-            raise RuntimeError(f"ChatGPT 웹용 Chrome 실행 파일을 찾지 못했습니다: {chrome_path}")
+        if not args.chatgpt_web_chrome_path or not chrome_path.is_file():
+            raise RuntimeError(
+                "ChatGPT 웹용 Chrome 실행 파일을 찾지 못했습니다. "
+                "Chrome을 설치하거나 AUDIOBOOK_CHROME_PATH를 설정하세요."
+            )
         if not chatgpt_web_session_available(str(chrome_path)):
             raise RuntimeError("Chrome 에 로그인된 chatgpt.com 세션을 찾지 못했습니다.")
         return
     if args.provider == "gemini_web":
         load_gemini_web_modules()
         chrome_path = Path(args.gemini_web_chrome_path).expanduser()
-        if not chrome_path.exists():
-            raise RuntimeError(f"Gemini 웹용 Chrome 실행 파일을 찾지 못했습니다: {chrome_path}")
+        if not args.gemini_web_chrome_path or not chrome_path.is_file():
+            raise RuntimeError(
+                "Gemini 웹용 Chrome 실행 파일을 찾지 못했습니다. "
+                "Chrome을 설치하거나 AUDIOBOOK_CHROME_PATH를 설정하세요."
+            )
         if not gemini_web_session_available(str(chrome_path)):
             raise RuntimeError("Chrome 에 로그인된 Gemini 웹용 Google 세션을 찾지 못했습니다.")
         return

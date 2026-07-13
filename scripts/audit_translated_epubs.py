@@ -13,8 +13,8 @@ from urllib.parse import unquote
 from safe_xml import safe_fromstring
 
 
-EPUB_FOLDER = Path("/Users/hyeokjunkong/Desktop/소설/#[k-e]")
-NOVEL_ROOT = Path("/Users/hyeokjunkong/Desktop/소설")
+EPUB_FOLDER = Path(str(Path.home()) + "/Desktop/소설/#[k-e]")
+NOVEL_ROOT = Path(str(Path.home()) + "/Desktop/소설")
 
 
 CLASS_RE = re.compile(r"class=[\"']([^\"']+)[\"']")

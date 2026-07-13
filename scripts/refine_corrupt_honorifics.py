@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-SOURCE_DIR = Path("/Users/hyeokjunkong/Desktop/소설2")
+SOURCE_DIR = Path(str(Path.home()) + "/Desktop/소설2")
 BACKUP_DIR = SOURCE_DIR / "_manual_backups"
 
 REPLACEMENTS = [

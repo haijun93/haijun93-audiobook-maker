@@ -11,8 +11,8 @@ from datetime import datetime
 from pathlib import Path
 
 
-DEFAULT_FOLDER = Path("/Users/hyeokjunkong/Desktop/소설/#[k-e]")
-NOVEL_ROOT = Path("/Users/hyeokjunkong/Desktop/소설")
+DEFAULT_FOLDER = Path(str(Path.home()) + "/Desktop/소설/#[k-e]")
+NOVEL_ROOT = Path(str(Path.home()) + "/Desktop/소설")
 WORK_DIR = Path(".work")
 
 TAG_RE = re.compile(r"<[^>]+>")

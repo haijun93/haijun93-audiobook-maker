@@ -11,7 +11,7 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
 
 
-OUT_DIR = Path("/Users/hyeokjunkong/Desktop/1차 시험/#STD/260416")
+OUT_DIR = Path(str(Path.home()) + "/Desktop/1차 시험/#STD/260416")
 DOCX_PATH = OUT_DIR / "[doc] 35day_first_exam_master_guide_2026.docx"
 PDF_PATH = OUT_DIR / "[pdf] 35day_first_exam_master_guide_2026.pdf"
 

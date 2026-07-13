@@ -18,10 +18,10 @@ from docx.shared import Inches, Pt
 
 
 DEFAULT_DOCX_FILES = [
-    Path("/Users/hyeokjunkong/Desktop/1차 시험/#STD/260416/civil_law_OX_integrated_2026_v1.docx"),
-    Path("/Users/hyeokjunkong/Desktop/1차 시험/#STD/260416/labor_law_OX_integrated_2026_v1.docx"),
-    Path("/Users/hyeokjunkong/Desktop/1차 시험/#STD/260416/management_OX_integrated_2026_v1.docx"),
-    Path("/Users/hyeokjunkong/Desktop/1차 시험/#STD/260416/social_insurance_law_OX_integrated_2026_v1.docx"),
+    Path(str(Path.home()) + "/Desktop/1차 시험/#STD/260416/civil_law_OX_integrated_2026_v1.docx"),
+    Path(str(Path.home()) + "/Desktop/1차 시험/#STD/260416/labor_law_OX_integrated_2026_v1.docx"),
+    Path(str(Path.home()) + "/Desktop/1차 시험/#STD/260416/management_OX_integrated_2026_v1.docx"),
+    Path(str(Path.home()) + "/Desktop/1차 시험/#STD/260416/social_insurance_law_OX_integrated_2026_v1.docx"),
 ]
 
 # 6-inch Kindle profile.
