@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "haijun93-audiobook-maker"
 version = "1.0.0"
-description = "Create Korean audiobooks from text and ebook documents with a local web interface."
+description = "Create Korean audiobooks and Korean-English study EPUBs with a local web interface."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 authors = [{ name = "haijun93" }]
-keywords = ["audiobook", "korean", "tts", "gemini", "epub"]
+keywords = ["audiobook", "korean", "tts", "gemini", "epub", "translation"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Web Environment",
@@ -52,7 +52,7 @@ Source = "https://github.com/haijun93/haijun93-audiobook-maker"
 
 [tool.setuptools]
 py-modules = ["audiobook_maker", "web_app"]
-packages = ["webui"]
+packages = ["webui", "scripts"]
 
 [tool.setuptools.package-data]
 webui = ["templates/*.html", "static/*.css", "static/*.js", "static/icons/*.svg"]

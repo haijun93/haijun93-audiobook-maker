@@ -101,7 +101,7 @@ def merge_page_lines(lines: list[str]) -> list[str]:
     return paragraphs
 
 
-def page_to_xhtml(page_num: int, paragraphs: list[str]) -> str:
+def page_to_xhtml(page_num: int, paragraphs: list[str], *, language: str = "ko") -> str:
     body = []
     for para in paragraphs:
         escaped = html.escape(para)
@@ -114,7 +114,7 @@ def page_to_xhtml(page_num: int, paragraphs: list[str]) -> str:
 
     content = "\n".join(body)
     return f"""<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" lang="ko">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="{html.escape(language)}">
   <head>
     <title>Page {page_num}</title>
     <meta charset="utf-8"/>
@@ -146,7 +146,13 @@ def page_image_xhtml(page_num: int, image_filename: str, title: str) -> str:
 """
 
 
-def build_epub(pdf_path: Path, output_epub: Path) -> None:
+def build_epub(
+    pdf_path: Path,
+    output_epub: Path,
+    *,
+    language: str = "ko",
+    page_label: str = "페이지",
+) -> None:
     pages = collect_pages(pdf_path)
     repeated_noise = repeated_noise_lines(pages)
 
@@ -158,8 +164,8 @@ def build_epub(pdf_path: Path, output_epub: Path) -> None:
         if not paragraphs:
             continue
         filename = f"page_{idx:03}.xhtml"
-        label = f"페이지 {idx}"
-        chapters.append((filename, label, page_to_xhtml(idx, paragraphs)))
+        label = f"{page_label} {idx}"
+        chapters.append((filename, label, page_to_xhtml(idx, paragraphs, language=language)))
 
     if not chapters:
         raise RuntimeError("EPUB으로 만들 텍스트를 추출하지 못했습니다.")
@@ -176,7 +182,7 @@ p { margin: 0 0 0.7em; }
         f"<li><a href=\"{filename}\">{html.escape(label)}</a></li>" for filename, label, _ in chapters
     )
     nav_xhtml = f"""<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="ko">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="{html.escape(language)}">
   <head>
     <title>{html.escape(title)}</title>
     <meta charset="utf-8"/>
@@ -204,11 +210,11 @@ p { margin: 0 0 0.7em; }
         spine_items.append(f'<itemref idref="c{idx}"/>')
 
     opf = f"""<?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid" xml:lang="ko">
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid" xml:lang="{html.escape(language)}">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="bookid">{html.escape(title)}</dc:identifier>
     <dc:title>{html.escape(title)}</dc:title>
-    <dc:language>ko</dc:language>
+    <dc:language>{html.escape(language)}</dc:language>
   </metadata>
   <manifest>
     {' '.join(manifest_items)}

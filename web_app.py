@@ -14,7 +14,8 @@ from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from audiobook_maker import discover_chrome_executable, resolve_ffmpeg_binary
-from webui.job_manager import JobManager, JobValidationError
+from webui.job_manager import JobManager, JobValidationError, scan_folder_sources
+from webui.platform import discover_ebook_convert
 
 
 ROOT = Path(__file__).resolve().parent
@@ -23,6 +24,15 @@ DEFAULT_DATA_ROOT = ROOT / ".webui"
 
 def bool_form(name: str) -> bool:
     return str(request.form.get(name) or "").lower() in {"1", "true", "yes", "on"}
+
+
+def bool_value(value: Any) -> bool:
+    return str(value or "").lower() in {"1", "true", "yes", "on"}
+
+
+def ebook_convert_available() -> bool:
+    executable = discover_ebook_convert()
+    return bool(executable and Path(executable).is_file())
 
 
 def create_app(
@@ -75,6 +85,10 @@ def create_app(
     def index():
         return render_template("index.html")
 
+    @app.get("/favicon.ico")
+    def favicon():
+        return send_file(ROOT / "webui" / "static" / "icons" / "play.svg", mimetype="image/svg+xml")
+
     @app.get("/api/health")
     def health():
         return jsonify({"status": "ok"})
@@ -91,6 +105,7 @@ def create_app(
                     os.getenv("GEMINI_API_KEY", "").strip()
                     or os.getenv("GOOGLE_API_KEY", "").strip()
                 ),
+                "ebook_convert_available": ebook_convert_available(),
                 "max_upload_mb": upload_limit_mb,
             }
         )
@@ -136,6 +151,80 @@ def create_app(
         )
         return jsonify({"job": job}), 201
 
+    @app.post("/api/jobs/translation")
+    def create_translation_job():
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            raise JobValidationError("Choose an EPUB, PDF, or MOBI source file")
+        if Path(upload.filename).suffix.lower() == ".mobi" and not ebook_convert_available():
+            raise JobValidationError("MOBI translation requires Calibre or EBOOK_CONVERT_PATH")
+        settings: dict[str, Any] = {
+            "translation_provider": request.form.get("translation_provider"),
+            "translation_output": request.form.get("translation_output"),
+            "max_chars": request.form.get("max_chars"),
+            "max_attempts": request.form.get("max_attempts"),
+            "chunks_per_conversation": request.form.get("chunks_per_conversation"),
+            "inter_request_delay": request.form.get("inter_request_delay"),
+            "request_timeout": request.form.get("request_timeout"),
+            "visible": bool_form("visible"),
+            "overwrite": bool_form("overwrite"),
+        }
+        job = job_manager.create_translation_job(
+            source_name=upload.filename,
+            source_stream=upload.stream,
+            settings=settings,
+        )
+        return jsonify({"job": job}), 201
+
+    @app.post("/api/folders/scan")
+    def scan_folder():
+        payload = request.get_json(silent=True) or {}
+        summary = scan_folder_sources(
+            str(payload.get("source_dir") or ""),
+            operation=str(payload.get("operation") or ""),
+            recursive=bool_value(payload.get("recursive")),
+        )
+        return jsonify(summary)
+
+    @app.post("/api/jobs/batch")
+    def create_batch_job():
+        payload = request.get_json(silent=True) or {}
+        operation = str(payload.get("operation") or "")
+        settings: dict[str, Any]
+        if operation == "batch_translation":
+            settings = {
+                "translation_provider": payload.get("translation_provider"),
+                "translation_output": payload.get("translation_output"),
+                "max_chars": payload.get("max_chars"),
+                "max_attempts": payload.get("max_attempts"),
+                "chunks_per_conversation": payload.get("chunks_per_conversation"),
+                "inter_request_delay": payload.get("inter_request_delay"),
+                "request_timeout": payload.get("request_timeout"),
+                "visible": bool_value(payload.get("visible")),
+                "recursive": bool_value(payload.get("recursive")),
+                "overwrite": bool_value(payload.get("overwrite")),
+            }
+        else:
+            settings = {
+                "provider": payload.get("provider"),
+                "mode": payload.get("mode"),
+                "voice": payload.get("voice"),
+                "max_chars": payload.get("max_chars"),
+                "bitrate": payload.get("bitrate"),
+                "max_attempts": payload.get("max_attempts"),
+                "model": payload.get("model"),
+                "visible": bool_value(payload.get("visible")),
+                "recursive": bool_value(payload.get("recursive")),
+                "overwrite": bool_value(payload.get("overwrite")),
+            }
+        job = job_manager.create_folder_job(
+            operation=operation,
+            source_dir=str(payload.get("source_dir") or ""),
+            output_dir=str(payload.get("output_dir") or "") or None,
+            settings=settings,
+        )
+        return jsonify({"job": job}), 201
+
     @app.get("/api/jobs/<job_id>")
     def get_job(job_id: str):
         try:
@@ -177,6 +266,15 @@ def create_app(
             return send_file(path, as_attachment=not inline, download_name=path.name, conditional=True)
         except (KeyError, FileNotFoundError):
             return jsonify({"error": "Output is not ready"}), 404
+
+    @app.get("/api/jobs/<job_id>/artifacts/<int:index>")
+    def download_artifact(job_id: str, index: int):
+        try:
+            path = job_manager.artifact_path(job_id, index)
+            inline = request.args.get("inline") == "1" and path.suffix.lower() in {".m4a", ".mp3", ".wav"}
+            return send_file(path, as_attachment=not inline, download_name=path.name, conditional=True)
+        except (KeyError, FileNotFoundError):
+            return jsonify({"error": "Artifact is not ready"}), 404
 
     return app
 

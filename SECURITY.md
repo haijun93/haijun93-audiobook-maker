@@ -21,5 +21,11 @@ Uploaded documents, job logs, intermediate files, and generated audio are
 stored in `.webui/` by default. Delete jobs in the interface or remove that
 directory when the data is no longer needed.
 
+Folder-batch jobs can read from and write to paths accessible to the server
+process. This is intended for a trusted local user. Do not expose folder APIs
+to untrusted users, and review the selected source and output paths before
+starting a batch. Deleting a batch job does not delete results written to an
+external output folder.
+
 Browser-based providers read an existing local Chrome session. Treat the
 browser profile as sensitive and never commit or share it.

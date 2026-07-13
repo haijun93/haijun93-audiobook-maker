@@ -1,37 +1,49 @@
 const STRINGS = {
   ko: {
-    brandSub: "Korean Audiobook Maker", newJob: "새 오디오북", file: "파일", text: "텍스트",
-    chooseFile: "파일 선택", sourceText: "원문", textPlaceholder: "낭독할 한국어 텍스트를 입력하세요",
-    provider: "음성 제공자", mode: "구성", modePlain: "원문 낭독", modeMaterial: "자료 중심",
-    modeStudy: "학습용", voice: "음성", advanced: "고급 설정", chunkSize: "조각 크기",
-    bitrate: "비트레이트", retries: "재시도", model: "모델", showBrowser: "브라우저 창 표시",
-    start: "만들기 시작", jobs: "작업", active: "진행 중", ready: "완료", attention: "확인 필요",
-    emptyTitle: "대기 중인 작업이 없습니다", emptyBody: "원문과 음성을 선택해 시작하세요.",
-    log: "실행 로그", copy: "복사", stop: "중단", download: "다운로드", remove: "삭제",
-    queued: "대기 중", running: "생성 중", cancelling: "중단 중", completed: "완료",
-    failed: "실패", cancelled: "취소됨", created: "작업을 등록했습니다", copied: "로그를 복사했습니다",
-    confirmDelete: "이 작업과 생성 파일을 삭제할까요?",
+    brandSub: "Korean Audiobook Maker", newJob: "새 작업", taskAudio: "오디오", taskTranslation: "도서 번역",
+    taskBatch: "폴더 일괄", file: "파일", text: "텍스트", chooseFile: "파일 선택", chooseBook: "영문 도서 선택",
+    sourceText: "원문", textPlaceholder: "낭독할 한국어 텍스트를 입력하세요", provider: "음성 제공자",
+    translationProvider: "번역 제공자", mode: "구성", modePlain: "원문 낭독", modeMaterial: "자료 중심",
+    modeStudy: "학습용", voice: "음성", advanced: "고급 설정", chunkSize: "조각 크기", bitrate: "비트레이트",
+    retries: "재시도", model: "모델", showBrowser: "브라우저 창 표시", overwrite: "기존 결과 덮어쓰기",
+    conversationChunks: "대화당 조각", outputs: "결과물", bothEditions: "한글 + 한영", koreanEdition: "한글",
+    bilingualEdition: "한영", start: "오디오 만들기", startTranslation: "번역 시작", startBatch: "일괄 작업 시작",
+    batchOperation: "일괄 작업", translateBooks: "도서 번역", createAudio: "오디오 생성", sourceFolder: "원본 폴더",
+    outputFolder: "결과 폴더", defaultOutput: "기본 위치 사용", recursive: "하위 폴더 포함", scan: "검색",
+    jobs: "작업", active: "진행 중", ready: "완료", attention: "확인 필요", emptyTitle: "대기 중인 작업이 없습니다",
+    emptyBody: "오디오, 번역 또는 폴더 작업을 등록하세요.", log: "실행 로그", copy: "복사", stop: "중단",
+    download: "다운로드", remove: "삭제", queued: "대기 중", running: "처리 중", cancelling: "중단 중",
+    completed: "완료", failed: "실패", cancelled: "취소됨", created: "작업을 등록했습니다", copied: "로그를 복사했습니다",
     apiReady: "API 키 준비됨", apiMissing: "Gemini API 키 필요", browserReady: "Chrome 준비됨",
-    browserMissing: "Chrome 또는 로그인 필요", ffmpegMissing: "FFmpeg 확인 필요", selectFile: "파일을 선택하세요",
-    enterText: "텍스트를 입력하세요", unknownError: "요청을 처리하지 못했습니다", noLog: "아직 로그가 없습니다.",
-    progress: "진행률",
+    browserMissing: "Chrome 또는 로그인 필요", ffmpegMissing: "FFmpeg 확인 필요", calibreMissing: "MOBI에는 Calibre 필요",
+    selectFile: "파일을 선택하세요", enterText: "텍스트를 입력하세요", selectBook: "번역할 도서를 선택하세요",
+    enterFolder: "원본 폴더 경로를 입력하세요", unknownError: "요청을 처리하지 못했습니다", noLog: "아직 로그가 없습니다.",
+    progress: "진행률", confirmDelete: "이 작업과 내부 저장 결과를 삭제할까요? 외부 폴더의 결과물은 유지됩니다.",
+    folderFound: "{total}개 파일 · {counts}", folderEmpty: "지원되는 파일이 없습니다", artifacts: "결과 파일",
+    audioJob: "오디오", translationJob: "번역", batchTranslationJob: "일괄 번역", batchAudioJob: "일괄 오디오",
   },
   en: {
-    brandSub: "Korean Audiobook Maker", newJob: "New audiobook", file: "File", text: "Text",
-    chooseFile: "Choose a file", sourceText: "Source text", textPlaceholder: "Enter Korean text to narrate",
-    provider: "Voice provider", mode: "Format", modePlain: "Read source", modeMaterial: "Material only",
-    modeStudy: "Study edition", voice: "Voice", advanced: "Advanced", chunkSize: "Chunk size",
-    bitrate: "Bitrate", retries: "Retries", model: "Model", showBrowser: "Show browser window",
-    start: "Start creating", jobs: "Jobs", active: "Active", ready: "Ready", attention: "Attention",
-    emptyTitle: "No jobs yet", emptyBody: "Choose a source and voice to begin.",
-    log: "Run log", copy: "Copy", stop: "Stop", download: "Download", remove: "Delete",
-    queued: "Queued", running: "Running", cancelling: "Stopping", completed: "Complete",
-    failed: "Failed", cancelled: "Cancelled", created: "Job added", copied: "Log copied",
-    confirmDelete: "Delete this job and its generated files?",
+    brandSub: "Korean Audiobook Maker", newJob: "New job", taskAudio: "Audio", taskTranslation: "Translate",
+    taskBatch: "Folder batch", file: "File", text: "Text", chooseFile: "Choose a file", chooseBook: "Choose an English book",
+    sourceText: "Source text", textPlaceholder: "Enter Korean text to narrate", provider: "Voice provider",
+    translationProvider: "Translation provider", mode: "Format", modePlain: "Read source", modeMaterial: "Material only",
+    modeStudy: "Study edition", voice: "Voice", advanced: "Advanced", chunkSize: "Chunk size", bitrate: "Bitrate",
+    retries: "Retries", model: "Model", showBrowser: "Show browser window", overwrite: "Overwrite existing output",
+    conversationChunks: "Chunks per chat", outputs: "Output", bothEditions: "Korean + bilingual", koreanEdition: "Korean",
+    bilingualEdition: "Bilingual", start: "Create audio", startTranslation: "Start translation", startBatch: "Start batch",
+    batchOperation: "Batch operation", translateBooks: "Translate books", createAudio: "Create audio", sourceFolder: "Source folder",
+    outputFolder: "Output folder", defaultOutput: "Use default location", recursive: "Include subfolders", scan: "Scan",
+    jobs: "Jobs", active: "Active", ready: "Ready", attention: "Attention", emptyTitle: "No jobs yet",
+    emptyBody: "Add an audio, translation, or folder job.", log: "Run log", copy: "Copy", stop: "Stop",
+    download: "Download", remove: "Delete", queued: "Queued", running: "Processing", cancelling: "Stopping",
+    completed: "Complete", failed: "Failed", cancelled: "Cancelled", created: "Job added", copied: "Log copied",
     apiReady: "API key ready", apiMissing: "Gemini API key required", browserReady: "Chrome ready",
-    browserMissing: "Chrome or login required", ffmpegMissing: "Check FFmpeg", selectFile: "Choose a source file",
-    enterText: "Enter source text", unknownError: "The request could not be completed", noLog: "No log output yet.",
-    progress: "Progress",
+    browserMissing: "Chrome or login required", ffmpegMissing: "Check FFmpeg", calibreMissing: "Calibre required for MOBI",
+    selectFile: "Choose a source file", enterText: "Enter source text", selectBook: "Choose a book to translate",
+    enterFolder: "Enter a source folder path", unknownError: "The request could not be completed", noLog: "No log output yet.",
+    progress: "Progress", confirmDelete: "Delete this job and internally stored output? Files in external folders are kept.",
+    folderFound: "{total} files · {counts}", folderEmpty: "No supported files found", artifacts: "Output files",
+    audioJob: "Audio", translationJob: "Translation", batchTranslationJob: "Batch translation", batchAudioJob: "Batch audio",
   },
 };
 
@@ -43,7 +55,8 @@ const VOICES = {
 
 const state = {
   language: localStorage.getItem("audiobook-language") || "ko",
-  system: {}, jobs: [], selectedId: null, logOffset: 0, logText: "", polling: false, submitting: false,
+  task: "audio", system: {}, jobs: [], selectedId: null, logOffset: 0, logText: "", polling: false,
+  submitting: { audio: false, translation: false, batch: false },
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -72,61 +85,151 @@ async function api(url, options = {}) {
   return data;
 }
 
+function selectedValue(form, name, fallback = "") {
+  return $(`input[name="${name}"]:checked`, form)?.value || fallback;
+}
+
+function updateSegmentedControls() {
+  $$(".radio-segment").forEach((label) => label.classList.toggle("active", Boolean($("input", label)?.checked)));
+}
+
+function providerReady(provider) {
+  return provider === "gemini_api_tts" ? Boolean(state.system.gemini_api_key) : Boolean(state.system.chrome_available);
+}
+
+function providerStatus(provider) {
+  const ready = providerReady(provider);
+  return {
+    ready,
+    text: provider === "gemini_api_tts" ? t(ready ? "apiReady" : "apiMissing") : t(ready ? "browserReady" : "browserMissing"),
+  };
+}
+
+function setVoiceOptions(form, select) {
+  const provider = selectedValue(form, "provider", "gemini_web");
+  const current = select.value;
+  select.replaceChildren(...VOICES[provider].map((name) => {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    return option;
+  }));
+  if (VOICES[provider].includes(current)) select.value = current;
+}
+
+function updateAudioProviderUI() {
+  const form = $("#audio-form");
+  const provider = selectedValue(form, "provider", "gemini_web");
+  const status = providerStatus(provider);
+  $("#audio-provider-state").textContent = status.text;
+  $("#audio-provider-state").classList.toggle("warn", !status.ready);
+  $("#audio-model-field").hidden = provider !== "gemini_api_tts";
+  $("#audio-visible-field").hidden = provider === "gemini_api_tts";
+  if (form.dataset.activeProvider !== provider) {
+    $("#audio-max-chars").value = provider === "gemini_api_tts" ? "2500" : provider === "gemini_web" ? "1600" : "1800";
+    form.dataset.activeProvider = provider;
+  }
+  setVoiceOptions(form, $("#audio-voice"));
+  $("#submit-audio").disabled = state.submitting.audio || !status.ready;
+  updateSegmentedControls();
+}
+
+function updateTranslationProviderUI() {
+  const provider = selectedValue($("#translation-form"), "translation_provider", "gemini");
+  const status = providerStatus(provider === "gemini" ? "gemini_web" : "chatgpt_web");
+  const file = $("#translation-source-file").files[0];
+  const mobiBlocked = file?.name.toLowerCase().endsWith(".mobi") && !state.system.ebook_convert_available;
+  const node = $("#translation-provider-state");
+  node.textContent = mobiBlocked ? t("calibreMissing") : status.text;
+  node.classList.toggle("warn", !status.ready || mobiBlocked);
+  $("#submit-translation").disabled = state.submitting.translation || !status.ready || mobiBlocked;
+  updateSegmentedControls();
+}
+
+function updateBatchUI() {
+  const form = $("#batch-form");
+  const operation = selectedValue(form, "operation", "batch_translation");
+  const translating = operation === "batch_translation";
+  $("#batch-translation-options").hidden = !translating;
+  $("#batch-audio-options").hidden = translating;
+  $("#batch-max-chars").min = translating ? "2000" : "200";
+  if (form.dataset.activeOperation !== operation) {
+    $("#batch-max-chars").value = translating ? "6000" : "1600";
+    form.dataset.activeOperation = operation;
+  }
+  let ready;
+  if (translating) {
+    const provider = selectedValue(form, "translation_provider", "gemini");
+    ready = providerReady(provider === "gemini" ? "gemini_web" : "chatgpt_web");
+  } else {
+    ready = providerReady(selectedValue(form, "provider", "gemini_web"));
+    setVoiceOptions(form, $("#batch-voice"));
+  }
+  $("#submit-batch").disabled = state.submitting.batch || !ready;
+  updateSegmentedControls();
+}
+
 function applyLanguage() {
   document.documentElement.lang = state.language;
   $$('[data-i18n]').forEach((node) => { node.textContent = t(node.dataset.i18n); });
   $$('[data-i18n-placeholder]').forEach((node) => { node.placeholder = t(node.dataset.i18nPlaceholder); });
   $$('[data-lang]').forEach((button) => button.classList.toggle("active", button.dataset.lang === state.language));
   renderJobs();
-  updateProviderUI();
+  updateAudioProviderUI();
+  updateTranslationProviderUI();
+  updateBatchUI();
 }
 
-function selectedProvider() {
-  return $('input[name="provider"]:checked').value;
-}
-
-function updateVoiceOptions() {
-  const provider = selectedProvider();
-  const voice = $("#voice");
-  const current = voice.value;
-  voice.replaceChildren(...VOICES[provider].map((name) => {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    return option;
-  }));
-  if (VOICES[provider].includes(current)) voice.value = current;
-  $("#model-field").hidden = provider !== "gemini_api_tts";
-  $("#visible-field").hidden = provider === "gemini_api_tts";
-  $("#max-chars").value = provider === "gemini_api_tts" ? "2500" : provider === "gemini_web" ? "1600" : "1800";
-}
-
-function updateProviderUI() {
-  const provider = selectedProvider();
-  $$(".radio-segment").forEach((label) => label.classList.toggle("active", label.querySelector("input").checked));
-  const status = $("#provider-state");
-  const ready = provider === "gemini_api_tts" ? state.system.gemini_api_key : state.system.chrome_available;
-  status.classList.toggle("warn", !ready);
-  status.textContent = provider === "gemini_api_tts"
-    ? t(ready ? "apiReady" : "apiMissing")
-    : t(ready ? "browserReady" : "browserMissing");
-  $("#submit-job").disabled = state.submitting || !ready;
-}
-
-function switchSource(kind) {
-  $("#source-kind").value = kind;
-  $("#file-source").hidden = kind !== "file";
-  $("#text-source").hidden = kind !== "text";
-  $$('[data-source-tab]').forEach((button) => {
-    const active = button.dataset.sourceTab === kind;
+function switchTask(task) {
+  state.task = task;
+  $$('[data-task-panel]').forEach((panel) => { panel.hidden = panel.dataset.taskPanel !== task; });
+  $$('[data-task-tab]').forEach((button) => {
+    const active = button.dataset.taskTab === task;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", String(active));
+  });
+}
+
+function switchAudioSource(kind) {
+  $("#audio-source-kind").value = kind;
+  $("#audio-file-source").hidden = kind !== "file";
+  $("#audio-text-source").hidden = kind !== "text";
+  $$('[data-audio-source-tab]').forEach((button) => {
+    const active = button.dataset.audioSourceTab === kind;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+}
+
+function bindDropZone(zoneSelector, inputSelector, labelSelector, changeCallback = null) {
+  const zone = $(zoneSelector);
+  const input = $(inputSelector);
+  input.addEventListener("change", () => {
+    const file = input.files[0];
+    $(labelSelector).textContent = file ? file.name : t(inputSelector.includes("translation") ? "chooseBook" : "chooseFile");
+    if (changeCallback) changeCallback();
+  });
+  ["dragenter", "dragover"].forEach((name) => zone.addEventListener(name, (event) => {
+    event.preventDefault();
+    zone.classList.add("dragging");
+  }));
+  ["dragleave", "drop"].forEach((name) => zone.addEventListener(name, () => zone.classList.remove("dragging")));
+  zone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    if (!event.dataTransfer.files.length) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(event.dataTransfer.files[0]);
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("change"));
   });
 }
 
 function statusLabel(status) { return t(status) || status; }
 function activeStatus(status) { return ["queued", "running", "cancelling"].includes(status); }
 function attentionStatus(status) { return ["failed", "cancelled"].includes(status); }
+function jobTypeLabel(type) {
+  return t({ audio: "audioJob", translation: "translationJob", batch_translation: "batchTranslationJob", batch_audio: "batchAudioJob" }[type] || "audioJob");
+}
 
 function renderSummary() {
   $("#active-count").textContent = state.jobs.filter((job) => activeStatus(job.status)).length;
@@ -140,23 +243,38 @@ function renderJobs() {
   $("#empty-state").hidden = state.jobs.length > 0;
   list.hidden = state.jobs.length === 0;
   list.innerHTML = state.jobs.map((job) => {
-    const provider = String(job.settings?.provider || "unknown").replaceAll("_", " ");
     const progress = Number(job.progress) || 0;
+    const provider = String(job.settings?.provider || job.settings?.translation_provider || "").replaceAll("_", " ");
     return `
-    <button class="job-row${state.selectedId === job.id ? " selected" : ""}" data-job-id="${job.id}" type="button" aria-label="${escapeHtml(`${job.input_name}, ${statusLabel(job.status)}, ${progress}%`)}">
-      <span class="status-dot ${escapeHtml(job.status)}"></span>
-      <span class="job-main">
-        <strong title="${escapeHtml(job.input_name)}">${escapeHtml(job.input_name)}</strong>
-        <span class="job-sub"><span>${escapeHtml(provider)}</span><span>·</span><span>${escapeHtml(statusLabel(job.status))}</span></span>
-        <span class="progress-track" role="progressbar" aria-label="${escapeHtml(t("progress"))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%"></span></span>
-      </span>
-      <span class="job-progress">${job.progress_text || `${progress}%`}</span>
-      <span class="row-action" aria-hidden="true"><img class="ui-icon" src="/static/icons/chevron-right.svg" alt=""></span>
-    </button>
-  `;
+      <button class="job-row${state.selectedId === job.id ? " selected" : ""}" data-job-id="${job.id}" type="button" aria-label="${escapeHtml(`${job.input_name}, ${statusLabel(job.status)}, ${progress}%`)}">
+        <span class="status-dot ${escapeHtml(job.status)}"></span>
+        <span class="job-main">
+          <strong title="${escapeHtml(job.input_name)}">${escapeHtml(job.input_name)}</strong>
+          <span class="job-sub"><span>${escapeHtml(jobTypeLabel(job.job_type))}</span><span>·</span><span>${escapeHtml(provider)}</span><span>·</span><span>${escapeHtml(statusLabel(job.status))}</span></span>
+          <span class="progress-track" role="progressbar" aria-label="${escapeHtml(t("progress"))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%"></span></span>
+        </span>
+        <span class="job-progress">${job.progress_text || `${progress}%`}</span>
+        <span class="row-action" aria-hidden="true"><img class="ui-icon" src="/static/icons/chevron-right.svg" alt=""></span>
+      </button>`;
   }).join("");
   $$(".job-row", list).forEach((row) => row.addEventListener("click", () => selectJob(row.dataset.jobId)));
   renderDetail();
+}
+
+function renderArtifacts(job) {
+  const list = $("#artifact-list");
+  const artifacts = job.artifacts || [];
+  list.hidden = artifacts.length === 0;
+  list.innerHTML = artifacts.length ? artifacts.map((artifact) => `
+    <div class="artifact-row">
+      <div class="artifact-main">
+        <strong title="${escapeHtml(artifact.name)}">${escapeHtml(artifact.name)}</strong>
+        <span>${artifact.kind === "audio" ? "M4A" : "EPUB"}</span>
+      </div>
+      <a href="/api/jobs/${job.id}/artifacts/${artifact.index}" title="${escapeHtml(t("download"))}" aria-label="${escapeHtml(`${t("download")} ${artifact.name}`)}">
+        <img src="/static/icons/download.svg" alt="">
+      </a>
+    </div>`).join("") : "";
 }
 
 function renderDetail() {
@@ -170,12 +288,12 @@ function renderDetail() {
   $("#detail-progress").style.width = `${progress}%`;
   $("#detail-progress-track").setAttribute("aria-label", t("progress"));
   $("#detail-progress-track").setAttribute("aria-valuenow", String(progress));
-  const settings = job.settings || {};
   const heartbeat = job.heartbeat || {};
+  const settings = job.settings || {};
   $("#detail-meta").innerHTML = [
-    statusLabel(job.status), String(settings.provider || "unknown").replaceAll("_", " "), settings.voice,
+    jobTypeLabel(job.job_type), statusLabel(job.status), settings.provider || settings.translation_provider, settings.voice,
     heartbeat.label || heartbeat.stage || job.message,
-  ].filter(Boolean).map((value) => `<span>${escapeHtml(value)}</span>`).join("");
+  ].filter(Boolean).map((value) => `<span>${escapeHtml(String(value).replaceAll("_", " "))}</span>`).join("");
 
   const actions = $("#detail-actions");
   actions.innerHTML = "";
@@ -187,12 +305,6 @@ function renderDetail() {
     stop.addEventListener("click", () => stopJob(job.id));
     actions.append(stop);
   }
-  if (job.download_ready) {
-    const download = document.createElement("a");
-    download.href = `/api/jobs/${job.id}/download`;
-    download.innerHTML = `<img class="ui-icon" src="/static/icons/download.svg" alt=""><span>${escapeHtml(t("download"))}</span>`;
-    actions.append(download);
-  }
   if (["completed", "failed", "cancelled"].includes(job.status)) {
     const remove = document.createElement("button");
     remove.type = "button";
@@ -201,14 +313,13 @@ function renderDetail() {
     remove.addEventListener("click", () => deleteJob(job.id));
     actions.append(remove);
   }
+  renderArtifacts(job);
+  const audio = (job.artifacts || []).find((artifact) => artifact.kind === "audio");
   const player = $("#audio-player");
-  player.hidden = !job.download_ready;
-  const audioSource = `/api/jobs/${job.id}/download?inline=1`;
-  if (job.download_ready && player.getAttribute("src") !== audioSource) player.src = audioSource;
-  if (!job.download_ready && player.hasAttribute("src")) {
-    player.removeAttribute("src");
-    player.load();
-  }
+  player.hidden = !audio;
+  const audioSource = audio ? `/api/jobs/${job.id}/artifacts/${audio.index}?inline=1` : "";
+  if (audio && player.getAttribute("src") !== audioSource) player.src = audioSource;
+  if (!audio && player.hasAttribute("src")) { player.removeAttribute("src"); player.load(); }
 }
 
 async function selectJob(jobId) {
@@ -230,11 +341,8 @@ async function refreshJobs() {
     if (state.selectedId && !state.jobs.some((job) => job.id === state.selectedId)) state.selectedId = null;
     renderJobs();
     if (state.selectedId) await refreshLog();
-  } catch (error) {
-    toast(error.message, true);
-  } finally {
-    state.polling = false;
-  }
+  } catch (error) { toast(error.message, true); }
+  finally { state.polling = false; }
 }
 
 async function refreshLog() {
@@ -247,7 +355,7 @@ async function refreshLog() {
     const log = $("#job-log");
     log.textContent = state.logText || t("noLog");
     if (data.text) log.scrollTop = log.scrollHeight;
-  } catch (_) { /* The job may have been deleted between polls. */ }
+  } catch (_) { /* A job may be deleted between polls. */ }
 }
 
 async function stopJob(jobId) {
@@ -264,53 +372,97 @@ async function deleteJob(jobId) {
   } catch (error) { toast(error.message, true); }
 }
 
-async function submitJob(event) {
+function showFormError(id, message = "") {
+  const node = $(id);
+  node.textContent = message;
+  node.hidden = !message;
+}
+
+async function submitAudio(event) {
   event.preventDefault();
-  const kind = $("#source-kind").value;
-  const errorNode = $("#form-error");
-  errorNode.hidden = true;
-  if (kind === "file" && !$("#source-file").files.length) {
-    errorNode.textContent = t("selectFile"); errorNode.hidden = false; return;
-  }
-  if (kind === "text" && !$("#direct-text").value.trim()) {
-    errorNode.textContent = t("enterText"); errorNode.hidden = false; return;
-  }
-  const button = $("#submit-job");
-  state.submitting = true;
-  button.disabled = true;
+  const kind = $("#audio-source-kind").value;
+  if (kind === "file" && !$("#audio-source-file").files.length) return showFormError("#audio-form-error", t("selectFile"));
+  if (kind === "text" && !$("#audio-direct-text").value.trim()) return showFormError("#audio-form-error", t("enterText"));
+  showFormError("#audio-form-error");
+  state.submitting.audio = true;
+  updateAudioProviderUI();
   try {
-    const formData = new FormData(event.currentTarget);
-    const data = await api("/api/jobs", { method: "POST", body: formData });
-    toast(t("created"));
-    state.selectedId = data.job.id;
-    state.logOffset = 0;
-    state.logText = "";
-    event.currentTarget.reset();
-    $('input[name="provider"][value="gemini_api_tts"]').checked = true;
-    switchSource("file");
-    updateVoiceOptions();
-    updateProviderUI();
-    $("#file-label").textContent = t("chooseFile");
-    await refreshJobs();
-  } catch (error) {
-    errorNode.textContent = error.message || t("unknownError");
-    errorNode.hidden = false;
-  } finally {
-    state.submitting = false;
-    updateProviderUI();
-  }
+    const data = await api("/api/jobs", { method: "POST", body: new FormData(event.currentTarget) });
+    finishSubmission(data.job.id);
+  } catch (error) { showFormError("#audio-form-error", error.message || t("unknownError")); }
+  finally { state.submitting.audio = false; updateAudioProviderUI(); }
+}
+
+async function submitTranslation(event) {
+  event.preventDefault();
+  if (!$("#translation-source-file").files.length) return showFormError("#translation-form-error", t("selectBook"));
+  showFormError("#translation-form-error");
+  state.submitting.translation = true;
+  updateTranslationProviderUI();
+  try {
+    const data = await api("/api/jobs/translation", { method: "POST", body: new FormData(event.currentTarget) });
+    finishSubmission(data.job.id);
+  } catch (error) { showFormError("#translation-form-error", error.message || t("unknownError")); }
+  finally { state.submitting.translation = false; updateTranslationProviderUI(); }
+}
+
+function batchPayload(form) {
+  const payload = Object.fromEntries(new FormData(form).entries());
+  ["recursive", "overwrite", "visible"].forEach((name) => { payload[name] = $(`input[name="${name}"]`, form)?.checked || false; });
+  return payload;
+}
+
+async function scanFolder() {
+  const form = $("#batch-form");
+  const payload = batchPayload(form);
+  const node = $("#folder-scan-result");
+  if (!String(payload.source_dir || "").trim()) { node.textContent = t("enterFolder"); node.classList.add("warn"); return; }
+  try {
+    const result = await api("/api/folders/scan", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source_dir: payload.source_dir, operation: payload.operation, recursive: payload.recursive }),
+    });
+    const counts = Object.entries(result.counts).map(([key, value]) => `${key.toUpperCase()} ${value}`).join(" · ");
+    node.textContent = result.total ? t("folderFound").replace("{total}", result.total).replace("{counts}", counts) : t("folderEmpty");
+    node.classList.toggle("warn", result.total === 0);
+  } catch (error) { node.textContent = error.message; node.classList.add("warn"); }
+}
+
+async function submitBatch(event) {
+  event.preventDefault();
+  const payload = batchPayload(event.currentTarget);
+  if (!String(payload.source_dir || "").trim()) return showFormError("#batch-form-error", t("enterFolder"));
+  showFormError("#batch-form-error");
+  state.submitting.batch = true;
+  updateBatchUI();
+  try {
+    const data = await api("/api/jobs/batch", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    finishSubmission(data.job.id);
+  } catch (error) { showFormError("#batch-form-error", error.message || t("unknownError")); }
+  finally { state.submitting.batch = false; updateBatchUI(); }
+}
+
+function finishSubmission(jobId) {
+  toast(t("created"));
+  state.selectedId = jobId;
+  state.logOffset = 0;
+  state.logText = "";
+  refreshJobs();
 }
 
 async function loadSystem() {
   try {
     state.system = await api("/api/system");
     const items = [
-      `<span class="system-pill ${state.system.chrome_available ? "ok" : "warn"}">Chrome</span>`,
-      `<span class="system-pill ${state.system.ffmpeg_available ? "ok" : "warn"}">FFmpeg</span>`,
-      `<span class="system-pill ${state.system.gemini_api_key ? "ok" : "warn"}">API</span>`,
+      ["Chrome", state.system.chrome_available], ["FFmpeg", state.system.ffmpeg_available],
+      ["API", state.system.gemini_api_key], ["Calibre", state.system.ebook_convert_available],
     ];
-    $("#system-summary").innerHTML = items.join("");
-    updateProviderUI();
+    $("#system-summary").innerHTML = items.map(([name, ready]) => `<span class="system-pill ${ready ? "ok" : "warn"}">${name}</span>`).join("");
+    updateAudioProviderUI();
+    updateTranslationProviderUI();
+    updateBatchUI();
   } catch (error) { toast(error.message, true); }
 }
 
@@ -320,41 +472,34 @@ function bindEvents() {
     localStorage.setItem("audiobook-language", state.language);
     applyLanguage();
   }));
-  $$('[data-source-tab]').forEach((button) => button.addEventListener("click", () => switchSource(button.dataset.sourceTab)));
-  $$('input[name="provider"]').forEach((input) => input.addEventListener("change", () => { updateVoiceOptions(); updateProviderUI(); }));
-  $("#source-file").addEventListener("change", (event) => {
-    const file = event.target.files[0];
-    $("#file-label").textContent = file ? file.name : t("chooseFile");
-  });
-  const zone = $("#drop-zone");
-  ["dragenter", "dragover"].forEach((name) => zone.addEventListener(name, (event) => { event.preventDefault(); zone.classList.add("dragging"); }));
-  ["dragleave", "drop"].forEach((name) => zone.addEventListener(name, () => zone.classList.remove("dragging")));
-  zone.addEventListener("drop", (event) => {
-    event.preventDefault();
-    if (event.dataTransfer.files.length) {
-      const transfer = new DataTransfer();
-      transfer.items.add(event.dataTransfer.files[0]);
-      $("#source-file").files = transfer.files;
-      $("#file-label").textContent = transfer.files[0].name;
-    }
-  });
-  $("#job-form").addEventListener("submit", submitJob);
+  $$('[data-task-tab]').forEach((button) => button.addEventListener("click", () => switchTask(button.dataset.taskTab)));
+  $$('[data-audio-source-tab]').forEach((button) => button.addEventListener("click", () => switchAudioSource(button.dataset.audioSourceTab)));
+  $$('.audio-provider-control input').forEach((input) => input.addEventListener("change", updateAudioProviderUI));
+  $$('.translation-provider-control input, .output-control input').forEach((input) => input.addEventListener("change", updateTranslationProviderUI));
+  $$('.batch-operation-control input, .batch-translation-provider-control input, .batch-audio-provider-control input').forEach((input) => input.addEventListener("change", () => {
+    $("#folder-scan-result").textContent = "";
+    updateBatchUI();
+  }));
+  bindDropZone("#audio-drop-zone", "#audio-source-file", "#audio-file-label");
+  bindDropZone("#translation-drop-zone", "#translation-source-file", "#translation-file-label", updateTranslationProviderUI);
+  $("#audio-form").addEventListener("submit", submitAudio);
+  $("#translation-form").addEventListener("submit", submitTranslation);
+  $("#batch-form").addEventListener("submit", submitBatch);
+  $("#scan-folder").addEventListener("click", scanFolder);
+  $("#batch-recursive").addEventListener("change", () => { $("#folder-scan-result").textContent = ""; });
   $("#refresh-jobs").addEventListener("click", refreshJobs);
   $("#close-detail").addEventListener("click", () => { state.selectedId = null; renderJobs(); });
   $("#copy-log").addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(state.logText || "");
-      toast(t("copied"));
-    } catch (error) {
-      toast(error.message || t("unknownError"), true);
-    }
+    try { await navigator.clipboard.writeText(state.logText || ""); toast(t("copied")); }
+    catch (error) { toast(error.message || t("unknownError"), true); }
   });
 }
 
 async function init() {
   bindEvents();
+  switchTask("audio");
+  switchAudioSource("file");
   applyLanguage();
-  updateVoiceOptions();
   await Promise.all([loadSystem(), refreshJobs()]);
   setInterval(refreshJobs, 2000);
 }

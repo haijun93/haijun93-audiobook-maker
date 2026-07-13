@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Audiobook Studio</title>
+  <link rel="icon" href="{{ url_for('static', filename='icons/play.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
   <script defer src="{{ url_for('static', filename='app.js') }}"></script>
 </head>
@@ -37,61 +38,67 @@
         </div>
       </div>
 
-      <form id="job-form" novalidate>
+      <div class="segmented full task-tabs" role="tablist" aria-label="Job type">
+        <button type="button" class="segment active" data-task-tab="audio" role="tab" aria-selected="true" data-i18n="taskAudio">오디오</button>
+        <button type="button" class="segment" data-task-tab="translation" role="tab" aria-selected="false" data-i18n="taskTranslation">도서 번역</button>
+        <button type="button" class="segment" data-task-tab="batch" role="tab" aria-selected="false" data-i18n="taskBatch">폴더 일괄</button>
+      </div>
+
+      <form id="audio-form" class="task-form" data-task-panel="audio" novalidate>
         <div class="field-group">
           <div class="segmented full" role="tablist" aria-label="Source type">
-            <button type="button" class="segment active" id="file-tab" data-source-tab="file" role="tab" aria-selected="true" data-i18n="file">파일</button>
-            <button type="button" class="segment" id="text-tab" data-source-tab="text" role="tab" aria-selected="false" data-i18n="text">텍스트</button>
+            <button type="button" class="segment active" data-audio-source-tab="file" role="tab" aria-selected="true" data-i18n="file">파일</button>
+            <button type="button" class="segment" data-audio-source-tab="text" role="tab" aria-selected="false" data-i18n="text">텍스트</button>
           </div>
-          <input type="hidden" name="source_kind" id="source-kind" value="file">
+          <input type="hidden" name="source_kind" id="audio-source-kind" value="file">
 
-          <div id="file-source" class="source-panel">
-            <label class="drop-zone" id="drop-zone" for="source-file">
-              <input id="source-file" name="file" type="file" accept=".txt,.epub,.docx,.pdf">
+          <div id="audio-file-source" class="source-panel">
+            <label class="drop-zone" id="audio-drop-zone" for="audio-source-file">
+              <input id="audio-source-file" name="file" type="file" accept=".txt,.epub,.docx,.pdf">
               <span class="drop-symbol" aria-hidden="true"><img src="{{ url_for('static', filename='icons/plus.svg') }}" alt=""></span>
-              <strong id="file-label" data-i18n="chooseFile">파일 선택</strong>
+              <strong id="audio-file-label" data-i18n="chooseFile">파일 선택</strong>
               <small>TXT · EPUB · DOCX · PDF</small>
             </label>
           </div>
 
-          <div id="text-source" class="source-panel" hidden>
-            <label for="direct-text" data-i18n="sourceText">원문</label>
-            <textarea id="direct-text" name="text" rows="9" data-i18n-placeholder="textPlaceholder" placeholder="낭독할 한국어 텍스트를 입력하세요"></textarea>
+          <div id="audio-text-source" class="source-panel" hidden>
+            <label for="audio-direct-text" data-i18n="sourceText">원문</label>
+            <textarea id="audio-direct-text" name="text" rows="9" data-i18n-placeholder="textPlaceholder" placeholder="낭독할 한국어 텍스트를 입력하세요"></textarea>
             <input type="hidden" name="text_name" value="direct_text.txt">
           </div>
         </div>
 
         <div class="field-group">
           <label data-i18n="provider">음성 제공자</label>
-          <div class="segmented provider-control" role="radiogroup" aria-label="Provider">
-            <label class="radio-segment active">
-              <input type="radio" name="provider" value="gemini_api_tts" checked>
-              <span>Gemini API</span>
-            </label>
+          <div class="segmented provider-control audio-provider-control" role="radiogroup" aria-label="Provider">
             <label class="radio-segment">
-              <input type="radio" name="provider" value="gemini_web">
+              <input type="radio" name="provider" value="gemini_web" checked>
               <span>Gemini Web</span>
             </label>
             <label class="radio-segment">
               <input type="radio" name="provider" value="chatgpt_web">
               <span>ChatGPT Web</span>
             </label>
+            <label class="radio-segment">
+              <input type="radio" name="provider" value="gemini_api_tts">
+              <span>Gemini API</span>
+            </label>
           </div>
-          <div id="provider-state" class="inline-status" aria-live="polite"></div>
+          <div id="audio-provider-state" class="inline-status" aria-live="polite"></div>
         </div>
 
         <div class="form-grid">
           <div class="field-group">
-            <label for="mode" data-i18n="mode">구성</label>
-            <select id="mode" name="mode">
+            <label for="audio-mode" data-i18n="mode">구성</label>
+            <select id="audio-mode" name="mode">
               <option value="plain" data-i18n="modePlain">원문 낭독</option>
               <option value="material_only" data-i18n="modeMaterial">자료 중심</option>
               <option value="study" data-i18n="modeStudy">학습용</option>
             </select>
           </div>
           <div class="field-group">
-            <label for="voice" data-i18n="voice">음성</label>
-            <select id="voice" name="voice"></select>
+            <label for="audio-voice" data-i18n="voice">음성</label>
+            <select id="audio-voice" name="voice"></select>
           </div>
         </div>
 
@@ -100,12 +107,12 @@
           <div class="advanced-body">
             <div class="form-grid three">
               <div class="field-group">
-                <label for="max-chars" data-i18n="chunkSize">조각 크기</label>
-                <input id="max-chars" name="max_chars" type="number" min="200" max="20000" step="100" value="2500">
+                <label for="audio-max-chars" data-i18n="chunkSize">조각 크기</label>
+                <input id="audio-max-chars" name="max_chars" type="number" min="200" max="20000" step="100" value="1600">
               </div>
               <div class="field-group">
-                <label for="bitrate" data-i18n="bitrate">비트레이트</label>
-                <select id="bitrate" name="bitrate">
+                <label for="audio-bitrate" data-i18n="bitrate">비트레이트</label>
+                <select id="audio-bitrate" name="bitrate">
                   <option value="64">64 kbps</option>
                   <option value="96" selected>96 kbps</option>
                   <option value="128">128 kbps</option>
@@ -113,26 +120,136 @@
                 </select>
               </div>
               <div class="field-group">
-                <label for="max-attempts" data-i18n="retries">재시도</label>
-                <input id="max-attempts" name="max_attempts" type="number" min="1" max="20" value="3">
+                <label for="audio-max-attempts" data-i18n="retries">재시도</label>
+                <input id="audio-max-attempts" name="max_attempts" type="number" min="1" max="20" value="5">
               </div>
             </div>
-            <div class="field-group" id="model-field">
-              <label for="model" data-i18n="model">모델</label>
-              <input id="model" name="model" value="gemini-2.5-flash-preview-tts" maxlength="120">
+            <div class="field-group" id="audio-model-field" hidden>
+              <label for="audio-model" data-i18n="model">모델</label>
+              <input id="audio-model" name="model" value="gemini-2.5-flash-preview-tts" maxlength="120">
             </div>
-            <label class="check-row" id="visible-field" hidden>
+            <label class="check-row" id="audio-visible-field">
               <input type="checkbox" name="visible" value="true">
               <span data-i18n="showBrowser">브라우저 창 표시</span>
             </label>
           </div>
         </details>
 
-        <div id="form-error" class="form-error" role="alert" hidden></div>
-        <button class="primary-action" id="submit-job" type="submit">
+        <div id="audio-form-error" class="form-error" role="alert" hidden></div>
+        <button class="primary-action" id="submit-audio" type="submit">
           <img class="ui-icon" src="{{ url_for('static', filename='icons/play.svg') }}" alt="">
           <span data-i18n="start">만들기 시작</span>
         </button>
+      </form>
+
+      <form id="translation-form" class="task-form" data-task-panel="translation" novalidate hidden>
+        <div class="field-group">
+          <label class="drop-zone" id="translation-drop-zone" for="translation-source-file">
+            <input id="translation-source-file" name="file" type="file" accept=".epub,.pdf,.mobi">
+            <span class="drop-symbol" aria-hidden="true"><img src="{{ url_for('static', filename='icons/plus.svg') }}" alt=""></span>
+            <strong id="translation-file-label" data-i18n="chooseBook">영문 도서 선택</strong>
+            <small>EPUB · PDF · MOBI</small>
+          </label>
+        </div>
+        <div class="field-group">
+          <label data-i18n="translationProvider">번역 제공자</label>
+          <div class="segmented full translation-provider-control" role="radiogroup" aria-label="Translation provider">
+            <label class="radio-segment active"><input type="radio" name="translation_provider" value="gemini" checked><span>Gemini Web</span></label>
+            <label class="radio-segment"><input type="radio" name="translation_provider" value="chatgpt"><span>ChatGPT Web</span></label>
+          </div>
+          <div id="translation-provider-state" class="inline-status" aria-live="polite"></div>
+        </div>
+        <div class="field-group">
+          <label data-i18n="outputs">결과물</label>
+          <div class="segmented full output-control" role="radiogroup" aria-label="Translation output">
+            <label class="radio-segment active"><input type="radio" name="translation_output" value="both" checked><span data-i18n="bothEditions">한글 + 한영</span></label>
+            <label class="radio-segment"><input type="radio" name="translation_output" value="korean"><span data-i18n="koreanEdition">한글</span></label>
+            <label class="radio-segment"><input type="radio" name="translation_output" value="bilingual"><span data-i18n="bilingualEdition">한영</span></label>
+          </div>
+        </div>
+        <details class="advanced-settings">
+          <summary data-i18n="advanced">고급 설정</summary>
+          <div class="advanced-body">
+            <div class="form-grid three">
+              <div class="field-group"><label for="translation-max-chars" data-i18n="chunkSize">조각 크기</label><input id="translation-max-chars" name="max_chars" type="number" min="2000" max="20000" step="500" value="6000"></div>
+              <div class="field-group"><label for="translation-max-attempts" data-i18n="retries">재시도</label><input id="translation-max-attempts" name="max_attempts" type="number" min="1" max="20" value="5"></div>
+              <div class="field-group"><label for="translation-conversation-chunks" data-i18n="conversationChunks">대화당 조각</label><input id="translation-conversation-chunks" name="chunks_per_conversation" type="number" min="1" max="50" value="10"></div>
+            </div>
+            <input type="hidden" name="inter_request_delay" value="4">
+            <input type="hidden" name="request_timeout" value="1200">
+            <label class="check-row"><input type="checkbox" name="visible" value="true"><span data-i18n="showBrowser">브라우저 창 표시</span></label>
+            <label class="check-row"><input type="checkbox" name="overwrite" value="true"><span data-i18n="overwrite">기존 결과 덮어쓰기</span></label>
+          </div>
+        </details>
+        <div id="translation-form-error" class="form-error" role="alert" hidden></div>
+        <button class="primary-action" id="submit-translation" type="submit"><img class="ui-icon" src="{{ url_for('static', filename='icons/play.svg') }}" alt=""><span data-i18n="startTranslation">번역 시작</span></button>
+      </form>
+
+      <form id="batch-form" class="task-form" data-task-panel="batch" novalidate hidden>
+        <div class="field-group">
+          <label data-i18n="batchOperation">일괄 작업</label>
+          <div class="segmented full batch-operation-control" role="radiogroup" aria-label="Batch operation">
+            <label class="radio-segment active"><input type="radio" name="operation" value="batch_translation" checked><span data-i18n="translateBooks">도서 번역</span></label>
+            <label class="radio-segment"><input type="radio" name="operation" value="batch_audio"><span data-i18n="createAudio">오디오 생성</span></label>
+          </div>
+        </div>
+        <div class="field-group">
+          <label for="batch-source-dir" data-i18n="sourceFolder">원본 폴더</label>
+          <div class="path-control"><input id="batch-source-dir" name="source_dir" type="text" autocomplete="off" placeholder="/Users/name/Books"><button id="scan-folder" type="button" data-i18n="scan">검색</button></div>
+          <div id="folder-scan-result" class="inline-status" aria-live="polite"></div>
+        </div>
+        <div class="field-group">
+          <label for="batch-output-dir" data-i18n="outputFolder">결과 폴더</label>
+          <input id="batch-output-dir" name="output_dir" type="text" autocomplete="off" data-i18n-placeholder="defaultOutput" placeholder="기본 위치 사용">
+        </div>
+        <div class="check-grid">
+          <label class="check-row"><input id="batch-recursive" type="checkbox" name="recursive" value="true"><span data-i18n="recursive">하위 폴더 포함</span></label>
+          <label class="check-row"><input type="checkbox" name="overwrite" value="true"><span data-i18n="overwrite">기존 결과 덮어쓰기</span></label>
+        </div>
+
+        <div id="batch-translation-options">
+          <div class="field-group">
+            <label data-i18n="translationProvider">번역 제공자</label>
+            <div class="segmented full batch-translation-provider-control" role="radiogroup" aria-label="Batch translation provider">
+              <label class="radio-segment active"><input type="radio" name="translation_provider" value="gemini" checked><span>Gemini Web</span></label>
+              <label class="radio-segment"><input type="radio" name="translation_provider" value="chatgpt"><span>ChatGPT Web</span></label>
+            </div>
+          </div>
+          <input type="hidden" name="translation_output" value="both">
+        </div>
+
+        <div id="batch-audio-options" hidden>
+          <div class="field-group">
+            <label data-i18n="provider">음성 제공자</label>
+            <div class="segmented provider-control batch-audio-provider-control" role="radiogroup" aria-label="Batch audio provider">
+              <label class="radio-segment active"><input type="radio" name="provider" value="gemini_web" checked><span>Gemini Web</span></label>
+              <label class="radio-segment"><input type="radio" name="provider" value="chatgpt_web"><span>ChatGPT Web</span></label>
+              <label class="radio-segment"><input type="radio" name="provider" value="gemini_api_tts"><span>Gemini API</span></label>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="field-group"><label for="batch-mode" data-i18n="mode">구성</label><select id="batch-mode" name="mode"><option value="plain" data-i18n="modePlain">원문 낭독</option><option value="material_only" data-i18n="modeMaterial">자료 중심</option><option value="study" data-i18n="modeStudy">학습용</option></select></div>
+            <div class="field-group"><label for="batch-voice" data-i18n="voice">음성</label><select id="batch-voice" name="voice"></select></div>
+          </div>
+          <input type="hidden" name="bitrate" value="96">
+          <input type="hidden" name="model" value="gemini-2.5-flash-preview-tts">
+        </div>
+
+        <details class="advanced-settings">
+          <summary data-i18n="advanced">고급 설정</summary>
+          <div class="advanced-body">
+            <div class="form-grid">
+              <div class="field-group"><label for="batch-max-chars" data-i18n="chunkSize">조각 크기</label><input id="batch-max-chars" name="max_chars" type="number" min="200" max="20000" step="100" value="6000"></div>
+              <div class="field-group"><label for="batch-max-attempts" data-i18n="retries">재시도</label><input id="batch-max-attempts" name="max_attempts" type="number" min="1" max="20" value="5"></div>
+            </div>
+            <input type="hidden" name="chunks_per_conversation" value="10">
+            <input type="hidden" name="inter_request_delay" value="4">
+            <input type="hidden" name="request_timeout" value="1200">
+            <label class="check-row"><input type="checkbox" name="visible" value="true"><span data-i18n="showBrowser">브라우저 창 표시</span></label>
+          </div>
+        </details>
+        <div id="batch-form-error" class="form-error" role="alert" hidden></div>
+        <button class="primary-action" id="submit-batch" type="submit"><img class="ui-icon" src="{{ url_for('static', filename='icons/play.svg') }}" alt=""><span data-i18n="startBatch">일괄 작업 시작</span></button>
       </form>
     </section>
 
@@ -171,6 +288,7 @@
         <div class="detail-meta" id="detail-meta"></div>
         <div class="progress-track large" id="detail-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="detail-progress"></span></div>
         <div class="detail-actions" id="detail-actions"></div>
+        <div class="artifact-list" id="artifact-list"></div>
         <audio id="audio-player" controls preload="metadata" hidden></audio>
         <div class="log-heading">
           <span data-i18n="log">실행 로그</span>

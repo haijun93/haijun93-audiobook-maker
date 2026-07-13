@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import html
 import json
 import os
@@ -19,6 +18,11 @@ from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
 from bs4 import BeautifulSoup
+
+try:
+    import fcntl
+except ImportError:  # Windows uses msvcrt locking below.
+    fcntl = None  # type: ignore[assignment]
 
 from atomic_io import atomic_output_path, atomic_write_json, atomic_write_text
 from book_cover_lookup import find_online_cover
@@ -2739,10 +2743,20 @@ def acquire_translation_lock(work_dir: Path):
     lock_path = work_dir / ".translation.lock"
     lock_handle = lock_path.open("w", encoding="utf-8")
     try:
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError as exc:
+        if fcntl is not None:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        else:
+            import msvcrt
+
+            lock_handle.write(" ")
+            lock_handle.flush()
+            lock_handle.seek(0)
+            msvcrt.locking(lock_handle.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError as exc:
         lock_handle.close()
         raise SystemExit(f"동일한 작업 디렉터리의 번역이 이미 실행 중입니다: {work_dir}") from exc
+    lock_handle.seek(0)
+    lock_handle.truncate()
     lock_handle.write(f"pid={os.getpid()} started={datetime.now(timezone.utc).isoformat()}\n")
     lock_handle.flush()
     return lock_handle

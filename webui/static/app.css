@@ -105,6 +105,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .field-group { display: grid; gap: 8px; margin-bottom: 20px; min-width: 0; }
 .field-group > label, .log-heading { color: #3d493f; font-size: 12px; font-weight: 700; }
+.task-tabs { margin-bottom: 24px; }
+.task-tabs .segment { min-width: 0; padding-inline: 8px; }
+.task-form { min-width: 0; }
 
 .segmented {
   display: inline-flex;
@@ -130,6 +133,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .segment.active { color: var(--ink); background: var(--paper); box-shadow: 0 1px 4px rgba(20, 30, 24, 0.1); }
 
 .provider-control { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.translation-provider-control,
+.batch-translation-provider-control,
+.batch-operation-control { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.output-control { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .radio-segment { position: relative; min-width: 0; }
 .radio-segment input { position: absolute; opacity: 0; pointer-events: none; }
 .radio-segment span {
@@ -181,8 +188,22 @@ input[type="text"], input[type="number"], input:not([type]), select, textarea {
 select, input { min-height: 42px; }
 textarea { resize: vertical; line-height: 1.55; }
 
+.path-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.path-control button {
+  min-height: 42px;
+  padding: 0 15px;
+  border: 1px solid #cfd6cf;
+  border-radius: 5px;
+  color: var(--ink);
+  background: var(--soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+.path-control button:hover { border-color: #aeb8ae; background: #e9ede9; }
+
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: -4px 0 18px; }
 .inline-status { min-height: 17px; color: var(--muted); font-size: 11px; }
 .inline-status.warn { color: var(--amber); }
 
@@ -289,6 +310,31 @@ textarea { resize: vertical; line-height: 1.55; }
   font-weight: 700;
 }
 .detail-actions .danger { color: var(--danger); }
+.artifact-list { margin: 0 0 15px; }
+.artifact-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 40px;
+  padding: 7px 2px;
+  border-bottom: 1px solid #e4e8e4;
+}
+.artifact-row:first-child { border-top: 1px solid #e4e8e4; }
+.artifact-main { min-width: 0; }
+.artifact-main strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.artifact-main span { display: block; margin-top: 2px; color: var(--muted); font: 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.artifact-row a {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  color: var(--ink);
+  background: var(--soft);
+}
+.artifact-row a:hover { background: #e8ede8; }
+.artifact-row img { width: 15px; height: 15px; }
 audio { width: 100%; height: 42px; margin: 2px 0 15px; }
 .log-heading { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; }
 .text-button { padding: 5px 8px; border-radius: 4px; font-size: 11px; }
@@ -328,7 +374,12 @@ audio { width: 100%; height: 42px; margin: 2px 0 15px; }
   .creator-pane { padding: 20px 16px; }
   .queue-heading { padding: 20px 16px 0; }
   .form-grid, .form-grid.three { grid-template-columns: 1fr; gap: 0; }
+  .check-grid { grid-template-columns: 1fr; gap: 0; }
   .provider-control { grid-template-columns: 1fr; }
+  .task-tabs .segment { padding-inline: 4px; font-size: 11px; }
+  .output-control .radio-segment span { padding-inline: 4px; font-size: 11px; }
+  .path-control { grid-template-columns: minmax(0, 1fr) 58px; }
+  .path-control button { padding-inline: 8px; }
   .queue-summary div { padding: 12px; }
   .job-row { grid-template-columns: 9px minmax(0, 1fr) 52px 30px; padding: 13px 14px; gap: 9px; }
   .job-detail { padding: 18px 14px; }

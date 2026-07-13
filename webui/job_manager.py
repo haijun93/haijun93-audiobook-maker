@@ -18,9 +18,11 @@ from typing import Any, BinaryIO
 from webui.storage import atomic_write_json
 
 
-ALLOWED_EXTENSIONS = {".txt", ".epub", ".docx", ".pdf"}
+AUDIO_EXTENSIONS = {".txt", ".epub", ".docx", ".pdf"}
+TRANSLATION_EXTENSIONS = {".epub", ".pdf", ".mobi"}
 PROVIDERS = {"chatgpt_web", "gemini_web", "gemini_api_tts"}
 MODES = {"plain", "material_only", "study"}
+WORKFLOW_TYPES = {"translation", "batch_translation", "batch_audio"}
 TERMINAL_STATES = {"completed", "failed", "cancelled"}
 ACTIVE_STATES = {"queued", "running", "cancelling"}
 MODEL_RE = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
@@ -40,6 +42,14 @@ def safe_file_stem(name: str) -> str:
     stem = re.sub(r"[^\w\- ]+", "", stem, flags=re.UNICODE)
     stem = re.sub(r"[\s_-]+", "_", stem).strip("_")
     return stem[:80] or "audiobook"
+
+
+def safe_book_stem(name: str) -> str:
+    stem = unicodedata.normalize("NFKC", Path(name).stem).strip()
+    stem = re.sub(r"^\[(?:e|s|k|k-e)\]\s*", "", stem, flags=re.IGNORECASE)
+    stem = re.sub(r"[^\w\- ]+", "", stem, flags=re.UNICODE)
+    stem = re.sub(r"[\s_-]+", "_", stem).strip("_")
+    return stem[:80] or "book"
 
 
 def validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
@@ -83,12 +93,83 @@ def validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def validate_translation_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    provider = str(settings.get("translation_provider") or "gemini").strip()
+    output = str(settings.get("translation_output") or "both").strip()
+    if provider not in {"gemini", "chatgpt"}:
+        raise JobValidationError("Unsupported translation provider")
+    if output not in {"both", "korean", "bilingual"}:
+        raise JobValidationError("Unsupported translation output")
+    try:
+        max_chars = int(settings.get("max_chars") or 6000)
+        max_attempts = int(settings.get("max_attempts") or 5)
+        chunks_per_conversation = int(settings.get("chunks_per_conversation") or 10)
+        request_timeout = int(settings.get("request_timeout") or 1200)
+        inter_request_delay = float(settings.get("inter_request_delay") or 4.0)
+    except (TypeError, ValueError) as exc:
+        raise JobValidationError("Translation settings are invalid") from exc
+    if not 2000 <= max_chars <= 20_000:
+        raise JobValidationError("Translation chunk size must be between 2000 and 20000")
+    if not 1 <= max_attempts <= 20:
+        raise JobValidationError("Retry count must be between 1 and 20")
+    if not 1 <= chunks_per_conversation <= 50:
+        raise JobValidationError("Chunks per conversation must be between 1 and 50")
+    if not 60 <= request_timeout <= 7200:
+        raise JobValidationError("Request timeout must be between 60 and 7200 seconds")
+    if not 0 <= inter_request_delay <= 120:
+        raise JobValidationError("Request delay must be between 0 and 120 seconds")
+    return {
+        "translation_provider": provider,
+        "translation_output": output,
+        "max_chars": max_chars,
+        "max_attempts": max_attempts,
+        "chunks_per_conversation": chunks_per_conversation,
+        "request_timeout": request_timeout,
+        "inter_request_delay": inter_request_delay,
+        "visible": bool(settings.get("visible")),
+        "overwrite": bool(settings.get("overwrite")),
+        "recursive": bool(settings.get("recursive")),
+    }
+
+
+def scan_folder_sources(source_dir: str | Path, *, operation: str, recursive: bool = False) -> dict[str, Any]:
+    if not str(source_dir).strip():
+        raise JobValidationError("Enter a source folder path")
+    source = Path(source_dir).expanduser().resolve()
+    if not source.is_dir():
+        raise JobValidationError("Source folder does not exist")
+    if operation not in {"batch_translation", "batch_audio"}:
+        raise JobValidationError("Unsupported folder operation")
+    extensions = TRANSLATION_EXTENSIONS if operation == "batch_translation" else AUDIO_EXTENSIONS | {".mobi"}
+    iterator = source.rglob("*") if recursive else source.iterdir()
+    files = [
+        path
+        for path in iterator
+        if path.is_file()
+        and path.suffix.lower() in extensions
+        and not path.name.lower().startswith(("[k]", "[k-e]"))
+    ]
+    files.sort(key=lambda path: path.name.casefold())
+    counts: dict[str, int] = {}
+    for path in files:
+        suffix = path.suffix.lower().lstrip(".")
+        counts[suffix] = counts.get(suffix, 0) + 1
+    return {
+        "folder_name": source.name or str(source),
+        "total": len(files),
+        "counts": counts,
+        "sample": [path.name for path in files[:8]],
+        "truncated": len(files) > 1000,
+    }
+
+
 class JobManager:
     def __init__(
         self,
         data_root: Path,
         *,
         runner_script: Path | None = None,
+        workflow_runner_script: Path | None = None,
         python_executable: str | None = None,
         start_worker: bool = True,
     ) -> None:
@@ -96,6 +177,9 @@ class JobManager:
         self.jobs_root = self.data_root / "jobs"
         self.jobs_root.mkdir(parents=True, exist_ok=True)
         self.runner_script = (runner_script or Path(__file__).resolve().parents[1] / "audiobook_maker.py").resolve()
+        self.workflow_runner_script = (
+            workflow_runner_script or Path(__file__).resolve().parent / "workflow_runner.py"
+        ).resolve()
         self.python_executable = python_executable or sys.executable
         self._queue: queue.Queue[str | None] = queue.Queue()
         self._lock = threading.RLock()
@@ -151,7 +235,7 @@ class JobManager:
         normalized = validate_settings(settings)
         original_name = Path(source_name).name
         suffix = Path(original_name).suffix.lower()
-        if suffix not in ALLOWED_EXTENSIONS:
+        if suffix not in AUDIO_EXTENSIONS:
             raise JobValidationError("Only TXT, EPUB, DOCX, and PDF files are supported")
 
         job_id = uuid.uuid4().hex
@@ -177,6 +261,7 @@ class JobManager:
         output_name = safe_file_stem(original_name) + "_audiobook.m4a"
         job: dict[str, Any] = {
             "id": job_id,
+            "job_type": "audio",
             "status": "queued",
             "created_at": utc_now(),
             "updated_at": utc_now(),
@@ -191,6 +276,138 @@ class JobManager:
             "output_relpath": str((output_dir / output_name).relative_to(job_dir)),
             "work_relpath": str(work_dir.relative_to(job_dir)),
             "heartbeat_relpath": "heartbeat.json",
+            "artifact_manifest_relpath": "artifacts.json",
+            "artifact_root": str(output_dir.resolve()),
+            "log_relpath": "job.log",
+            "settings": normalized,
+        }
+        with self._lock:
+            if self._closed:
+                shutil.rmtree(job_dir, ignore_errors=True)
+                raise JobValidationError("The job manager is shutting down")
+            self._write_job(job)
+            self._queue.put(job_id)
+        return self.public_job(job_id)
+
+    def create_translation_job(
+        self,
+        *,
+        source_name: str,
+        source_stream: BinaryIO,
+        settings: dict[str, Any],
+    ) -> dict[str, Any]:
+        normalized = validate_translation_settings(settings)
+        original_name = Path(source_name).name
+        suffix = Path(original_name).suffix.lower()
+        if suffix not in TRANSLATION_EXTENSIONS:
+            raise JobValidationError("Only EPUB, PDF, and MOBI files can be translated")
+
+        job_id = uuid.uuid4().hex
+        job_dir = self._job_dir(job_id)
+        input_dir = job_dir / "input"
+        output_dir = job_dir / "output"
+        work_dir = job_dir / "work"
+        try:
+            for directory in (input_dir, output_dir, work_dir):
+                directory.mkdir(parents=True, exist_ok=False)
+            book_stem = safe_book_stem(original_name)
+            input_path = input_dir / (book_stem + suffix)
+            with input_path.open("xb") as handle:
+                while chunk := source_stream.read(1024 * 1024):
+                    handle.write(chunk)
+            if input_path.stat().st_size <= 0:
+                raise JobValidationError("Input file is empty")
+        except Exception:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise
+
+        job: dict[str, Any] = {
+            "id": job_id,
+            "job_type": "translation",
+            "status": "queued",
+            "created_at": utc_now(),
+            "updated_at": utc_now(),
+            "started_at": None,
+            "finished_at": None,
+            "pid": None,
+            "return_code": None,
+            "message": "Waiting to translate",
+            "input_name": original_name[:240],
+            "input_relpath": str(input_path.relative_to(job_dir)),
+            "output_name": f"[k-e] {book_stem.replace('_', ' ')}.epub",
+            "work_relpath": str(work_dir.relative_to(job_dir)),
+            "heartbeat_relpath": "heartbeat.json",
+            "artifact_manifest_relpath": "artifacts.json",
+            "artifact_root": str(output_dir.resolve()),
+            "log_relpath": "job.log",
+            "settings": normalized,
+        }
+        with self._lock:
+            if self._closed:
+                shutil.rmtree(job_dir, ignore_errors=True)
+                raise JobValidationError("The job manager is shutting down")
+            self._write_job(job)
+            self._queue.put(job_id)
+        return self.public_job(job_id)
+
+    def create_folder_job(
+        self,
+        *,
+        operation: str,
+        source_dir: str,
+        output_dir: str | None,
+        settings: dict[str, Any],
+    ) -> dict[str, Any]:
+        if operation not in {"batch_translation", "batch_audio"}:
+            raise JobValidationError("Unsupported folder operation")
+        if not str(source_dir).strip():
+            raise JobValidationError("Enter a source folder path")
+        source = Path(source_dir).expanduser().resolve()
+        if not source.is_dir():
+            raise JobValidationError("Source folder does not exist")
+        if operation == "batch_translation":
+            normalized = validate_translation_settings(settings)
+            default_output = source
+        else:
+            normalized = validate_settings(settings)
+            normalized.update(
+                {
+                    "recursive": bool(settings.get("recursive")),
+                    "overwrite": bool(settings.get("overwrite")),
+                }
+            )
+            default_output = source / "audiobooks"
+        summary = scan_folder_sources(source, operation=operation, recursive=bool(normalized.get("recursive")))
+        if summary["total"] <= 0:
+            raise JobValidationError("No supported source files were found in the selected folder")
+        output = Path(output_dir).expanduser().resolve() if str(output_dir or "").strip() else default_output
+        try:
+            output.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise JobValidationError(f"Output folder cannot be created: {exc}") from exc
+
+        job_id = uuid.uuid4().hex
+        job_dir = self._job_dir(job_id)
+        work_dir = job_dir / "work"
+        work_dir.mkdir(parents=True, exist_ok=False)
+        job: dict[str, Any] = {
+            "id": job_id,
+            "job_type": operation,
+            "status": "queued",
+            "created_at": utc_now(),
+            "updated_at": utc_now(),
+            "started_at": None,
+            "finished_at": None,
+            "pid": None,
+            "return_code": None,
+            "message": "Waiting for folder batch",
+            "input_name": source.name[:240] or str(source),
+            "source_dir": str(source),
+            "output_name": output.name,
+            "work_relpath": str(work_dir.relative_to(job_dir)),
+            "heartbeat_relpath": "heartbeat.json",
+            "artifact_manifest_relpath": "artifacts.json",
+            "artifact_root": str(output),
             "log_relpath": "job.log",
             "settings": normalized,
         }
@@ -203,6 +420,9 @@ class JobManager:
         return self.public_job(job_id)
 
     def build_command(self, job: dict[str, Any]) -> list[str]:
+        job_type = str(job.get("job_type") or "audio")
+        if job_type in WORKFLOW_TYPES:
+            return self._build_workflow_command(job)
         job_dir = self._job_dir(str(job["id"]))
         settings = validate_settings(dict(job["settings"]))
         command = [
@@ -246,6 +466,70 @@ class JobManager:
             )
         return command
 
+    def _build_workflow_command(self, job: dict[str, Any]) -> list[str]:
+        job_dir = self._job_dir(str(job["id"]))
+        job_type = str(job.get("job_type") or "")
+        settings = dict(job.get("settings") or {})
+        command = [
+            self.python_executable,
+            str(self.workflow_runner_script),
+            "--task",
+            job_type,
+            "--output-dir",
+            str(job["artifact_root"]),
+            "--work-dir",
+            str(job_dir / str(job["work_relpath"])),
+            "--heartbeat-file",
+            str(job_dir / str(job["heartbeat_relpath"])),
+            "--artifact-manifest-file",
+            str(job_dir / str(job["artifact_manifest_relpath"])),
+            "--max-chars",
+            str(settings.get("max_chars") or 6000),
+            "--max-attempts",
+            str(settings.get("max_attempts") or 5),
+        ]
+        if job_type == "translation":
+            command.extend(["--input-file", str(job_dir / str(job["input_relpath"]))])
+        else:
+            command.extend(["--source-dir", str(job["source_dir"])])
+        if job_type in {"translation", "batch_translation"}:
+            command.extend(
+                [
+                    "--translation-provider",
+                    str(settings["translation_provider"]),
+                    "--translation-output",
+                    str(settings["translation_output"]),
+                    "--chunks-per-conversation",
+                    str(settings["chunks_per_conversation"]),
+                    "--inter-request-delay",
+                    str(settings["inter_request_delay"]),
+                    "--request-timeout",
+                    str(settings["request_timeout"]),
+                ]
+            )
+        else:
+            command.extend(
+                [
+                    "--audio-provider",
+                    str(settings["provider"]),
+                    "--audio-mode",
+                    str(settings["mode"]),
+                    "--voice",
+                    str(settings["voice"]),
+                    "--model",
+                    str(settings["model"]),
+                    "--bitrate",
+                    str(settings["bitrate"]),
+                ]
+            )
+        if settings.get("visible"):
+            command.append("--visible")
+        if settings.get("recursive"):
+            command.append("--recursive")
+        if settings.get("overwrite"):
+            command.append("--overwrite")
+        return command
+
     def _worker_loop(self) -> None:
         while True:
             job_id = self._queue.get()
@@ -285,7 +569,7 @@ class JobManager:
                 return
             job["status"] = "running"
             job["started_at"] = utc_now()
-            job["message"] = "Starting audiobook engine"
+            job["message"] = "Starting job engine"
             self._write_job(job)
 
         job_dir = self._job_dir(job_id)
@@ -315,7 +599,7 @@ class JobManager:
                     )
                     self._processes[job_id] = process
                     job["pid"] = process.pid
-                    job["message"] = "Audiobook generation in progress"
+                    job["message"] = "Job in progress"
                     self._write_job(job)
                 return_code = process.wait()
         except Exception as exc:
@@ -332,16 +616,22 @@ class JobManager:
             job["return_code"] = return_code
             job["pid"] = None
             job["finished_at"] = utc_now()
-            output_path = job_dir / str(job["output_relpath"])
+            artifacts = self._artifact_entries(job)
+            job_type = str(job.get("job_type") or "audio")
             if job.get("status") in {"cancelling", "cancelled"}:
                 job["status"] = "cancelled"
                 job["message"] = "Job cancelled"
-            elif return_code == 0 and output_path.is_file() and output_path.stat().st_size > 0:
+            elif return_code == 0 and artifacts:
                 job["status"] = "completed"
-                job["message"] = "Audiobook ready"
+                job["message"] = {
+                    "audio": "Audiobook ready",
+                    "translation": "Korean and bilingual EPUBs ready",
+                    "batch_translation": "Folder translation complete",
+                    "batch_audio": "Folder audiobooks complete",
+                }.get(job_type, "Job complete")
             else:
                 job["status"] = "failed"
-                job["message"] = "Audiobook engine exited with an error"
+                job["message"] = "Job engine exited with an error"
             self._write_job(job)
 
     def _terminate_process(self, process: subprocess.Popen[bytes], grace_seconds: float = 8.0) -> None:
@@ -398,6 +688,68 @@ class JobManager:
         except (OSError, ValueError, TypeError):
             return {}
 
+    def _artifact_entries(self, job: dict[str, Any]) -> list[dict[str, Any]]:
+        job_id = str(job["id"])
+        job_dir = self._job_dir(job_id)
+        job_type = str(job.get("job_type") or "audio")
+        if job_type == "audio" and job.get("output_relpath"):
+            path = (job_dir / str(job["output_relpath"])).resolve()
+            if path.is_file() and path.stat().st_size > 0:
+                return [{"index": 0, "name": path.name, "kind": "audio", "size": path.stat().st_size, "path": path}]
+            return []
+
+        root_value = str(job.get("artifact_root") or "").strip()
+        manifest_relpath = str(job.get("artifact_manifest_relpath") or "artifacts.json")
+        if not root_value:
+            return []
+        root = Path(root_value).expanduser().resolve()
+        manifest_path = job_dir / manifest_relpath
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return []
+        try:
+            manifest_root = Path(str(payload.get("root") or "")).expanduser().resolve()
+        except (OSError, RuntimeError):
+            return []
+        if manifest_root != root:
+            return []
+        items = payload.get("artifacts")
+        if not isinstance(items, list):
+            return []
+        allowed_suffixes = {
+            "audio": {".m4a", ".mp3", ".wav", ".aiff", ".aif"},
+            "bilingual_epub": {".epub"},
+            "korean_epub": {".epub"},
+        }
+        artifacts: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            relative = Path(str(item.get("path") or ""))
+            kind = str(item.get("kind") or "")
+            if not relative.parts or relative.is_absolute() or ".." in relative.parts:
+                continue
+            path = (root / relative).resolve()
+            try:
+                path.relative_to(root)
+            except ValueError:
+                continue
+            if kind not in allowed_suffixes or path.suffix.lower() not in allowed_suffixes[kind]:
+                continue
+            if not path.is_file() or path.stat().st_size <= 0:
+                continue
+            artifacts.append(
+                {
+                    "index": len(artifacts),
+                    "name": path.name,
+                    "kind": kind,
+                    "size": path.stat().st_size,
+                    "path": path,
+                }
+            )
+        return artifacts
+
     def public_job(self, job_id: str) -> dict[str, Any]:
         with self._lock:
             job = self._read_job(job_id)
@@ -412,10 +764,12 @@ class JobManager:
             if total > 0:
                 progress = min(99, max(0, round(current * 100 / total)))
                 progress_text = f"{current}/{total}"
-        job_dir = self._job_dir(job_id)
-        output_path = job_dir / str(job["output_relpath"])
+        artifacts = self._artifact_entries(job)
+        if str(job.get("job_type") or "audio") == "audio" and status != "completed":
+            artifacts = []
         return {
             "id": job_id,
+            "job_type": str(job.get("job_type") or "audio"),
             "status": status,
             "created_at": job.get("created_at"),
             "updated_at": job.get("updated_at"),
@@ -433,7 +787,16 @@ class JobManager:
             },
             "progress": progress,
             "progress_text": progress_text,
-            "download_ready": status == "completed" and output_path.is_file(),
+            "download_ready": bool(artifacts),
+            "artifacts": [
+                {
+                    "index": item["index"],
+                    "name": item["name"],
+                    "kind": item["kind"],
+                    "size": item["size"],
+                }
+                for item in artifacts
+            ],
         }
 
     def list_jobs(self) -> list[dict[str, Any]]:
@@ -447,10 +810,21 @@ class JobManager:
 
     def output_path(self, job_id: str) -> Path:
         job = self._read_job(job_id)
-        path = self._job_dir(job_id) / str(job["output_relpath"])
-        if job.get("status") != "completed" or not path.is_file():
+        if str(job.get("job_type") or "audio") == "audio" and job.get("status") != "completed":
             raise FileNotFoundError(job_id)
-        return path
+        artifacts = self._artifact_entries(job)
+        if not artifacts:
+            raise FileNotFoundError(job_id)
+        return Path(artifacts[0]["path"])
+
+    def artifact_path(self, job_id: str, index: int) -> Path:
+        job = self._read_job(job_id)
+        if str(job.get("job_type") or "audio") == "audio" and job.get("status") != "completed":
+            raise FileNotFoundError(f"{job_id}:{index}")
+        artifacts = self._artifact_entries(job)
+        if index < 0 or index >= len(artifacts):
+            raise FileNotFoundError(f"{job_id}:{index}")
+        return Path(artifacts[index]["path"])
 
     def read_log(self, job_id: str, offset: int = 0, max_bytes: int = 128 * 1024) -> dict[str, Any]:
         job = self._read_job(job_id)
