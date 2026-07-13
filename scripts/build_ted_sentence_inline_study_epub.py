@@ -10,7 +10,6 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from xml.etree import ElementTree as ET
 
 from build_ted_transcript_study_epub import (
     DEFAULT_ATTACHMENT_PATHS,
@@ -19,6 +18,7 @@ from build_ted_transcript_study_epub import (
     translate_talk,
     unique_talks,
 )
+from safe_xml import safe_fromstring
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -408,7 +408,7 @@ def validate_epub(path: Path, expected_chapters: int) -> dict[str, int | bool]:
         if len(chapters) != expected_chapters:
             raise RuntimeError(f"Expected {expected_chapters} chapters, found {len(chapters)}")
         for name in ["OEBPS/content.opf", "OEBPS/nav.xhtml", "OEBPS/toc.ncx", "OEBPS/intro.xhtml", *chapters]:
-            ET.fromstring(epub.read(name))
+            safe_fromstring(epub.read(name))
         all_chapters = "\n".join(epub.read(name).decode("utf-8") for name in chapters)
         nav = epub.read("OEBPS/nav.xhtml").decode("utf-8")
         ncx = epub.read("OEBPS/toc.ncx").decode("utf-8")

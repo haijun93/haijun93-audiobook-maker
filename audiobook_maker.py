@@ -19,10 +19,11 @@ import urllib.error
 import urllib.request
 import wave
 import zipfile
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
+
+from defusedxml import ElementTree as DefusedElementTree
 
 ROOT = Path(__file__).resolve().parent
 
@@ -87,10 +88,13 @@ class GeminiApiTtsRateLimitError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class ChatGPTWebNotice:
+class WebProviderNotice:
     kind: str
     action: str
     message: str
+
+
+ChatGPTWebNotice = WebProviderNotice
 
 
 @dataclass
@@ -543,6 +547,104 @@ GEMINI_WEB_SEND_BUTTON_LABEL = "메시지 보내기"
 GEMINI_WEB_NEW_CHAT_LABEL = "새 채팅"
 GEMINI_WEB_LISTEN_BUTTON_LABEL = "듣기"
 GEMINI_WEB_RESPONSE_TEXT_SELECTOR = "structured-content-container.model-response-text"
+GEMINI_WEB_PROMPT_INPUT_SELECTORS = (
+    f'[aria-label="{GEMINI_WEB_PROMPT_INPUT_LABEL}"]',
+    '[aria-label="Enter a prompt here"]',
+    '[aria-label="Enter your prompt"]',
+    'rich-textarea [contenteditable="true"]',
+    '[contenteditable="true"][role="textbox"]',
+    'textarea[placeholder]',
+)
+GEMINI_WEB_SEND_BUTTON_SELECTORS = (
+    f'button[aria-label="{GEMINI_WEB_SEND_BUTTON_LABEL}"]',
+    'button[aria-label="Send message"]',
+    'button[aria-label="Send"]',
+    'button.send-button',
+)
+GEMINI_WEB_RESPONSE_TEXT_SELECTORS = (
+    GEMINI_WEB_RESPONSE_TEXT_SELECTOR,
+    'model-response structured-content-container',
+    'model-response .model-response-text',
+    'message-content .markdown-main-panel',
+)
+GEMINI_WEB_STOP_BUTTON_SELECTORS = (
+    'button[aria-label="응답 중지"]',
+    'button[aria-label="Stop response"]',
+    'button[aria-label="Stop generating"]',
+)
+GEMINI_WEB_LISTEN_BUTTON_SELECTORS = (
+    f'button[aria-label="{GEMINI_WEB_LISTEN_BUTTON_LABEL}"]',
+    'button[aria-label="Listen"]',
+)
+GEMINI_WEB_USAGE_LIMIT_MARKERS = (
+    "you've reached your limit",
+    "you’ve reached your limit",
+    "you have reached your limit",
+    "reached your limit on",
+    "model limit",
+    "usage limit",
+    "한도에 도달",
+    "사용 한도",
+    "모델 한도",
+)
+GEMINI_WEB_RATE_LIMIT_MARKERS = (
+    "rate limit",
+    "too many requests",
+    "request frequency limit",
+    "요청 빈도 제한",
+    "너무 많은 요청",
+    "요청이 너무 많",
+)
+GEMINI_WEB_TEMPORARY_ERROR_MARKERS = (
+    "something went wrong",
+    "please try again later",
+    "try again later",
+    "temporarily unavailable",
+    "service unavailable",
+    "model is overloaded",
+    "문제가 발생했습니다",
+    "나중에 다시 시도",
+    "일시적으로 사용할 수 없",
+)
+GEMINI_WEB_NETWORK_ERROR_MARKERS = (
+    "connection lost",
+    "check your internet connection",
+    "network error",
+    "연결이 끊겼습니다",
+    "인터넷 연결을 확인",
+    "네트워크 오류",
+)
+GEMINI_WEB_SESSION_ERROR_MARKERS = (
+    "session has expired",
+    "sign in again",
+    "please sign in",
+    "세션이 만료",
+    "다시 로그인",
+    "로그인이 필요",
+)
+GEMINI_WEB_ACCOUNT_ERROR_MARKERS = (
+    "can't access this service",
+    "gemini isn't available for this account",
+    "gemini is not available for your account",
+    "이 계정에서는 gemini를 사용할 수 없",
+    "서비스에 액세스할 수 없",
+)
+GEMINI_WEB_REGION_ERROR_MARKERS = (
+    "gemini isn't currently supported in your country",
+    "gemini is not supported in your country",
+    "not available in your country",
+    "국가에서는 gemini가 지원되지 않",
+    "지역에서는 gemini를 사용할 수 없",
+)
+GEMINI_WEB_PROMPT_TOO_LONG_MARKERS = (
+    "prompt is too long",
+    "message is too long",
+    "context is too long",
+    "smaller file",
+    "프롬프트가 너무 깁니다",
+    "메시지가 너무 깁니다",
+    "더 작은 파일",
+)
 GEMINI_WEB_TTS_HOOK_SCRIPT = """
 () => {
   if (window.__geminiTtsHookInstalled) {
@@ -1310,7 +1412,7 @@ def input_file_format(path: Path) -> str:
 
 def resolve_epub_package_path(epub_path: Path, archive: zipfile.ZipFile) -> str:
     container_xml = archive.read("META-INF/container.xml")
-    root = ET.fromstring(container_xml)
+    root = DefusedElementTree.fromstring(container_xml)
     rootfile = root.find(".//{*}rootfile")
     if rootfile is None:
         raise RuntimeError(f"EPUB package document를 찾지 못했습니다: {epub_path}")
@@ -1345,7 +1447,7 @@ def load_docx_paragraphs(docx_path: Path) -> list[DocxParagraph]:
     paragraphs: list[DocxParagraph] = []
     with zipfile.ZipFile(docx_path) as archive:
         document_xml = archive.read("word/document.xml")
-    root = ET.fromstring(document_xml)
+    root = DefusedElementTree.fromstring(document_xml)
     for paragraph in root.findall(".//w:body//w:p", DOCX_NAMESPACE):
         text_parts = [
             element.text or ""
@@ -1604,7 +1706,7 @@ def load_epub_chapters(epub_path: Path) -> list[SourceChapter]:
     with zipfile.ZipFile(epub_path) as archive:
         package_path = resolve_epub_package_path(epub_path, archive)
         package_root = Path(package_path).parent.as_posix()
-        package_document = ET.fromstring(archive.read(package_path))
+        package_document = DefusedElementTree.fromstring(archive.read(package_path))
         manifest_items = {}
         for item in package_document.findall(".//{*}manifest/{*}item"):
             item_id = str(item.attrib.get("id") or "").strip()
@@ -3477,8 +3579,8 @@ def install_chatgpt_web_notice_hooks(page) -> None:
                 pass
 
     page.on("dialog", handle_dialog)
-    setattr(page, "_chatgpt_notice_hooks_installed", True)
-    setattr(page, "_chatgpt_dialog_messages", dialog_messages)
+    page._chatgpt_notice_hooks_installed = True
+    page._chatgpt_dialog_messages = dialog_messages
 
 
 def read_chatgpt_web_notice_messages(page) -> list[str]:
@@ -3733,7 +3835,7 @@ def handle_chatgpt_web_page_notices(
     attempt: int | None = None,
     max_wait_sec: int = 0,
 ) -> None:
-    deadline = time.time() + max_wait_sec if max_wait_sec > 0 else None
+    deadline = time.monotonic() + max_wait_sec if max_wait_sec > 0 else None
 
     while True:
         notice = choose_chatgpt_web_notice(read_chatgpt_web_notice_messages(page))
@@ -3770,7 +3872,7 @@ def handle_chatgpt_web_page_notices(
             raise RuntimeError(f"ChatGPT 웹 오류 알림이 반복되고 있습니다: {excerpt}")
 
         if notice.action == "reset_chat":
-            remaining = max(0, int(deadline - time.time())) if deadline is not None else 0
+            remaining = max(0, int(deadline - time.monotonic())) if deadline is not None else 0
             beat_heartbeat(
                 heartbeat,
                 stage="conversation_rate_limit_wait",
@@ -3779,7 +3881,7 @@ def handle_chatgpt_web_page_notices(
                 attempt=attempt,
                 detail=f"remaining={remaining}s text={excerpt}",
             )
-            if deadline is not None and time.time() >= deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 raise RuntimeError(f"ChatGPT 웹 대화 접근 제한 알림이 지속되고 있습니다: {excerpt}")
             close_chatgpt_web_notice_ui(page)
             recover_chatgpt_web_from_conversation_limit(
@@ -3792,7 +3894,7 @@ def handle_chatgpt_web_page_notices(
             page.wait_for_timeout(CHATGPT_WEB_RATE_LIMIT_RETRY_BACKOFF_SEC * 1000)
             continue
 
-        remaining = max(0, int(deadline - time.time())) if deadline is not None else 0
+        remaining = max(0, int(deadline - time.monotonic())) if deadline is not None else 0
         beat_heartbeat(
             heartbeat,
             stage="rate_limit_wait" if notice.kind == "rate_limit" else "chatgpt_notice_wait",
@@ -3801,7 +3903,7 @@ def handle_chatgpt_web_page_notices(
             attempt=attempt,
             detail=f"{notice.kind}: remaining={remaining}s text={excerpt}",
         )
-        if deadline is not None and time.time() >= deadline:
+        if deadline is not None and time.monotonic() >= deadline:
             raise RuntimeError(f"ChatGPT 웹 알림이 지속되고 있습니다: {excerpt}")
         closed = close_chatgpt_web_notice_ui(page)
         if closed:
@@ -3836,7 +3938,7 @@ def wait_for_chatgpt_web_rate_limit_to_clear(
     attempt: int | None = None,
     max_wait_sec: int = CHATGPT_WEB_RATE_LIMIT_WAIT_SEC,
 ) -> None:
-    deadline = time.time() + max_wait_sec
+    deadline = time.monotonic() + max_wait_sec
     while True:
         handle_chatgpt_web_page_notices(
             page,
@@ -3844,11 +3946,11 @@ def wait_for_chatgpt_web_rate_limit_to_clear(
             label=label,
             section_prefix=section_prefix,
             attempt=attempt,
-            max_wait_sec=max(1, int(deadline - time.time())),
+            max_wait_sec=max(1, int(deadline - time.monotonic())),
         )
         if not chatgpt_web_rate_limit_modal_visible(page):
             return
-        remaining = max(0, int(deadline - time.time()))
+        remaining = max(0, int(deadline - time.monotonic()))
         beat_heartbeat(
             heartbeat,
             stage="rate_limit_wait",
@@ -3857,7 +3959,7 @@ def wait_for_chatgpt_web_rate_limit_to_clear(
             attempt=attempt,
             detail=f"remaining={remaining}s",
         )
-        if time.time() >= deadline:
+        if time.monotonic() >= deadline:
             raise RuntimeError("ChatGPT 웹 요청 속도 제한 모달이 지속되고 있습니다.")
         try:
             page.keyboard.press("Escape")
@@ -3963,7 +4065,7 @@ def send_chatgpt_web_prompt(
     attempt: int | None = None,
 ) -> None:
     box = page.locator("#prompt-textarea").first
-    deadline = time.time() + CHATGPT_WEB_RATE_LIMIT_WAIT_SEC
+    deadline = time.monotonic() + CHATGPT_WEB_RATE_LIMIT_WAIT_SEC
     while True:
         handle_chatgpt_web_page_notices(
             page,
@@ -3971,7 +4073,7 @@ def send_chatgpt_web_prompt(
             label=label,
             section_prefix=section_prefix,
             attempt=attempt,
-            max_wait_sec=max(5, int(deadline - time.time())),
+            max_wait_sec=max(5, int(deadline - time.monotonic())),
         )
         wait_for_chatgpt_web_rate_limit_to_clear(
             page,
@@ -3979,7 +4081,7 @@ def send_chatgpt_web_prompt(
             label=label,
             section_prefix=section_prefix,
             attempt=attempt,
-            max_wait_sec=max(5, int(deadline - time.time())),
+            max_wait_sec=max(5, int(deadline - time.monotonic())),
         )
         try:
             box.click(timeout=5000)
@@ -3991,7 +4093,7 @@ def send_chatgpt_web_prompt(
                 label=label,
                 section_prefix=section_prefix,
                 attempt=attempt,
-                max_wait_sec=max(5, int(deadline - time.time())),
+                max_wait_sec=max(5, int(deadline - time.monotonic())),
             )
             try:
                 beat_heartbeat(
@@ -4020,7 +4122,7 @@ def send_chatgpt_web_prompt(
                 or chatgpt_web_rate_limit_modal_visible(page)
             ):
                 raise
-            if time.time() >= deadline:
+            if time.monotonic() >= deadline:
                 raise RuntimeError("ChatGPT 웹 요청 속도 제한 모달이 지속되고 있습니다.") from exc
             beat_heartbeat(
                 heartbeat,
@@ -4050,7 +4152,7 @@ def wait_for_chatgpt_web_response(
     section_prefix: str | None = None,
     attempt: int | None = None,
 ) -> tuple[str, str]:
-    deadline = time.time() + timeout_sec
+    deadline = time.monotonic() + timeout_sec
     last_message_id = ""
     last_text = ""
     stable_polls = 0
@@ -4060,14 +4162,14 @@ def wait_for_chatgpt_web_response(
     else:
         max_empty_polls = max(10, min(20, timeout_sec // 15))
 
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         handle_chatgpt_web_page_notices(
             page,
             heartbeat=heartbeat,
             label=label,
             section_prefix=section_prefix,
             attempt=attempt,
-            max_wait_sec=max(5, int(deadline - time.time())),
+            max_wait_sec=max(5, int(deadline - time.monotonic())),
         )
         message_id, text = read_last_chatgpt_web_response(page)
         normalized = normalize_chatgpt_web_copy(text)
@@ -4198,6 +4300,98 @@ def extract_gemini_web_conversation_id(url: str) -> str | None:
     return match.group(1).strip() or None
 
 
+def first_visible_gemini_locator(page, selectors: tuple[str, ...]):
+    for selector in selectors:
+        locator = page.locator(selector).first
+        try:
+            if locator.count() and locator.is_visible():
+                return locator
+        except Exception:
+            continue
+    return page.locator(", ".join(selectors)).first
+
+
+def wait_for_visible_gemini_locator(page, selectors: tuple[str, ...], timeout_ms: int = 30_000):
+    deadline = time.monotonic() + max(1, timeout_ms) / 1000
+    while time.monotonic() < deadline:
+        locator = first_visible_gemini_locator(page, selectors)
+        try:
+            if locator.count() and locator.is_visible():
+                return locator
+        except Exception:
+            pass
+        page.wait_for_timeout(250)
+    return None
+
+
+def gemini_web_response_locator(page):
+    return page.locator(", ".join(GEMINI_WEB_RESPONSE_TEXT_SELECTORS))
+
+
+def gemini_web_listen_button_count(page) -> int:
+    return page.locator(", ".join(GEMINI_WEB_LISTEN_BUTTON_SELECTORS)).count()
+
+
+def gemini_web_send_is_ready(page) -> bool:
+    button = first_visible_gemini_locator(page, GEMINI_WEB_SEND_BUTTON_SELECTORS)
+    try:
+        return bool(button.count() and button.is_visible() and not button.is_disabled())
+    except Exception:
+        return False
+
+
+def gemini_web_generation_is_active(page) -> bool:
+    for selector in GEMINI_WEB_STOP_BUTTON_SELECTORS:
+        locator = page.locator(selector).first
+        try:
+            if locator.count() and locator.is_visible():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def classify_gemini_web_notice_text(text: str) -> WebProviderNotice | None:
+    normalized = normalize_chatgpt_web_copy(text)
+    lowered = normalized.lower()
+    if not normalized:
+        return None
+    marker_groups = (
+        ("region_unavailable", "pause_for_account_recovery", GEMINI_WEB_REGION_ERROR_MARKERS),
+        ("account_unavailable", "pause_for_account_recovery", GEMINI_WEB_ACCOUNT_ERROR_MARKERS),
+        ("session_expired", "refresh_session", GEMINI_WEB_SESSION_ERROR_MARKERS),
+        ("prompt_too_long", "reduce_prompt_and_retry", GEMINI_WEB_PROMPT_TOO_LONG_MARKERS),
+        ("usage_limit", "wait_for_limit_refresh", GEMINI_WEB_USAGE_LIMIT_MARKERS),
+        ("rate_limit", "exponential_backoff", GEMINI_WEB_RATE_LIMIT_MARKERS),
+        ("network_error", "short_backoff", GEMINI_WEB_NETWORK_ERROR_MARKERS),
+        ("temporary_service_error", "exponential_backoff", GEMINI_WEB_TEMPORARY_ERROR_MARKERS),
+    )
+    for kind, action, markers in marker_groups:
+        if any(marker in lowered for marker in markers):
+            return WebProviderNotice(kind=kind, action=action, message=normalized)
+    return None
+
+
+def gemini_web_visible_notice_text(page) -> str:
+    try:
+        messages = page.locator(
+            '[role="alert"], [aria-live="assertive"], [aria-live="polite"], '
+            '.error-message, mat-snack-bar-container, .notification'
+        ).all_inner_texts()
+    except Exception:
+        return ""
+    return normalize_chatgpt_web_copy(" ".join(messages))[:1000]
+
+
+def raise_if_gemini_web_notice(text: str) -> None:
+    notice = classify_gemini_web_notice_text(text)
+    if notice is None:
+        return
+    raise RuntimeError(
+        f"Gemini error_kind={notice.kind} retry_action={notice.action}: {notice.message[:700]}"
+    )
+
+
 def install_gemini_web_tts_hook(page) -> None:
     page.evaluate(GEMINI_WEB_TTS_HOOK_SCRIPT)
 
@@ -4291,13 +4485,19 @@ def prepare_gemini_web_page(
         detail="gemini_web_open",
     )
     page.goto(GEMINI_WEB_URL, wait_until="domcontentloaded")
-    input_locator = page.locator(f'[aria-label="{GEMINI_WEB_PROMPT_INPUT_LABEL}"]').first
-    try:
-        input_locator.wait_for(state="visible", timeout=30_000)
-    except timeout_error_cls as exc:
-        raise TimeoutError("Gemini 웹 프롬프트 입력창을 찾지 못했습니다.") from exc
     if "accounts.google.com" in page.url:
         raise RuntimeError("Gemini 웹 로그인 페이지로 이동했습니다. Google 세션을 확인하세요.")
+    input_locator = wait_for_visible_gemini_locator(page, GEMINI_WEB_PROMPT_INPUT_SELECTORS)
+    if input_locator is None:
+        notice = gemini_web_visible_notice_text(page)
+        if not notice:
+            try:
+                notice = normalize_chatgpt_web_copy(page.locator("body").inner_text())[:1500]
+            except Exception:
+                notice = ""
+        raise_if_gemini_web_notice(notice)
+        detail = f" 화면 메시지: {notice}" if notice else ""
+        raise TimeoutError(f"Gemini 웹 프롬프트 입력창을 찾지 못했습니다.{detail}")
     install_gemini_web_tts_hook(page)
 
 
@@ -4311,10 +4511,10 @@ def send_gemini_web_prompt(
     section_prefix: str | None = None,
     attempt: int | None = None,
 ) -> tuple[int, int]:
-    prompt_locator = page.locator(f'[aria-label="{GEMINI_WEB_PROMPT_INPUT_LABEL}"]').first
-    send_button = page.get_by_label(GEMINI_WEB_SEND_BUTTON_LABEL).first
-    response_count = page.locator(GEMINI_WEB_RESPONSE_TEXT_SELECTOR).count()
-    listen_count = page.locator(f'button[aria-label="{GEMINI_WEB_LISTEN_BUTTON_LABEL}"]').count()
+    prompt_locator = first_visible_gemini_locator(page, GEMINI_WEB_PROMPT_INPUT_SELECTORS)
+    send_button = first_visible_gemini_locator(page, GEMINI_WEB_SEND_BUTTON_SELECTORS)
+    response_count = gemini_web_response_locator(page).count()
+    listen_count = gemini_web_listen_button_count(page)
 
     try:
         prompt_locator.fill(prompt, timeout=30_000)
@@ -4326,6 +4526,7 @@ def send_gemini_web_prompt(
             break
         page.wait_for_timeout(100)
     else:
+        raise_if_gemini_web_notice(gemini_web_visible_notice_text(page))
         raise RuntimeError("Gemini 웹 전송 버튼이 활성화되지 않았습니다.")
 
     beat_heartbeat(
@@ -4354,16 +4555,15 @@ def wait_for_gemini_web_response(
     section_prefix: str | None = None,
     attempt: int | None = None,
 ) -> str:
-    deadline = time.time() + max(10, timeout_sec)
+    deadline = time.monotonic() + max(10, timeout_sec)
     last_text = ""
     stable_polls = 0
+    empty_polls = 0
 
-    while time.time() < deadline:
-        response_locator = page.locator(GEMINI_WEB_RESPONSE_TEXT_SELECTOR)
+    while time.monotonic() < deadline:
+        response_locator = gemini_web_response_locator(page)
         response_count = response_locator.count()
-        listen_count = page.locator(
-            f'button[aria-label="{GEMINI_WEB_LISTEN_BUTTON_LABEL}"]'
-        ).count()
+        listen_count = gemini_web_listen_button_count(page)
         current_text = ""
         if response_count > previous_response_count:
             current_text = response_locator.last.inner_text().strip()
@@ -4372,21 +4572,27 @@ def wait_for_gemini_web_response(
             else:
                 last_text = current_text
                 stable_polls = 0
+        empty_polls = empty_polls + 1 if not current_text else 0
         beat_heartbeat(
             heartbeat,
             stage="wait_for_response",
             label=label,
             section_prefix=section_prefix,
             attempt=attempt,
-            detail=f"stable_polls={stable_polls} chars={len(current_text)}",
+            detail=f"stable_polls={stable_polls} empty_polls={empty_polls} chars={len(current_text)}",
         )
-        if (
-            response_count > previous_response_count
-            and listen_count > previous_listen_count
-            and current_text
-            and stable_polls >= 1
-        ):
+        strong_completion_signal = listen_count > previous_listen_count or (
+            not gemini_web_generation_is_active(page) and gemini_web_send_is_ready(page)
+        )
+        if response_count > previous_response_count and current_text and stable_polls >= 2 and strong_completion_signal:
             return current_text
+        if response_count > previous_response_count and current_text and stable_polls >= 6:
+            return current_text
+        if not current_text:
+            notice = gemini_web_visible_notice_text(page)
+            raise_if_gemini_web_notice(notice)
+        if empty_polls >= 60:
+            raise TimeoutError("Gemini 웹 응답 본문이 60초 동안 시작되지 않아 재시도합니다.")
         page.wait_for_timeout(1000)
 
     raise TimeoutError("Gemini 웹 응답 완료를 기다리다 시간 초과되었습니다.")
@@ -4419,8 +4625,8 @@ def fetch_gemini_web_audio_bytes(
     if not click_result.get("ok"):
         raise RuntimeError(f"Gemini 웹 듣기 버튼 클릭 실패: {click_result.get('error')}")
 
-    deadline = time.time() + max(10, timeout_sec)
-    while time.time() < deadline:
+    deadline = time.monotonic() + max(10, timeout_sec)
+    while time.monotonic() < deadline:
         logs = page.evaluate("window.__geminiTtsLog || []")
         blob_seen = False
         blob_url = ""

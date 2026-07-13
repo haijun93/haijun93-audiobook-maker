@@ -8,7 +8,8 @@ import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from xml.etree import ElementTree as ET
+
+from safe_xml import safe_fromstring
 
 
 DEFAULT_EPUB = Path("/Users/hyeokjunkong/Desktop/소설/#[k-e]/[k-e] Artemis.epub")
@@ -149,7 +150,7 @@ def validate_epub(path: Path) -> None:
         for name in names:
             lower = name.lower()
             if lower.endswith((".xhtml", ".html", ".htm", ".opf", ".ncx")):
-                ET.fromstring(archive.read(name))
+                safe_fromstring(archive.read(name))
 
 
 def rewrite_epub(epub: Path, backup_dir: Path) -> dict[str, int]:

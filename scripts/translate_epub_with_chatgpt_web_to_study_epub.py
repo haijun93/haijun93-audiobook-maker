@@ -20,9 +20,13 @@ from xml.etree import ElementTree as ET
 
 from bs4 import BeautifulSoup
 
+from atomic_io import atomic_output_path, atomic_write_json, atomic_write_text
 from book_cover_lookup import find_online_cover
+from epub_integrity import validate_epub
 from final_epub_dialogue_consistency_review import review_dialogue_consistency
 from final_epub_tone_review import review_epub_tone
+from remove_readrobe_text_from_epubs import scrub_epub, scrub_text
+from safe_xml import safe_fromstring
 from translation_quality_checks import assess_translations, extract_segment_sources
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -32,26 +36,38 @@ if str(ROOT_DIR) not in sys.path:
 from audiobook_maker import (  # noqa: E402
     CHATGPT_WEB_CHROME_PATH,
     DEFAULT_CHATGPT_WEB_MAX_ATTEMPTS,
+    GEMINI_WEB_CHROME_PATH,
     ProgressHeartbeat,
     beat_heartbeat,
     chatgpt_web_launch_args,
+    classify_gemini_web_notice_text,
     extract_chatgpt_conversation_id,
+    extract_gemini_web_conversation_id,
     handle_chatgpt_web_page_notices,
     is_chatgpt_web_refusal_response,
     load_chatgpt_web_cookies,
     load_chatgpt_web_modules,
+    load_gemini_web_cookies,
+    load_gemini_web_modules,
     normalize_chatgpt_web_copy,
     normalized_file_text,
     prepare_chatgpt_web_page,
+    prepare_gemini_web_page,
     read_last_chatgpt_web_response,
     send_chatgpt_web_prompt,
+    send_gemini_web_prompt,
     wait_for_chatgpt_web_response,
+    wait_for_gemini_web_response,
 )
 
 
 TRANSLATION_PIPELINE_VERSION = 3
 MINIMUM_ACCEPTED_CACHE_VERSION = 2
 RELATIONSHIP_GUIDE_VERSION = 2
+ERROR_TAXONOMY_VERSION = 1
+WEB_PROVIDER_MARKER = ".translation_web_provider"
+GEMINI_MARKER_OPEN_TEMPLATE = "[[[BEGIN:{block_id}]]]"
+GEMINI_MARKER_CLOSE_TEMPLATE = "[[[END:{block_id}]]]"
 
 
 @dataclass
@@ -86,7 +102,7 @@ class CoverAsset:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="영문 EPUB를 ChatGPT 웹으로 소설체 한국어 번역하고 영어학습용 Kindle EPUB를 만듭니다."
+        description="영문 EPUB를 웹 번역 서비스로 소설체 한국어 번역하고 영어학습용 Kindle EPUB를 만듭니다."
     )
     parser.add_argument("--input-epub", type=Path, required=True)
     parser.add_argument("--output-epub", type=Path, required=True)
@@ -97,10 +113,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-chars-per-chunk", type=int, default=8500)
     parser.add_argument("--request-timeout-sec", type=int, default=1200)
+    parser.add_argument("--web-provider", choices=("chatgpt", "gemini"))
     parser.add_argument("--chatgpt-web-chrome-path", default=CHATGPT_WEB_CHROME_PATH)
-    parser.add_argument("--chatgpt-web-visible", action="store_true")
+    parser.add_argument("--gemini-web-chrome-path", default=GEMINI_WEB_CHROME_PATH)
+    parser.add_argument("--web-visible", "--chatgpt-web-visible", dest="web_visible", action="store_true")
     parser.add_argument(
+        "--web-max-attempts",
         "--chatgpt-web-max-attempts",
+        dest="web_max_attempts",
         type=int,
         default=DEFAULT_CHATGPT_WEB_MAX_ATTEMPTS,
     )
@@ -108,7 +128,7 @@ def parse_args() -> argparse.Namespace:
         "--chunks-per-conversation",
         type=int,
         default=1,
-        help="한 ChatGPT 대화에서 연속 처리할 번역 조각 수(기본: 1)",
+        help="한 웹서비스 대화에서 연속 처리할 번역 조각 수(기본: 1)",
     )
     parser.add_argument(
         "--inter-request-delay-sec",
@@ -133,8 +153,56 @@ def resolve_work_dir(args: argparse.Namespace) -> Path:
     return args.output_epub.expanduser().resolve().with_suffix(".work")
 
 
+def resolve_web_provider(args: argparse.Namespace, work_dir: Path) -> str:
+    requested = getattr(args, "web_provider", None)
+    if requested in {"chatgpt", "gemini"}:
+        return requested
+    marker_path = work_dir / WEB_PROVIDER_MARKER
+    if marker_path.exists():
+        pinned = marker_path.read_text(encoding="utf-8").strip().lower()
+        if pinned in {"chatgpt", "gemini"}:
+            return pinned
+    configured = os.getenv("EPUB_TRANSLATION_WEB_PROVIDER", "gemini").strip().lower()
+    return configured if configured in {"chatgpt", "gemini"} else "gemini"
+
+
+def persist_web_provider(work_dir: Path, provider: str) -> None:
+    write_text(work_dir / WEB_PROVIDER_MARKER, provider)
+
+
+def web_max_attempts(args: argparse.Namespace) -> int:
+    return max(1, int(getattr(args, "web_max_attempts", getattr(args, "chatgpt_web_max_attempts", 5))))
+
+
+def translation_prompt_for_provider(prompt: str, provider: str) -> str:
+    if provider != "gemini":
+        return prompt
+    prompt = re.sub(
+        r"<<<END_(B\d+)>>>",
+        lambda match: GEMINI_MARKER_CLOSE_TEMPLATE.format(block_id=match.group(1)),
+        prompt,
+    )
+    return re.sub(
+        r"<<<(B\d+)>>>",
+        lambda match: GEMINI_MARKER_OPEN_TEMPLATE.format(block_id=match.group(1)),
+        prompt,
+    )
+
+
+def prepare_translation_web_page(page, *, timeout_error_cls, args, heartbeat, label, section_prefix, attempt) -> None:
+    prepare = prepare_gemini_web_page if active_web_provider(args) == "gemini" else prepare_chatgpt_web_page
+    prepare(
+        page,
+        timeout_error_cls=timeout_error_cls,
+        heartbeat=heartbeat,
+        label=label,
+        section_prefix=section_prefix,
+        attempt=attempt,
+    )
+
+
 def read_opf_path(archive: zipfile.ZipFile) -> str:
-    container = ET.fromstring(archive.read("META-INF/container.xml"))
+    container = safe_fromstring(archive.read("META-INF/container.xml"))
     namespace = {"c": "urn:oasis:names:tc:opendocument:xmlns:container"}
     rootfile = container.find(".//c:rootfile", namespace)
     if rootfile is None:
@@ -154,7 +222,7 @@ def read_spine(epub_path: Path) -> tuple[str, str, list[str], dict[str, bytes]]:
         opf_dir = str(Path(opf_path).parent)
         if opf_dir == ".":
             opf_dir = ""
-        opf = ET.fromstring(archive.read(opf_path))
+        opf = safe_fromstring(archive.read(opf_path))
         ns = {"opf": "http://www.idpf.org/2007/opf", "dc": "http://purl.org/dc/elements/1.1/"}
         title_node = opf.find(".//dc:title", ns)
         creator_node = opf.find(".//dc:creator", ns)
@@ -245,7 +313,7 @@ def extract_cover_asset(input_epub: Path, book_title: str, creator: str) -> Cove
     try:
         with zipfile.ZipFile(input_epub) as archive:
             opf_path = read_opf_path(archive)
-            root = ET.fromstring(archive.read(opf_path))
+            root = safe_fromstring(archive.read(opf_path))
             ns = {"opf": "http://www.idpf.org/2007/opf"}
             manifest_items = [
                 item
@@ -314,7 +382,7 @@ def parse_ncx_nav(resources: dict[str, bytes], spine_hrefs: list[str]) -> list[t
     ncx_dir = str(Path(ncx_name).parent)
     if ncx_dir == ".":
         ncx_dir = ""
-    root = ET.fromstring(resources[ncx_name])
+    root = safe_fromstring(resources[ncx_name])
     ns = {"ncx": "http://www.daisy.org/z3986/2005/ncx/"}
     nav: list[tuple[str, str, int]] = []
     for point in root.findall(".//ncx:navPoint", ns):
@@ -389,7 +457,7 @@ def metadata_section_titles(resources: dict[str, bytes], book_title: str) -> lis
     if not opf_name:
         return []
     try:
-        root = ET.fromstring(resources[opf_name])
+        root = safe_fromstring(resources[opf_name])
     except Exception:
         return []
     ns = {"dc": "http://purl.org/dc/elements/1.1/"}
@@ -873,7 +941,7 @@ def build_local_relationship_guide(book_title: str, creator: str, blocks: list[S
     return f"""[인물관계 요약]
 - 작품: {book_title}{creator_line}
 - 주요 인물 후보: {name_line}
-- 이 가이드는 ChatGPT 웹 관계도 응답이 반복적으로 불완전할 때, EPUB 샘플에서 이름 후보와 장면 단서를 뽑아 만든 보수적 번역 가이드다.
+- 이 가이드는 웹 번역 서비스의 관계도 응답이 반복적으로 불완전할 때, EPUB 샘플에서 이름 후보와 장면 단서를 뽑아 만든 보수적 번역 가이드다.
 - 관계가 확정되지 않은 인물은 현재 장면의 호칭, 행동, 권력관계, 친밀도, 거래/고객 관계를 기준으로 말투를 정한다.
 {you_notes}
 [말투 규칙]
@@ -968,6 +1036,7 @@ def build_translation_prompt(
 6. 각 ID는 정확히 한 번씩 출력합니다. 영어 원문은 출력하지 마세요.
 7. 인과관계, 부정 표현, 숫자, 시간, 고유명사, 대명사의 지시대상을 빠뜨리지 않습니다.
 8. 서술문과 내면 독백은 특별한 문체적 이유가 없으면 한국어 소설의 평서형 '~다'체를 사용하고, '~요'체는 실제 대화에서만 사용합니다.
+9. 저작권, 발췌 출처, 추천사, 서지정보 문장도 생략하지 말고 번역하되 작품명, 인명, ISBN, URL은 원문 표기를 유지합니다.
 {guide_section}
 {context_section}
 
@@ -1009,17 +1078,28 @@ def parse_translation_response(response: str, expected_ids: list[str]) -> dict[s
     expected = set(expected_ids)
     translations: dict[str, str] = {}
     duplicates: set[str] = set()
-    pattern = re.compile(r"<<<(B\d+)>>>\s*(.*?)\s*<<<END_\1>>>", re.DOTALL)
-    for match in pattern.finditer(response):
-        block_id = match.group(1)
-        if block_id not in expected:
-            continue
-        if block_id in translations:
-            duplicates.add(block_id)
-            continue
-        translations[block_id] = clean_text(match.group(2))
+    patterns = (
+        re.compile(r"<<<(B\d+)>>>\s*(.*?)\s*<<<END_\1>>>", re.DOTALL),
+        re.compile(r"\[\[\[BEGIN:(B\d+)\]\]\]\s*(.*?)\s*\[\[\[END:\1\]\]\]", re.DOTALL),
+        # Gemini can render an angle-bracket opening marker as an empty HTML-like
+        # element while leaving the closing marker visible. The closing ID still
+        # makes this older response format unambiguous and safely recoverable.
+        re.compile(r"<<>>\s*(.*?)\s*<<<END_(B\d+)>>>", re.DOTALL),
+    )
+    for pattern_index, pattern in enumerate(patterns):
+        for match in pattern.finditer(response):
+            if pattern_index == 2:
+                block_id, translated = match.group(2), match.group(1)
+            else:
+                block_id, translated = match.group(1), match.group(2)
+            if block_id not in expected:
+                continue
+            if block_id in translations:
+                duplicates.add(block_id)
+                continue
+            translations[block_id] = clean_text(translated)
     if duplicates:
-        raise RuntimeError(f"ChatGPT 응답에 중복 번역 ID가 있습니다: {', '.join(sorted(duplicates)[:10])}")
+        raise RuntimeError(f"웹 번역 응답에 중복 번역 ID가 있습니다: {', '.join(sorted(duplicates)[:10])}")
     return translations
 
 
@@ -1125,13 +1205,26 @@ def is_missing_translation_error(exc: Exception) -> bool:
     )
 
 
-def classify_chatgpt_translation_error(exc: Exception) -> tuple[str, str]:
+def classify_translation_web_error(
+    exc: Exception,
+    chunk: TranslationChunk | None = None,
+) -> tuple[str, str]:
     message = str(exc)
     lowered = message.lower()
-    if is_chatgpt_web_service_limit_error(exc):
-        kind = chatgpt_web_service_limit_kind(message) or "unknown"
-        return f"service_limit_{kind}", "cooldown_then_retry"
-    if is_minor_context_refusal_error(exc):
+    provider_kind = web_provider_error_kind(message)
+    provider_actions = {
+        "usage_limit": "wait_for_limit_refresh",
+        "rate_limit": "exponential_backoff",
+        "temporary_service_error": "exponential_backoff",
+        "network_error": "short_backoff",
+        "session_expired": "refresh_session_then_retry",
+        "account_unavailable": "pause_for_account_recovery",
+        "region_unavailable": "pause_for_account_recovery",
+        "prompt_too_long": "reduce_prompt_and_retry",
+    }
+    if provider_kind in provider_actions:
+        return provider_kind, provider_actions[provider_kind]
+    if is_minor_context_refusal_error(exc, chunk):
         return "minor_context_refusal", "non_explicit_minor_context_translation"
     if is_refusal_error(exc):
         return "content_refusal", "literary_prompt_then_subchunk_retry"
@@ -1139,28 +1232,26 @@ def classify_chatgpt_translation_error(exc: Exception) -> tuple[str, str]:
         return "missing_translation_ids", "fresh_chat_then_subchunk_retry"
     if "translation_quality_failed" in lowered:
         return "translation_quality_failure", "fresh_chat_then_subchunk_retry"
-    if "message_id" in message:
+    if "message_id" in lowered:
         return "missing_message_id", "fresh_chat_retry"
-    if "응답 본문이 시작되지 않아" in message or "시간 초과" in message or "timeout" in lowered:
+    if "응답 본문" in message or "시간 초과" in message or "timeout" in lowered:
         return "timeout_or_empty_response", "fresh_chat_retry_with_backoff"
     if "로그인" in message or "세션이 만료" in message or "log in" in lowered or "session expired" in lowered:
-        return "login_or_session", "pause_for_session_recovery"
-    return "unknown_chatgpt_error", "record_and_retry_conservatively"
-
-
-def classify_chatgpt_translation_error_for_chunk(
-    exc: Exception,
-    chunk: TranslationChunk | None,
-) -> tuple[str, str]:
-    if is_minor_context_refusal_error(exc, chunk):
-        return "minor_context_refusal", "non_explicit_minor_context_translation"
-    return classify_chatgpt_translation_error(exc)
+        return "session_expired", "refresh_session_then_retry"
+    return "unknown_web_provider_error", "record_and_retry_conservatively"
 
 
 def should_subchunk_retry_error(exc: Exception) -> bool:
-    if is_chatgpt_web_service_limit_error(exc):
+    if is_web_provider_pause_error(exc):
         return False
-    return is_refusal_error(exc) or is_missing_translation_error(exc) or "translation_quality_failed" in str(exc).lower()
+    kind, _action = classify_translation_web_error(exc)
+    return kind in {
+        "content_refusal",
+        "minor_context_refusal",
+        "missing_translation_ids",
+        "translation_quality_failure",
+        "prompt_too_long",
+    }
 
 
 def append_adaptive_error_event(
@@ -1172,7 +1263,7 @@ def append_adaptive_error_event(
     error: Exception,
     chunk: TranslationChunk | None = None,
 ) -> None:
-    kind, action = classify_chatgpt_translation_error_for_chunk(error, chunk)
+    kind, action = classify_translation_web_error(error, chunk)
     event = {
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "prefix": prefix,
@@ -1251,30 +1342,31 @@ def fill_separator_translations(blocks: list[SourceBlock], translations: dict[st
 
 
 def write_json(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        os.replace(temp_path, path)
-    finally:
-        temp_path.unlink(missing_ok=True)
+    atomic_write_json(path, payload, trailing_newline=True)
 
 
 def write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        temp_path.write_text(text.rstrip() + "\n", encoding="utf-8")
-        os.replace(temp_path, path)
-    finally:
-        temp_path.unlink(missing_ok=True)
+    atomic_write_text(path, text.rstrip() + "\n")
 
 
-class ChatGPTWebServiceLimitError(RuntimeError):
-    """Raised when ChatGPT Web asks us to pause before continuing."""
+class WebProviderError(RuntimeError):
+    """Structured error raised by a browser-based translation provider."""
+
+    def __init__(self, provider: str, kind: str, action: str, message: str):
+        self.provider = provider
+        self.kind = kind
+        self.action = action
+        self.provider_message = message
+        super().__init__(
+            f"{provider.title()} error_kind={kind} retry_action={action}: {message[:700]}"
+        )
 
 
-CHATGPT_WEB_HARD_SERVICE_LIMIT_MARKERS = (
+class WebServiceLimitError(WebProviderError):
+    """Raised when a provider requires a batch-level pause."""
+
+
+LEGACY_PROVIDER_ACCOUNT_BLOCK_MARKERS = (
     "unusual activity",
     "suspicious activity",
     "account has been restricted",
@@ -1284,7 +1376,7 @@ CHATGPT_WEB_HARD_SERVICE_LIMIT_MARKERS = (
     "계정이 제한",
 )
 
-CHATGPT_WEB_SOFT_SERVICE_LIMIT_MARKERS = (
+LEGACY_PROVIDER_USAGE_LIMIT_MARKERS = (
     "too many requests",
     "rate limit",
     "usage limit",
@@ -1295,9 +1387,6 @@ CHATGPT_WEB_SOFT_SERVICE_LIMIT_MARKERS = (
     "you've reached your limit",
     "you’ve reached your limit",
     "you have reached your limit",
-    "temporarily limited",
-    "temporarily unavailable",
-    "try again later",
     "come back later",
     "한도초과",
     "한도 초과",
@@ -1305,51 +1394,102 @@ CHATGPT_WEB_SOFT_SERVICE_LIMIT_MARKERS = (
     "메시지 한도",
     "요청 한도",
     "한도에 도달",
-    "일시적으로 제한",
-    "잠시 후 다시",
-    "나중에 다시",
-    "요청이 너무 빠릅니다",
+    "resource has been exhausted",
+)
+
+WEB_PROVIDER_PAUSE_KINDS = {
+    "usage_limit",
+    "rate_limit",
+    "session_expired",
+    "account_unavailable",
+    "region_unavailable",
+}
+
+WEB_REFUSAL_MARKERS = (
+    "content can't be shown for safety reasons",
+    "content can’t be shown for safety reasons",
+    "i can't help with that",
+    "i can’t help with that",
+    "i'm unable to help",
+    "i’m unable to help",
+    "i cannot assist",
+    "요청하신 내용에는 도움을 드릴 수 없",
+    "해당 요청에는 응답할 수 없",
 )
 
 
-def chatgpt_web_service_limit_kind(text: str) -> str | None:
+def active_web_provider(args: argparse.Namespace) -> str:
+    provider = str(getattr(args, "web_provider", "gemini") or "gemini").lower()
+    return provider if provider in {"chatgpt", "gemini"} else "gemini"
+
+
+def is_translation_web_refusal_response(response: str, args: argparse.Namespace) -> bool:
+    if is_chatgpt_web_refusal_response(response):
+        return True
+    if (
+        re.search(r"<<<B\d+>>>", response)
+        and re.search(r"<<<END_B\d+>>>", response)
+    ) or (
+        re.search(r"\[\[\[BEGIN:B\d+\]\]\]", response)
+        and re.search(r"\[\[\[END:B\d+\]\]\]", response)
+    ):
+        return False
+    lowered = normalize_chatgpt_web_copy(response).lower()
+    return any(marker in lowered for marker in WEB_REFUSAL_MARKERS)
+
+
+def web_provider_error_kind(text: str) -> str | None:
     normalized = normalize_chatgpt_web_copy(text)
     lowered = normalized.lower()
-    if any(marker in lowered for marker in CHATGPT_WEB_HARD_SERVICE_LIMIT_MARKERS):
-        return "hard"
-    if re.search(r"<<<B\d+>>>", normalized) and re.search(r"<<<END_B\d+>>>", normalized):
+    explicit = re.search(r"error_kind=([a-z_]+)", lowered)
+    if explicit:
+        return explicit.group(1)
+    if (
+        re.search(r"<<<B\d+>>>", normalized)
+        and re.search(r"<<<END_B\d+>>>", normalized)
+    ) or (
+        re.search(r"\[\[\[BEGIN:B\d+\]\]\]", normalized)
+        and re.search(r"\[\[\[END:B\d+\]\]\]", normalized)
+    ):
         return None
-    if any(marker in lowered for marker in CHATGPT_WEB_SOFT_SERVICE_LIMIT_MARKERS):
-        return "soft"
+    if any(marker in lowered for marker in LEGACY_PROVIDER_ACCOUNT_BLOCK_MARKERS):
+        return "account_unavailable"
+    if any(marker in lowered for marker in LEGACY_PROVIDER_USAGE_LIMIT_MARKERS):
+        return "usage_limit"
+    notice = classify_gemini_web_notice_text(normalized)
+    if notice is not None:
+        return notice.kind
     return None
 
 
-def is_chatgpt_web_unusual_activity_response(text: str) -> bool:
-    return chatgpt_web_service_limit_kind(text) == "hard"
-
-
-def raise_if_chatgpt_web_service_limit(response: str) -> None:
-    kind = chatgpt_web_service_limit_kind(response)
+def raise_if_web_provider_error(response: str, provider: str) -> None:
+    kind = web_provider_error_kind(response)
     if not kind:
         return
     preview = normalized_file_text(response)[:220].replace("\n", " ")
-    raise ChatGPTWebServiceLimitError(f"ChatGPT service_limit={kind}: {preview}")
+    action = classify_translation_web_error(RuntimeError(f"error_kind={kind}: {preview}"))[1]
+    error_type = WebServiceLimitError if kind in WEB_PROVIDER_PAUSE_KINDS else WebProviderError
+    raise error_type(provider, kind, action, preview)
 
 
-def is_chatgpt_web_service_limit_error(exc: Exception) -> bool:
-    return isinstance(exc, ChatGPTWebServiceLimitError) or chatgpt_web_service_limit_kind(str(exc)) is not None
+def is_web_provider_pause_error(exc: Exception) -> bool:
+    if isinstance(exc, WebServiceLimitError):
+        return True
+    return web_provider_error_kind(str(exc)) in WEB_PROVIDER_PAUSE_KINDS
 
 
-def chatgpt_web_retry_sleep_seconds(exc: Exception, attempt: int) -> int:
-    kind = chatgpt_web_service_limit_kind(str(exc))
-    if kind == "hard":
-        return min(7200, 1800 * max(1, attempt))
-    if kind == "soft":
-        return min(3600, 600 * max(1, attempt))
-    return min(30, 3 * attempt)
+def web_provider_retry_sleep_seconds(exc: Exception, attempt: int) -> int:
+    kind = web_provider_error_kind(str(exc))
+    if kind == "network_error":
+        return min(30, 2 ** max(1, attempt))
+    if kind == "temporary_service_error":
+        return min(60, 3 * (2 ** max(0, attempt - 1)))
+    if kind == "timeout_or_empty_response":
+        return min(30, 3 * attempt)
+    return min(20, 2 * attempt)
 
 
-def request_chatgpt_translation(
+def request_web_translation(
     *,
     context,
     timeout_error_cls,
@@ -1362,22 +1502,48 @@ def request_chatgpt_translation(
 ) -> tuple[str, str]:
     last_error: Exception | None = None
     active_prompt = prompt
-    for attempt in range(1, max(1, args.chatgpt_web_max_attempts) + 1):
-        page = context.new_page()
+    provider = active_web_provider(args)
+    for attempt in range(1, web_max_attempts(args) + 1):
+        page = None
         try:
+            page = context.new_page()
             beat_heartbeat(heartbeat, stage="translation_attempt_start", label=label, section_prefix=prefix, attempt=attempt)
-            prepare_chatgpt_web_page(page, timeout_error_cls=timeout_error_cls, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
-            send_chatgpt_web_prompt(page, active_prompt, timeout_error_cls=timeout_error_cls, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
-            message_id, response = wait_for_chatgpt_web_response(page, timeout_sec=args.request_timeout_sec, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
-            conversation_id = extract_chatgpt_conversation_id(page.url)
-            if not message_id:
-                raise RuntimeError("ChatGPT message_id 를 찾지 못했습니다.")
+            if provider == "gemini":
+                prepare_gemini_web_page(page, timeout_error_cls=timeout_error_cls, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
+                web_prompt = translation_prompt_for_provider(active_prompt, provider)
+                previous_response_count, previous_listen_count = send_gemini_web_prompt(
+                    page,
+                    web_prompt,
+                    timeout_error_cls=timeout_error_cls,
+                    heartbeat=heartbeat,
+                    label=label,
+                    section_prefix=prefix,
+                    attempt=attempt,
+                )
+                response = wait_for_gemini_web_response(
+                    page,
+                    previous_response_count=previous_response_count,
+                    previous_listen_count=previous_listen_count,
+                    timeout_sec=args.request_timeout_sec,
+                    heartbeat=heartbeat,
+                    label=label,
+                    section_prefix=prefix,
+                    attempt=attempt,
+                )
+                conversation_id = extract_gemini_web_conversation_id(page.url)
+            else:
+                prepare_chatgpt_web_page(page, timeout_error_cls=timeout_error_cls, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
+                send_chatgpt_web_prompt(page, active_prompt, timeout_error_cls=timeout_error_cls, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
+                message_id, response = wait_for_chatgpt_web_response(page, timeout_sec=args.request_timeout_sec, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
+                conversation_id = extract_chatgpt_conversation_id(page.url)
+                if not message_id:
+                    raise RuntimeError("웹 번역 응답의 message_id를 찾지 못했습니다.")
             if not normalized_file_text(response):
-                raise RuntimeError("ChatGPT 번역 응답이 비어 있습니다.")
-            raise_if_chatgpt_web_service_limit(response)
-            if is_chatgpt_web_refusal_response(response):
+                raise RuntimeError(f"{provider.title()} 번역 응답이 비어 있습니다.")
+            raise_if_web_provider_error(response, provider)
+            if is_translation_web_refusal_response(response, args):
                 preview = normalized_file_text(response)[:200].replace("\n", " ")
-                raise RuntimeError(f"ChatGPT 번역 응답이 거절되었습니다: {preview}")
+                raise RuntimeError(f"{provider.title()} 번역 응답이 거절되었습니다: {preview}")
             if not conversation_id:
                 conversation_id = "missing-conversation-id"
             beat_heartbeat(heartbeat, stage="translation_response_received", label=label, section_prefix=prefix, attempt=attempt)
@@ -1385,7 +1551,7 @@ def request_chatgpt_translation(
         except Exception as exc:
             last_error = exc
             beat_heartbeat(heartbeat, stage="translation_attempt_error", label=label, section_prefix=prefix, attempt=attempt, detail=str(exc)[:300])
-            if is_chatgpt_web_service_limit_error(exc):
+            if is_web_provider_pause_error(exc) or web_provider_error_kind(str(exc)) == "prompt_too_long":
                 raise
             if is_refusal_error(exc) and refusal_retry_prompt and active_prompt != refusal_retry_prompt:
                 active_prompt = refusal_retry_prompt
@@ -1397,7 +1563,7 @@ def request_chatgpt_translation(
                     attempt=attempt,
                     detail="refusal_detected; switched to literary context prompt",
                 )
-            sleep_sec = chatgpt_web_retry_sleep_seconds(exc, attempt)
+            sleep_sec = web_provider_retry_sleep_seconds(exc, attempt)
             beat_heartbeat(
                 heartbeat,
                 stage="translation_retry_sleep",
@@ -1408,13 +1574,83 @@ def request_chatgpt_translation(
             )
             time.sleep(sleep_sec)
         finally:
-            page.close()
+            if page is not None:
+                close_page_quietly(page)
     if last_error:
         raise last_error
-    raise RuntimeError("ChatGPT 웹 번역에 실패했습니다.")
+    raise RuntimeError(f"{provider.title()} 웹 번역에 실패했습니다.")
 
 
-def wait_for_new_chatgpt_web_response(
+def request_web_translation_on_prepared_page(
+    *,
+    page,
+    timeout_error_cls,
+    args: argparse.Namespace,
+    prompt: str,
+    heartbeat: ProgressHeartbeat | None,
+    label: str,
+    prefix: str,
+    attempt: int,
+) -> tuple[str, str]:
+    provider = active_web_provider(args)
+    if provider == "gemini":
+        web_prompt = translation_prompt_for_provider(prompt, provider)
+        previous_response_count, previous_listen_count = send_gemini_web_prompt(
+            page,
+            web_prompt,
+            timeout_error_cls=timeout_error_cls,
+            heartbeat=heartbeat,
+            label=label,
+            section_prefix=prefix,
+            attempt=attempt,
+        )
+        response = wait_for_gemini_web_response(
+            page,
+            previous_response_count=previous_response_count,
+            previous_listen_count=previous_listen_count,
+            timeout_sec=args.request_timeout_sec,
+            heartbeat=heartbeat,
+            label=label,
+            section_prefix=prefix,
+            attempt=attempt,
+        )
+        conversation_id = extract_gemini_web_conversation_id(page.url)
+    else:
+        previous_message_id, _ = read_last_chatgpt_web_response(page)
+        send_chatgpt_web_prompt(
+            page,
+            prompt,
+            timeout_error_cls=timeout_error_cls,
+            heartbeat=heartbeat,
+            label=label,
+            section_prefix=prefix,
+            attempt=attempt,
+        )
+        message_id, response = wait_for_new_legacy_web_response(
+            page,
+            previous_message_id=previous_message_id,
+            timeout_sec=args.request_timeout_sec,
+            heartbeat=heartbeat,
+            label=label,
+            section_prefix=prefix,
+            attempt=attempt,
+        )
+        conversation_id = extract_chatgpt_conversation_id(page.url)
+        if not message_id:
+            raise RuntimeError("웹 번역 응답의 message_id를 찾지 못했습니다.")
+    if not normalized_file_text(response):
+        raise RuntimeError(f"{provider.title()} 번역 응답이 비어 있습니다.")
+    raise_if_web_provider_error(response, provider)
+    if is_translation_web_refusal_response(response, args):
+        preview = normalized_file_text(response)[:200].replace("\n", " ")
+        raise RuntimeError(f"{provider.title()} 번역 응답이 거절되었습니다: {preview}")
+    if not conversation_id:
+        conversation_id = "missing-conversation-id"
+    beat_heartbeat(heartbeat, stage="translation_response_received", label=label, section_prefix=prefix, attempt=attempt)
+    return conversation_id, response
+
+
+def wait_for_new_legacy_web_response(
     page,
     *,
     previous_message_id: str,
@@ -1424,7 +1660,8 @@ def wait_for_new_chatgpt_web_response(
     section_prefix: str | None = None,
     attempt: int | None = None,
 ) -> tuple[str, str]:
-    deadline = time.time() + timeout_sec
+    """Track a new response for the optional legacy web-provider backend."""
+    deadline = time.monotonic() + timeout_sec
     last_message_id = ""
     last_text = ""
     stable_polls = 0
@@ -1434,14 +1671,14 @@ def wait_for_new_chatgpt_web_response(
     else:
         max_empty_polls = max(10, min(20, timeout_sec // 15))
 
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         handle_chatgpt_web_page_notices(
             page,
             heartbeat=heartbeat,
             label=label,
             section_prefix=section_prefix,
             attempt=attempt,
-            max_wait_sec=max(5, int(deadline - time.time())),
+            max_wait_sec=max(5, int(deadline - time.monotonic())),
         )
         message_id, text = read_last_chatgpt_web_response(page)
         normalized = normalize_chatgpt_web_copy(text)
@@ -1466,56 +1703,11 @@ def wait_for_new_chatgpt_web_response(
         if last_message_id and last_message_id != previous_message_id and last_text and stable_polls >= 3:
             return last_message_id, last_text
         if empty_polls >= max_empty_polls:
-            raise TimeoutError("ChatGPT 웹 응답 본문이 시작되지 않아 재시도합니다.")
+            raise TimeoutError("웹 번역 응답 본문이 시작되지 않아 재시도합니다.")
 
         page.wait_for_timeout(3000)
 
-    raise TimeoutError("ChatGPT 웹 응답 완료를 기다리다 시간 초과되었습니다.")
-
-
-def request_chatgpt_translation_on_prepared_page(
-    *,
-    page,
-    timeout_error_cls,
-    args: argparse.Namespace,
-    prompt: str,
-    heartbeat: ProgressHeartbeat | None,
-    label: str,
-    prefix: str,
-    attempt: int,
-) -> tuple[str, str]:
-    previous_message_id, _ = read_last_chatgpt_web_response(page)
-    send_chatgpt_web_prompt(
-        page,
-        prompt,
-        timeout_error_cls=timeout_error_cls,
-        heartbeat=heartbeat,
-        label=label,
-        section_prefix=prefix,
-        attempt=attempt,
-    )
-    message_id, response = wait_for_new_chatgpt_web_response(
-        page,
-        previous_message_id=previous_message_id,
-        timeout_sec=args.request_timeout_sec,
-        heartbeat=heartbeat,
-        label=label,
-        section_prefix=prefix,
-        attempt=attempt,
-    )
-    conversation_id = extract_chatgpt_conversation_id(page.url)
-    if not message_id:
-        raise RuntimeError("ChatGPT message_id 를 찾지 못했습니다.")
-    if not normalized_file_text(response):
-        raise RuntimeError("ChatGPT 번역 응답이 비어 있습니다.")
-    raise_if_chatgpt_web_service_limit(response)
-    if is_chatgpt_web_refusal_response(response):
-        preview = normalized_file_text(response)[:200].replace("\n", " ")
-        raise RuntimeError(f"ChatGPT 번역 응답이 거절되었습니다: {preview}")
-    if not conversation_id:
-        conversation_id = "missing-conversation-id"
-    beat_heartbeat(heartbeat, stage="translation_response_received", label=label, section_prefix=prefix, attempt=attempt)
-    return conversation_id, response
+    raise TimeoutError("웹 번역 응답 완료를 기다리다 시간 초과되었습니다.")
 
 
 def ensure_relationship_guide(
@@ -1550,7 +1742,7 @@ def ensure_relationship_guide(
     write_text(work_dir / "prompts" / "relationship_guide_prompt.txt", prompt)
     guide_args = SimpleNamespace(**vars(args))
     guide_args.request_timeout_sec = min(args.request_timeout_sec, 240)
-    guide_args.chatgpt_web_max_attempts = min(args.chatgpt_web_max_attempts, 2)
+    guide_args.web_max_attempts = min(web_max_attempts(args), 2)
     last_reason = ""
     for guide_attempt in range(1, 3):
         attempt_prompt = prompt
@@ -1569,7 +1761,7 @@ def ensure_relationship_guide(
             attempt=guide_attempt,
         )
         try:
-            conversation_id, response = request_chatgpt_translation(
+            conversation_id, response = request_web_translation(
                 context=context,
                 timeout_error_cls=timeout_error_cls,
                 args=guide_args,
@@ -1579,7 +1771,7 @@ def ensure_relationship_guide(
                 prefix="relationship_guide",
             )
         except Exception as exc:  # noqa: BLE001 - fall back to a conservative local guide if web analysis stalls.
-            if is_chatgpt_web_service_limit_error(exc):
+            if is_web_provider_pause_error(exc):
                 raise
             last_reason = str(exc)
             beat_heartbeat(
@@ -1633,7 +1825,7 @@ def ensure_relationship_guide(
         {
             "book_title": book_title,
             "creator": creator,
-            "conversation_id": "local-fallback-after-chatgpt-web-guide-failure",
+            "conversation_id": "local-fallback-after-web-guide-failure",
             "guide_version": RELATIONSHIP_GUIDE_VERSION,
             "chars": len(fallback),
             "validation": reason,
@@ -1656,7 +1848,7 @@ def close_page_quietly(page) -> None:
         pass
 
 
-def pace_chatgpt_requests(
+def pace_web_requests(
     args: argparse.Namespace,
     heartbeat: ProgressHeartbeat | None,
     *,
@@ -1676,6 +1868,10 @@ def pace_chatgpt_requests(
         detail=f"sleep_sec={delay:.1f}",
     )
     time.sleep(delay)
+
+
+def subchunk_translation_path(work_dir: Path, prefix: str) -> Path:
+    return work_dir / "translations" / "parts" / f"{prefix}.json"
 
 
 def translate_refused_chunk_in_subchunks(
@@ -1715,6 +1911,19 @@ def translate_refused_chunk_in_subchunks(
     for sub_index, subchunk in enumerate(subchunks, start=1):
         prefix = f"chunk_{chunk.index:04d}_part_{sub_index:02d}"
         label = f"번역 {chunk.index}/{chunk_count} 하위 {sub_index}/{len(subchunks)}"
+        part_cache = subchunk_translation_path(work_dir, prefix)
+        if cached_chunk_is_complete(part_cache, subchunk.block_ids, subchunk):
+            payload = json.loads(part_cache.read_text(encoding="utf-8"))
+            combined_translations.update(payload["translations"])
+            conversation_ids.append(str(payload.get("conversation_id") or "cached-subchunk"))
+            beat_heartbeat(
+                heartbeat,
+                stage="translation_subchunk_cached",
+                label=label,
+                section_prefix=prefix,
+                detail=f"blocks={len(subchunk.block_ids)}",
+            )
+            continue
         prompt = build_translation_prompt(
             subchunk,
             len(subchunks),
@@ -1724,30 +1933,73 @@ def translate_refused_chunk_in_subchunks(
             relationship_guide=relationship_guide,
         )
         write_text(work_dir / "prompts" / f"{prefix}_prompt.txt", prompt)
-        conversation_id, response = request_chatgpt_translation(
-            context=context,
-            timeout_error_cls=timeout_error_cls,
-            args=args,
-            prompt=prompt,
-            heartbeat=heartbeat,
-            label=label,
-            prefix=prefix,
-        )
-        write_text(work_dir / "responses" / f"{prefix}_response.txt", response)
-        translations = parse_translation_response(response, subchunk.block_ids)
-        fill_passthrough_translations(translations, subchunk)
-        missing = [block_id for block_id in subchunk.block_ids if not translations.get(block_id)]
-        if missing:
-            raise RuntimeError(f"{prefix} 응답에서 누락되거나 빈 번역 ID: {', '.join(missing[:10])}")
-        validate_chunk_translations(
-            subchunk,
-            translations,
-            allow_non_explicit_compression=chunk_has_minor_context(subchunk),
-        )
+        last_error: Exception | None = None
+        for quality_attempt in range(1, 4):
+            try:
+                conversation_id, response = request_web_translation(
+                    context=context,
+                    timeout_error_cls=timeout_error_cls,
+                    args=args,
+                    prompt=prompt,
+                    heartbeat=heartbeat,
+                    label=label,
+                    prefix=prefix,
+                )
+                write_text(work_dir / "responses" / f"{prefix}_response.txt", response)
+                translations = parse_translation_response(response, subchunk.block_ids)
+                fill_passthrough_translations(translations, subchunk)
+                missing = [block_id for block_id in subchunk.block_ids if not translations.get(block_id)]
+                if missing:
+                    raise RuntimeError(f"{prefix} 응답에서 누락되거나 빈 번역 ID: {', '.join(missing[:10])}")
+                quality = validate_chunk_translations(
+                    subchunk,
+                    translations,
+                    allow_non_explicit_compression=chunk_has_minor_context(subchunk),
+                )
+                write_json(
+                    part_cache,
+                    {
+                        "chunk_index": subchunk.index,
+                        "conversation_id": conversation_id,
+                        "pipeline_version": TRANSLATION_PIPELINE_VERSION,
+                        "parent_chunk_index": chunk.index,
+                        "part_index": sub_index,
+                        "block_ids": subchunk.block_ids,
+                        "quality": quality,
+                        "translations": translations,
+                    },
+                )
+                break
+            except Exception as exc:
+                last_error = exc
+                append_adaptive_error_event(
+                    work_dir,
+                    prefix=prefix,
+                    label=label,
+                    attempt=quality_attempt,
+                    error=exc,
+                    chunk=subchunk,
+                )
+                kind, action = classify_translation_web_error(exc, subchunk)
+                beat_heartbeat(
+                    heartbeat,
+                    stage="translation_subchunk_error",
+                    label=label,
+                    section_prefix=prefix,
+                    attempt=quality_attempt,
+                    detail=f"kind={kind}; action={action}; error={str(exc)[:220]}",
+                )
+                if is_web_provider_pause_error(exc) or quality_attempt >= 3:
+                    raise
+                time.sleep(web_provider_retry_sleep_seconds(exc, quality_attempt))
+        else:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError(f"{prefix} Gemini 하위 번역에 실패했습니다.")
         combined_translations.update(translations)
         conversation_ids.append(conversation_id)
         if sub_index < len(subchunks):
-            pace_chatgpt_requests(
+            pace_web_requests(
                 args,
                 heartbeat,
                 label=label,
@@ -1826,12 +2078,13 @@ def translate_missing_chunks_reusing_conversations(
                 using_minor_safety_prompt = minor_mode
                 fallback_after_attempts: Exception | None = None
                 chunk_completed = False
-                for attempt in range(1, max(1, args.chatgpt_web_max_attempts) + 1):
+                for attempt in range(1, web_max_attempts(args) + 1):
                     try:
                         if not prepared:
-                            prepare_chatgpt_web_page(
+                            prepare_translation_web_page(
                                 page,
                                 timeout_error_cls=timeout_error_cls,
+                                args=args,
                                 heartbeat=heartbeat,
                                 label=label,
                                 section_prefix=prefix,
@@ -1845,7 +2098,7 @@ def translate_missing_chunks_reusing_conversations(
                             section_prefix=prefix,
                             attempt=attempt,
                         )
-                        conversation_id, response = request_chatgpt_translation_on_prepared_page(
+                        conversation_id, response = request_web_translation_on_prepared_page(
                             page=page,
                             timeout_error_cls=timeout_error_cls,
                             args=args,
@@ -1860,9 +2113,9 @@ def translate_missing_chunks_reusing_conversations(
                         fill_passthrough_translations(translations, chunk)
                         missing = [block_id for block_id in chunk.block_ids if not translations.get(block_id)]
                         if missing:
-                            if is_chatgpt_web_refusal_response(response):
+                            if is_translation_web_refusal_response(response, args):
                                 preview = normalized_file_text(response)[:200].replace("\n", " ")
-                                raise RuntimeError(f"ChatGPT 번역 응답이 거절되었습니다: {preview}")
+                                raise RuntimeError(f"{active_web_provider(args).title()} 번역 응답이 거절되었습니다: {preview}")
                             raise RuntimeError(f"{prefix} 응답에서 누락되거나 빈 번역 ID: {', '.join(missing[:10])}")
                         quality = validate_chunk_translations(
                             chunk,
@@ -1881,7 +2134,7 @@ def translate_missing_chunks_reusing_conversations(
                                 "translations": translations,
                             },
                         )
-                        pace_chatgpt_requests(
+                        pace_web_requests(
                             args,
                             heartbeat,
                             label=label,
@@ -1902,7 +2155,7 @@ def translate_missing_chunks_reusing_conversations(
                             error=exc,
                             chunk=chunk,
                         )
-                        error_kind, error_action = classify_chatgpt_translation_error_for_chunk(exc, chunk)
+                        error_kind, error_action = classify_translation_web_error(exc, chunk)
                         beat_heartbeat(
                             heartbeat,
                             stage="translation_attempt_error",
@@ -1911,8 +2164,26 @@ def translate_missing_chunks_reusing_conversations(
                             attempt=attempt,
                             detail=f"kind={error_kind}; action={error_action}; error={str(exc)[:240]}",
                         )
-                        if is_chatgpt_web_service_limit_error(exc):
+                        if is_web_provider_pause_error(exc):
                             raise
+                        if active_web_provider(args) == "gemini" and error_kind in {
+                            "missing_translation_ids",
+                            "translation_quality_failure",
+                        }:
+                            fallback_after_attempts = exc
+                            beat_heartbeat(
+                                heartbeat,
+                                stage="translation_gemini_subchunk_early",
+                                label=label,
+                                section_prefix=prefix,
+                                attempt=attempt,
+                                detail=f"kind={error_kind}; switching to smaller subchunks",
+                            )
+                            close_page_quietly(page)
+                            page = context.new_page()
+                            prepared = False
+                            completed_on_page = 0
+                            break
                         if is_minor_context_refusal_error(exc, chunk) and not using_minor_safety_prompt:
                             prompt = build_translation_prompt(
                                 chunk,
@@ -1969,7 +2240,7 @@ def translate_missing_chunks_reusing_conversations(
                         page = context.new_page()
                         prepared = False
                         completed_on_page = 0
-                        sleep_sec = chatgpt_web_retry_sleep_seconds(exc, attempt)
+                        sleep_sec = web_provider_retry_sleep_seconds(exc, attempt)
                         beat_heartbeat(
                             heartbeat,
                             stage="translation_retry_sleep",
@@ -1982,7 +2253,7 @@ def translate_missing_chunks_reusing_conversations(
                 if chunk_completed:
                     continue
                 if fallback_after_attempts is not None:
-                    fallback_reason, _action = classify_chatgpt_translation_error_for_chunk(fallback_after_attempts, chunk)
+                    fallback_reason, _action = classify_translation_web_error(fallback_after_attempts, chunk)
                     translate_refused_chunk_in_subchunks(
                         context=context,
                         timeout_error_cls=timeout_error_cls,
@@ -2003,7 +2274,7 @@ def translate_missing_chunks_reusing_conversations(
                     continue
                 else:
                     if last_error and should_subchunk_retry_error(last_error):
-                        fallback_reason, _action = classify_chatgpt_translation_error_for_chunk(last_error, chunk)
+                        fallback_reason, _action = classify_translation_web_error(last_error, chunk)
                         translate_refused_chunk_in_subchunks(
                             context=context,
                             timeout_error_cls=timeout_error_cls,
@@ -2024,7 +2295,7 @@ def translate_missing_chunks_reusing_conversations(
                         continue
                     if last_error:
                         raise last_error
-                    raise RuntimeError("ChatGPT 웹 번역에 실패했습니다.")
+                    raise RuntimeError(f"{active_web_provider(args).title()} 웹 번역에 실패했습니다.")
         finally:
             close_page_quietly(page)
 
@@ -2039,14 +2310,21 @@ def translate_missing_chunks(
     chunks: list[TranslationChunk],
     heartbeat: ProgressHeartbeat | None,
 ) -> None:
-    browser_cookie3, sync_playwright, timeout_error_cls = load_chatgpt_web_modules()
-    cookies = load_chatgpt_web_cookies(browser_cookie3)
-    beat_heartbeat(heartbeat, stage="translation_browser_launch", detail="playwright_start")
+    provider = active_web_provider(args)
+    if provider == "gemini":
+        browser_cookie3, sync_playwright, timeout_error_cls = load_gemini_web_modules()
+        cookies = load_gemini_web_cookies(browser_cookie3)
+        chrome_path = args.gemini_web_chrome_path
+    else:
+        browser_cookie3, sync_playwright, timeout_error_cls = load_chatgpt_web_modules()
+        cookies = load_chatgpt_web_cookies(browser_cookie3)
+        chrome_path = args.chatgpt_web_chrome_path
+    beat_heartbeat(heartbeat, stage="translation_browser_launch", detail=f"provider={provider}; playwright_start")
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             headless=False,
-            executable_path=str(Path(args.chatgpt_web_chrome_path).expanduser()),
-            args=chatgpt_web_launch_args(visible=args.chatgpt_web_visible),
+            executable_path=str(Path(chrome_path).expanduser()),
+            args=chatgpt_web_launch_args(visible=args.web_visible),
         )
         context = None
         try:
@@ -2098,7 +2376,7 @@ def translate_missing_chunks(
                 write_text(work_dir / "prompts" / f"{prefix}_prompt.txt", prompt)
                 retry_prompt_name = f"{prefix}_minor_context_retry_prompt.txt" if minor_retry else f"{prefix}_literary_retry_prompt.txt"
                 write_text(work_dir / "prompts" / retry_prompt_name, refusal_retry_prompt)
-                conversation_id, response = request_chatgpt_translation(
+                conversation_id, response = request_web_translation(
                     context=context,
                     timeout_error_cls=timeout_error_cls,
                     args=args,
@@ -2113,13 +2391,13 @@ def translate_missing_chunks(
                 fill_passthrough_translations(translations, chunk)
                 missing = [block_id for block_id in chunk.block_ids if not translations.get(block_id)]
                 if missing:
-                    if is_chatgpt_web_refusal_response(response):
+                    if is_translation_web_refusal_response(response, args):
                         preview = normalized_file_text(response)[:200].replace("\n", " ")
-                        error = RuntimeError(f"ChatGPT 번역 응답이 거절되었습니다: {preview}")
+                        error = RuntimeError(f"{provider.title()} 번역 응답이 거절되었습니다: {preview}")
                     else:
                         error = RuntimeError(f"{prefix} 응답에서 누락되거나 빈 번역 ID: {', '.join(missing[:10])}")
                     if should_subchunk_retry_error(error):
-                        fallback_reason, _action = classify_chatgpt_translation_error_for_chunk(error, chunk)
+                        fallback_reason, _action = classify_translation_web_error(error, chunk)
                         translate_refused_chunk_in_subchunks(
                             context=context,
                             timeout_error_cls=timeout_error_cls,
@@ -2174,7 +2452,7 @@ def translate_missing_chunks(
                         "translations": translations,
                     },
                 )
-                pace_chatgpt_requests(
+                pace_web_requests(
                     args,
                     heartbeat,
                     label=f"번역 {chunk.index}/{len(chunks)}",
@@ -2187,22 +2465,28 @@ def translate_missing_chunks(
             browser.close()
 
 
+def strip_source_watermarks(text: str) -> str:
+    scrubbed, _count = scrub_text(text)
+    return clean_text(scrubbed)
+
+
 def xhtml_for_section(section: SourceSection, translations: dict[str, str]) -> str:
-    title = html.escape(translate_title(section.title))
+    title = html.escape(strip_source_watermarks(translate_title(section.title)))
     rows: list[str] = []
     for block in section.blocks:
-        korean = translations.get(block.id, "")
+        english = strip_source_watermarks(block.text)
+        korean = strip_source_watermarks(translations.get(block.id, ""))
         if not korean:
-            korean = "[번역 누락] " + block.text
-        if len(block.text) <= 80 and block.text.upper() == block.text and re.search(r"[A-Z]", block.text):
+            korean = "" if not english else "[번역 누락] " + english
+        if len(english) <= 80 and english.upper() == english and re.search(r"[A-Z]", english):
             rows.append(
                 f'    <h2><span class="ko" xml:lang="ko">{html.escape(korean)}</span> '
-                f'<span class="en" xml:lang="en">({html.escape(block.text)})</span></h2>'
+                f'<span class="en" xml:lang="en">({html.escape(english)})</span></h2>'
             )
         else:
             rows.append(
                 f'    <p class="pair"><span class="ko" xml:lang="ko">{html.escape(korean)}</span><br />'
-                f'<span class="en" xml:lang="en">{html.escape(block.text)}</span></p>'
+                f'<span class="en" xml:lang="en">{html.escape(english)}</span></p>'
             )
     body = "\n".join(rows)
     return f'''<?xml version="1.0" encoding="utf-8"?>
@@ -2293,7 +2577,8 @@ def cover_xhtml(book_title: str, cover: CoverAsset) -> str:
 
 def nav_xhtml(sections: list[SourceSection]) -> str:
     items = "\n".join(
-        f'      <li><a href="{html.escape(section.filename)}">{html.escape(translate_title(section.title))}</a></li>'
+        f'      <li><a href="{html.escape(section.filename)}">'
+        f'{html.escape(strip_source_watermarks(translate_title(section.title)))}</a></li>'
         for section in sections
     )
     return f'''<?xml version="1.0" encoding="utf-8"?>
@@ -2333,7 +2618,7 @@ def ncx(book_title: str, creator: str, uid: str, sections: list[SourceSection]) 
   </navPoint>''']
     for index, section in enumerate(sections, start=1):
         points.append(f'''  <navPoint id="navpoint-{index:03d}" playOrder="{index + 2}">
-    <navLabel><text>{html.escape(translate_title(section.title))}</text></navLabel>
+    <navLabel><text>{html.escape(strip_source_watermarks(translate_title(section.title)))}</text></navLabel>
     <content src="{html.escape(section.filename)}"/>
   </navPoint>''')
     return f'''<?xml version="1.0" encoding="utf-8"?>
@@ -2416,6 +2701,8 @@ def build_epub(
     translations: dict[str, str],
     input_epub: Path,
 ) -> None:
+    ko_book_title = strip_source_watermarks(ko_book_title)
+    creator = strip_source_watermarks(creator)
     uid = str(uuid.uuid5(uuid.NAMESPACE_URL, input_epub.as_posix() + "::chatgpt-web-ko-study-epub"))
     modified = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     cover = extract_cover_asset(input_epub, ko_book_title, creator)
@@ -2430,19 +2717,22 @@ def build_epub(
     for section in sections:
         files[f"OEBPS/{section.filename}"] = xhtml_for_section(section, translations)
     output_epub.parent.mkdir(parents=True, exist_ok=True)
-    temp_epub = output_epub.with_name(f".{output_epub.name}.{os.getpid()}.tmp")
-    try:
+    with atomic_output_path(output_epub) as temp_epub:
         with zipfile.ZipFile(temp_epub, "w") as archive:
             archive.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
             archive.writestr(f"OEBPS/{cover.href}", cover.data, compress_type=zipfile.ZIP_DEFLATED)
             for name, content in files.items():
                 archive.writestr(name, content.encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
-        with zipfile.ZipFile(temp_epub) as archive:
-            if archive.testzip() is not None or archive.namelist()[:1] != ["mimetype"]:
-                raise RuntimeError("임시 EPUB 무결성 검증에 실패했습니다.")
-        os.replace(temp_epub, output_epub)
-    finally:
-        temp_epub.unlink(missing_ok=True)
+        integrity = validate_epub(
+            temp_epub,
+            require_nav=True,
+            require_ncx=True,
+            require_cover=True,
+        )
+        if not integrity.valid:
+            raise RuntimeError(
+                "임시 EPUB 무결성 검증에 실패했습니다: " + "; ".join(integrity.issues[:8])
+            )
 
 
 def acquire_translation_lock(work_dir: Path):
@@ -2467,6 +2757,8 @@ def main() -> int:
     work_dir = resolve_work_dir(args)
     work_dir.mkdir(parents=True, exist_ok=True)
     translation_lock = acquire_translation_lock(work_dir)
+    args.web_provider = resolve_web_provider(args, work_dir)
+    persist_web_provider(work_dir, args.web_provider)
     heartbeat = ProgressHeartbeat(args.heartbeat_file) if args.heartbeat_file else None
 
     book_title, creator, sections = extract_sections(input_epub)
@@ -2490,6 +2782,8 @@ def main() -> int:
             "max_chars_per_chunk": args.max_chars_per_chunk,
             "translation_pipeline_version": TRANSLATION_PIPELINE_VERSION,
             "relationship_guide_version": RELATIONSHIP_GUIDE_VERSION,
+            "error_taxonomy_version": ERROR_TAXONOMY_VERSION,
+            "web_provider": args.web_provider,
         },
     )
     write_json(
@@ -2534,6 +2828,9 @@ def main() -> int:
         translations=translations,
         input_epub=input_epub,
     )
+    cleanup = scrub_epub(output_epub)
+    if str(cleanup.get("status") or "").startswith("error:"):
+        raise RuntimeError(f"생성 EPUB 워터마크 삭제 검증에 실패했습니다: {cleanup['status']}")
     tone_review_result: dict[str, str] | None = None
     dialogue_pass2_result: dict[str, str] | None = None
     if not args.skip_final_tone_review:

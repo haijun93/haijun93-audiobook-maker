@@ -21,6 +21,7 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 from remove_readrobe_text_from_epubs import scrub_epub
+from safe_xml import safe_fromstring
 
 
 SOURCE_DIR = Path("/Users/hyeokjunkong/Desktop/소설2")
@@ -653,13 +654,13 @@ def category_from_relative(relative: Path) -> str:
 def read_epub_metadata(path: Path) -> tuple[str, str, list[str]]:
     try:
         with zipfile.ZipFile(path) as archive:
-            container = ET.fromstring(archive.read("META-INF/container.xml"))
+            container = safe_fromstring(archive.read("META-INF/container.xml"))
             ns = {"c": "urn:oasis:names:tc:opendocument:xmlns:container"}
             rootfile = container.find(".//c:rootfile", ns)
             if rootfile is None:
                 return "", "", []
             opf_path = rootfile.attrib.get("full-path", "")
-            root = ET.fromstring(archive.read(opf_path))
+            root = safe_fromstring(archive.read(opf_path))
     except Exception:
         return "", "", []
     title = first_text(root, "{http://purl.org/dc/elements/1.1/}title")

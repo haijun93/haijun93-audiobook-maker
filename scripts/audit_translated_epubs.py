@@ -9,7 +9,8 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote
-from xml.etree import ElementTree as ET
+
+from safe_xml import safe_fromstring
 
 
 EPUB_FOLDER = Path("/Users/hyeokjunkong/Desktop/소설/#[k-e]")
@@ -186,7 +187,7 @@ def audit_epub(path: Path, kind: str) -> EpubAudit:
             for name, text in texts.items():
                 if name.lower().endswith((".xhtml", ".html", ".htm", ".opf", ".ncx")):
                     try:
-                        ET.fromstring(text.encode("utf-8"))
+                        safe_fromstring(text.encode("utf-8"))
                     except Exception as exc:
                         xml_parse_errors.append(f"{name}: {exc}")
             audit.xml_ok = not xml_parse_errors

@@ -16,12 +16,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin
-from xml.etree import ElementTree as ET
 
 import fitz
 from bs4 import BeautifulSoup, Tag
 
 from build_ted_sentence_inline_study_epub import split_english_sentences
+from safe_xml import safe_fromstring
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -413,7 +413,7 @@ def translate_session(session: Session, args: argparse.Namespace, cache_dir: Pat
 
 def safe_slug(text: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return slug[:80] or hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+    return slug[:80] or hashlib.sha1(text.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
 
 
 def esc(text: str) -> str:
@@ -659,7 +659,7 @@ def validate_epub(path: Path, expected_sessions: int) -> dict[str, int | bool]:
         if len(session_files) != expected_sessions:
             raise RuntimeError(f"Expected {expected_sessions} session pages, found {len(session_files)}")
         for name in ["OEBPS/content.opf", "OEBPS/nav.xhtml", "OEBPS/toc.ncx", "OEBPS/intro.xhtml", *session_files]:
-            ET.fromstring(epub.read(name))
+            safe_fromstring(epub.read(name))
         joined = "\n".join(epub.read(name).decode("utf-8") for name in session_files)
         inline_pattern = re.compile(
             r'<p class="sentence"><span class="en">.+?</span>\s+<span class="ko">\(.+?\)</span></p>'

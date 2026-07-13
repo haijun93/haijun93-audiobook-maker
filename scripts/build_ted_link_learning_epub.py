@@ -8,7 +8,8 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from xml.etree import ElementTree as ET
+
+from safe_xml import safe_fromstring
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -871,7 +872,7 @@ def validate_epub(path: Path) -> None:
             raise RuntimeError("mimetype is not first")
         for name in names:
             if name.lower().endswith((".xhtml", ".opf", ".ncx")):
-                ET.fromstring(zf.read(name))
+                safe_fromstring(zf.read(name))
 
 
 def main() -> int:

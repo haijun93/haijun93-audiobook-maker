@@ -11,12 +11,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import urlopen
-from xml.etree import ElementTree as ET
 
 from bs4 import BeautifulSoup, Tag
 
 from build_ted_sentence_inline_study_epub import split_english_sentences
 from build_ted_transcript_study_epub import Segment, Talk, translate_talk
+from safe_xml import safe_fromstring
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -373,7 +373,7 @@ def validate_epub(path: Path, expected_chapters: int) -> dict[str, int | bool]:
         if len(chapters) != expected_chapters:
             raise RuntimeError(f"Expected {expected_chapters} chapters, found {len(chapters)}")
         for name in ["OEBPS/content.opf", "OEBPS/nav.xhtml", "OEBPS/toc.ncx", "OEBPS/intro.xhtml", *chapters]:
-            ET.fromstring(epub.read(name))
+            safe_fromstring(epub.read(name))
         joined = "\n".join(epub.read(name).decode("utf-8") for name in chapters)
         inline_pattern = re.compile(
             r'<p class="sentence"><span class="en">.+?</span>\s+<span class="ko">\(.+?\)</span></p>'

@@ -15,7 +15,8 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from xml.etree import ElementTree as ET
+
+from safe_xml import safe_fromstring
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,7 +71,7 @@ class Talk:
     @property
     def slug(self) -> str:
         base = re.sub(r"[^a-z0-9]+", "-", self.title.lower()).strip("-")
-        return base or hashlib.sha1(self.title.encode()).hexdigest()[:12]
+        return base or hashlib.sha1(self.title.encode(), usedforsecurity=False).hexdigest()[:12]
 
     @property
     def url(self) -> str:
@@ -680,9 +681,9 @@ def validate_epub(path: Path, expected_chapters: int) -> None:
         if chapter_count != expected_chapters:
             raise RuntimeError(f"Expected {expected_chapters} chapters, found {chapter_count}")
         for name in ["OEBPS/content.opf", "OEBPS/nav.xhtml", "OEBPS/toc.ncx", "OEBPS/intro.xhtml"]:
-            ET.fromstring(epub.read(name))
+            safe_fromstring(epub.read(name))
         for index in range(1, expected_chapters + 1):
-            ET.fromstring(epub.read(f"OEBPS/chapter-{index:02d}.xhtml"))
+            safe_fromstring(epub.read(f"OEBPS/chapter-{index:02d}.xhtml"))
 
 
 def main() -> None:

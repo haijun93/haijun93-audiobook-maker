@@ -1078,7 +1078,7 @@ def build_document(
     hdr[0].text = "법률"
     hdr[1].text = "2024"
     hdr[2].text = "2025"
-    for (law, c2024), (_, c2025) in zip(LABOR1_COUNTS_2024, LABOR1_COUNTS_2025):
+    for (law, c2024), (_, c2025) in zip(LABOR1_COUNTS_2024, LABOR1_COUNTS_2025, strict=True):
         row = labor1.add_row().cells
         row[0].text = law
         row[1].text = str(c2024)
@@ -1094,7 +1094,7 @@ def build_document(
     hdr[0].text = "법률"
     hdr[1].text = "2024"
     hdr[2].text = "2025"
-    for (law, c2024), (_, c2025) in zip(LABOR2_COUNTS_2024, LABOR2_COUNTS_2025):
+    for (law, c2024), (_, c2025) in zip(LABOR2_COUNTS_2024, LABOR2_COUNTS_2025, strict=True):
         row = labor2.add_row().cells
         row[0].text = law
         row[1].text = str(c2024)

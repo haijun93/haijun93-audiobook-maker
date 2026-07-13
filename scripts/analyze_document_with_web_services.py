@@ -467,8 +467,8 @@ def prepare_claude_web_page(
     page.goto(CLAUDE_WEB_URL, wait_until="domcontentloaded")
     if any(token in page.url for token in ("login", "auth", "signin")):
         raise RuntimeError("Claude 웹 로그인 페이지로 이동했습니다. Claude 세션을 확인하세요.")
-    deadline = time.time() + 30
-    while time.time() < deadline:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
         locator = _first_visible_locator(page, CLAUDE_WEB_PROMPT_SELECTORS)
         if locator is not None:
             return
@@ -573,11 +573,11 @@ def wait_for_claude_web_response(
     section_prefix: str | None = None,
     attempt: int | None = None,
 ) -> str:
-    deadline = time.time() + max(10, timeout_sec)
+    deadline = time.monotonic() + max(10, timeout_sec)
     last_text = ""
     stable_polls = 0
     baseline_text = normalized_file_text(previous_response_text)
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         response_count = 0
         for selector in CLAUDE_WEB_RESPONSE_SELECTORS:
             try:

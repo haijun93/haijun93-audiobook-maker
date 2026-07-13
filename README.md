@@ -13,7 +13,11 @@
 
 ## 설치
 
+Python 3.11 이상을 지원합니다. 격리된 가상환경 사용을 권장합니다.
+
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python3 -m pip install -r requirements.txt
 ```
 
@@ -233,11 +237,18 @@ ANALYSIS_MODE=deep \
 ## 테스트
 
 ```bash
-python3 -m unittest discover -s tests -p 'test_*.py'
+python3 -m pip install -r requirements-dev.txt
+python3 scripts/quality_gate.py
 ```
 
-`pytest`가 설치돼 있다면 아래 명령도 동작합니다.
+품질 게이트는 의존성 충돌, 정적 오류, Python 컴파일, 모든 zsh wrapper의 구문, 전체 테스트, Git 공백 오류를 순서대로 검사합니다. GitHub Actions에서도 Python 3.11과 3.13으로 같은 검사를 실행합니다.
+
+빠르게 테스트만 다시 실행하려면 아래 명령을 사용합니다.
 
 ```bash
-pytest -q
+python3 -m pytest -q
 ```
+
+EPUB 생성·수정 작업은 같은 폴더의 임시 파일에 먼저 기록하고 구조 검사를 통과한 뒤 원자적으로 교체합니다. 중단이나 디스크 쓰기 오류가 발생하면 기존의 정상 EPUB은 유지됩니다.
+
+웹 자동화는 로그인 상태, 서비스 UI, 사용량 한도, 네트워크와 같은 외부 조건의 영향을 받습니다. 오류 유형별 재시도와 장기 대기, 작업 캐시 재개를 지원하지만 계정 차단이나 서비스 변경 자체를 로컬 코드만으로 제거할 수는 없습니다.

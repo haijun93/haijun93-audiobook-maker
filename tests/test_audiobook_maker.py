@@ -398,6 +398,47 @@ class VoiceSelectionTests(unittest.TestCase):
         self.assertEqual(audiobook_maker.resolve_voice(args), "Sulafat")
 
 
+class GeminiWebNoticeTests(unittest.TestCase):
+    def test_classifies_gemini_usage_limit(self) -> None:
+        notice = audiobook_maker.classify_gemini_web_notice_text(
+            "You've reached your limit on Gemini Pro. Come back at 11:00 PM."
+        )
+
+        self.assertIsNotNone(notice)
+        self.assertEqual(notice.kind, "usage_limit")
+        self.assertEqual(notice.action, "wait_for_limit_refresh")
+
+    def test_classifies_gemini_temporary_service_error(self) -> None:
+        notice = audiobook_maker.classify_gemini_web_notice_text(
+            "Something went wrong. Please try again later."
+        )
+
+        self.assertIsNotNone(notice)
+        self.assertEqual(notice.kind, "temporary_service_error")
+
+    def test_classifies_gemini_session_and_prompt_errors(self) -> None:
+        session = audiobook_maker.classify_gemini_web_notice_text(
+            "Your session has expired. Please sign in again."
+        )
+        prompt = audiobook_maker.classify_gemini_web_notice_text(
+            "Your prompt is too long. Please try a shorter message."
+        )
+
+        self.assertEqual(session.kind, "session_expired")
+        self.assertEqual(prompt.kind, "prompt_too_long")
+
+    def test_classifies_gemini_account_and_region_errors(self) -> None:
+        account = audiobook_maker.classify_gemini_web_notice_text(
+            "Gemini isn't available for this account."
+        )
+        region = audiobook_maker.classify_gemini_web_notice_text(
+            "Gemini isn't currently supported in your country."
+        )
+
+        self.assertEqual(account.kind, "account_unavailable")
+        self.assertEqual(region.kind, "region_unavailable")
+
+
 class GeminiApiTtsModelTests(unittest.TestCase):
     def test_normalize_gemini_api_tts_model_defaults_to_flash_preview(self) -> None:
         self.assertEqual(

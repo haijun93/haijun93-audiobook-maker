@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -14,9 +15,12 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from xml.etree import ElementTree as ET
 
+from atomic_io import atomic_write_json
+from epub_integrity import validate_epub
 from make_korean_only_epubs import convert_epub, output_name
+from remove_readrobe_text_from_epubs import scrub_epub
+from safe_xml import safe_fromstring
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +65,7 @@ PRIORITY_STEMS = {
     "harry_lorayne_the_memory_book": -49,
     "The_Rituals_-_Shantel_Tessier": -48,
     "Dominic_O_39_Brien_How_to_Develop_a_Brilliant_Memo": -47,
+    "memory-craft-improve-your-memory-using-the-most-powerful-methods-from-around-the-world": -46,
     "[s] Make_It_Stick_-_Peter_C_Brown_Henry_L_Roediger_III": -30,
     "[s] Moonwalking_With_Einstein__The_Art_and_Sci_-_Joshua_Foer": -29,
     "The_Inmate_-_Freida_McFadden": -10,
@@ -73,8 +78,11 @@ EXCLUDE_NAME_TOKEN_GROUPS = (
     ("for", "love", "country"),
 )
 
-CHATGPT_HARD_SERVICE_LIMIT_MARKERS = (
-    "service_limit=hard",
+WEB_ACCOUNT_PAUSE_MARKERS = (
+    "error_kind=account_unavailable",
+    "error_kind=region_unavailable",
+    "kind=account_unavailable",
+    "kind=region_unavailable",
     "unusual activity",
     "suspicious activity",
     "account has been restricted",
@@ -84,36 +92,44 @@ CHATGPT_HARD_SERVICE_LIMIT_MARKERS = (
     "계정이 제한",
 )
 
-CHATGPT_SOFT_SERVICE_LIMIT_MARKERS = (
-    "service_limit=soft",
-    "too many requests",
-    "rate limit",
-    "usage limit",
-    "message limit",
-    "request limit",
-    "limit exceeded",
-    "limit reached",
+GEMINI_USAGE_LIMIT_MARKERS = (
+    "error_kind=usage_limit",
+    "kind=usage_limit",
     "you've reached your limit",
     "you’ve reached your limit",
-    "temporarily limited",
-    "temporarily unavailable",
-    "try again later",
-    "한도초과",
-    "한도 초과",
-    "사용량 한도",
-    "메시지 한도",
-    "요청 한도",
+    "usage limit",
+    "model limit",
+    "사용 한도",
+    "모델 한도",
     "한도에 도달",
-    "일시적으로 제한",
-    "잠시 후 다시",
-    "나중에 다시",
-    "요청이 너무 빠릅니다",
 )
 
-CHATGPT_CONTENT_RETRY_MARKERS = (
+GEMINI_RATE_LIMIT_MARKERS = (
+    "error_kind=rate_limit",
+    "kind=rate_limit",
+    "too many requests",
+    "rate limit",
+    "요청 빈도 제한",
+    "너무 많은 요청",
+)
+
+WEB_TRANSIENT_RETRY_MARKERS = (
+    "error_kind=temporary_service_error",
+    "error_kind=network_error",
+    "kind=temporary_service_error",
+    "kind=network_error",
+    "something went wrong",
+    "문제가 발생했습니다",
+    "인터넷 연결을 확인",
+    "응답 본문이 60초 동안 시작되지 않아",
+    "timeout_or_empty_response",
+)
+
+WEB_ADAPTIVE_RETRY_MARKERS = (
+    "error_kind=prompt_too_long",
+    "kind=prompt_too_long",
     "content can't be shown for safety reasons",
     "content can’t be shown for safety reasons",
-    "model spec",
     "번역 응답이 거절",
     "content_refusal",
     "minor_context_refusal",
@@ -162,6 +178,49 @@ class ProcessedOutput:
     match_key: str
 
 
+class BatchInterrupted(KeyboardInterrupt):
+    """Raised after SIGTERM/SIGHUP so active child work can be cleaned up."""
+
+    def __init__(self, signum: int):
+        self.signum = signum
+        super().__init__(f"batch interrupted by signal {signum}")
+
+
+def install_signal_handlers() -> None:
+    """Turn process-termination signals into a cleanup-aware interruption."""
+
+    def handle_signal(signum: int, _frame: object) -> None:
+        raise BatchInterrupted(signum)
+
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGHUP, handle_signal)
+
+
+def terminate_process_group(process: subprocess.Popen[object], grace_seconds: float = 10.0) -> None:
+    """Stop an active translation and every browser helper it started."""
+
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except OSError:
+        process.terminate()
+    try:
+        process.wait(timeout=max(0.0, grace_seconds))
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except OSError:
+        process.kill()
+    process.wait()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Translate /소설2 top-level English EPUBs into [k-e] and [k] EPUBs.")
     parser.add_argument("--only", nargs="*", default=[], help="Run only files whose name contains one of these strings.")
@@ -173,12 +232,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunks-per-conversation", type=int, default=10)
     parser.add_argument("--inter-request-delay-sec", type=float, default=4.0)
     parser.add_argument("--request-timeout-sec", type=int, default=1200)
-    parser.add_argument("--chatgpt-web-max-attempts", type=int, default=5)
-    parser.add_argument("--chatgpt-web-visible", action="store_true")
+    parser.add_argument(
+        "--web-provider",
+        choices=("chatgpt", "gemini"),
+        default="gemini",
+        help="Translation web provider (default: gemini; chatgpt is legacy opt-in only).",
+    )
+    parser.add_argument("--web-max-attempts", "--chatgpt-web-max-attempts", dest="web_max_attempts", type=int, default=5)
+    parser.add_argument("--web-visible", "--chatgpt-web-visible", dest="web_visible", action="store_true")
     parser.add_argument(
         "--skip-idle-tone-maintenance",
         action="store_true",
-        help="ChatGPT 웹 한도 쿨다운 중 완료 EPUB 통합 검수/보정을 건너뜁니다.",
+        help="웹 번역 서비스 재시도 대기 중 완료 EPUB 통합 검수/보정을 건너뜁니다.",
     )
     parser.add_argument(
         "--idle-tone-maintenance-max-files",
@@ -217,7 +282,7 @@ def read_epub_metadata_title_author(path: Path) -> tuple[str, str]:
             opf_name = next((name for name in archive.namelist() if name.lower().endswith(".opf")), None)
             if not opf_name:
                 return "", ""
-            root = ET.fromstring(archive.read(opf_name))
+            root = safe_fromstring(archive.read(opf_name))
     except Exception:
         return "", ""
     ns = {
@@ -413,16 +478,6 @@ def log(message: str) -> None:
         fh.write(line + "\n")
 
 
-def atomic_write_json(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        os.replace(temp_path, path)
-    finally:
-        temp_path.unlink(missing_ok=True)
-
-
 def acquire_batch_lock():
     lock_path = LOG_DIR / "soseol2_k_e_batch.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -437,20 +492,32 @@ def acquire_batch_lock():
     return lock_handle
 
 
-def service_limit_retry_cooldown(args: argparse.Namespace, attempt: int, text: str) -> int:
+def translation_retry_cooldown(args: argparse.Namespace, attempt: int, text: str) -> int:
     lowered = text.lower()
-    if any(marker in lowered for marker in CHATGPT_HARD_SERVICE_LIMIT_MARKERS):
-        return max(args.cooldown_seconds, min(21600, 1800 * max(1, min(attempt, 4))))
-    if any(marker in lowered for marker in CHATGPT_SOFT_SERVICE_LIMIT_MARKERS):
-        return max(args.cooldown_seconds, min(10800, 900 * max(1, min(attempt, 4))))
-    if any(marker in lowered for marker in CHATGPT_CONTENT_RETRY_MARKERS):
-        return min(args.cooldown_seconds, 120)
-    return args.cooldown_seconds
+    if any(marker in lowered for marker in WEB_ACCOUNT_PAUSE_MARKERS):
+        return min(21600, 3600 * max(1, min(attempt, 6)))
+    if any(marker in lowered for marker in GEMINI_USAGE_LIMIT_MARKERS):
+        return max(args.cooldown_seconds, min(18000, 1800 * max(1, min(attempt, 10))))
+    if any(marker in lowered for marker in GEMINI_RATE_LIMIT_MARKERS):
+        return min(1800, 300 * max(1, min(attempt, 6)))
+    if "error_kind=session_expired" in lowered or "kind=session_expired" in lowered:
+        return min(3600, 600 * max(1, min(attempt, 6)))
+    if any(marker in lowered for marker in WEB_TRANSIENT_RETRY_MARKERS):
+        return min(120, 15 * (2 ** max(0, min(attempt - 1, 3))))
+    if any(marker in lowered for marker in WEB_ADAPTIVE_RETRY_MARKERS):
+        return 5
+    return 120
 
 
-def is_service_limit_retry_text(text: str) -> bool:
+def should_use_retry_idle_time(text: str) -> bool:
     lowered = text.lower()
-    return any(marker in lowered for marker in CHATGPT_HARD_SERVICE_LIMIT_MARKERS + CHATGPT_SOFT_SERVICE_LIMIT_MARKERS)
+    return any(
+        marker in lowered
+        for marker in WEB_ACCOUNT_PAUSE_MARKERS
+        + GEMINI_USAGE_LIMIT_MARKERS
+        + GEMINI_RATE_LIMIT_MARKERS
+        + WEB_TRANSIENT_RETRY_MARKERS
+    )
 
 
 def run_idle_tone_maintenance(args: argparse.Namespace, cooldown: int, detail: str) -> float:
@@ -513,6 +580,9 @@ def count_class(text: str, class_name: str) -> int:
 def verify_ke(path: Path) -> tuple[bool, str]:
     if not path.exists():
         return False, "missing output"
+    integrity = validate_epub(path, require_nav=True, require_ncx=True, require_cover=True)
+    if not integrity.valid:
+        return False, "integrity failed: " + "; ".join(integrity.issues[:5])
     try:
         with zipfile.ZipFile(path) as archive:
             names = archive.namelist()
@@ -521,7 +591,7 @@ def verify_ke(path: Path) -> tuple[bool, str]:
             texts = text_files(archive)
             for name, text in texts.items():
                 if name.lower().endswith((".xhtml", ".html", ".htm", ".opf", ".ncx")):
-                    ET.fromstring(text.encode("utf-8"))
+                    safe_fromstring(text.encode("utf-8"))
             nav_items = sum(text.count("<li") for name, text in texts.items() if name.lower().endswith("nav.xhtml"))
             ncx_points = sum(text.count("<navPoint") for name, text in texts.items() if name.lower().endswith(".ncx"))
             missing_markers = sum(text.count("[번역 누락]") for text in texts.values())
@@ -544,6 +614,9 @@ def verify_ke(path: Path) -> tuple[bool, str]:
 def verify_k(path: Path) -> tuple[bool, str]:
     if not path.exists():
         return False, "missing output"
+    integrity = validate_epub(path, require_nav=True, require_ncx=True, require_cover=True)
+    if not integrity.valid:
+        return False, "integrity failed: " + "; ".join(integrity.issues[:5])
     try:
         with zipfile.ZipFile(path) as archive:
             names = archive.namelist()
@@ -552,7 +625,7 @@ def verify_k(path: Path) -> tuple[bool, str]:
             texts = text_files(archive)
             for name, text in texts.items():
                 if name.lower().endswith((".xhtml", ".html", ".htm", ".opf", ".ncx")):
-                    ET.fromstring(text.encode("utf-8"))
+                    safe_fromstring(text.encode("utf-8"))
             nav_items = sum(text.count("<li") for name, text in texts.items() if name.lower().endswith("nav.xhtml"))
             ncx_points = sum(text.count("<navPoint") for name, text in texts.items() if name.lower().endswith(".ncx"))
             missing_markers = sum(text.count("[번역 누락]") for text in texts.values())
@@ -587,8 +660,8 @@ def run_translation(job: Job, args: argparse.Namespace, attempt: int) -> int:
         str(args.max_chars_per_chunk),
         "--request-timeout-sec",
         str(args.request_timeout_sec),
-        "--chatgpt-web-max-attempts",
-        str(args.chatgpt_web_max_attempts),
+        "--web-max-attempts",
+        str(args.web_max_attempts),
         "--chunks-per-conversation",
         str(args.chunks_per_conversation),
         "--inter-request-delay-sec",
@@ -596,16 +669,29 @@ def run_translation(job: Job, args: argparse.Namespace, attempt: int) -> int:
         "--heartbeat-file",
         str(heartbeat),
     ]
-    if args.chatgpt_web_visible:
-        cmd.append("--chatgpt-web-visible")
-    log(f"START {job.source.name} -> {job.output_ke.name} attempt={attempt}")
+    if args.web_provider:
+        cmd.extend(["--web-provider", args.web_provider])
+    if args.web_visible:
+        cmd.append("--web-visible")
+    provider_label = args.web_provider or "auto"
+    log(f"START {job.source.name} -> {job.output_ke.name} attempt={attempt} provider={provider_label}")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as fh:
         fh.write("\n\n" + "=" * 80 + "\n")
         fh.write(f"{datetime.now().isoformat(timespec='seconds')} {' '.join(cmd)}\n")
         fh.flush()
-        proc = subprocess.run(cmd, cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT)
-    return proc.returncode
+        process = subprocess.Popen(
+            cmd,
+            cwd=ROOT,
+            stdout=fh,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        try:
+            return process.wait()
+        except BaseException:
+            terminate_process_group(process)
+            raise
 
 
 def run_final_tone_review(job: Job, epub_path: Path, kind: str) -> None:
@@ -651,6 +737,19 @@ def run_final_tone_review(job: Job, epub_path: Path, kind: str) -> None:
     except Exception:
         report = output
     log(f"TONE_REVIEW done {kind} {epub_path.name}: status={status or 'unknown'} report={report}")
+
+
+def scrub_generated_epub(epub_path: Path, kind: str) -> None:
+    result = scrub_epub(epub_path)
+    status = str(result.get("status") or "")
+    if status.startswith("error:"):
+        raise RuntimeError(f"WATERMARK_CLEANUP failed {kind} {epub_path.name}: {status}")
+    replacements = int(result.get("replacements") or 0)
+    if replacements:
+        log(
+            f"WATERMARK_CLEANUP done {kind} {epub_path.name}: "
+            f"replacements={replacements} files={result.get('files_changed')}"
+        )
 
 
 def run_final_dialogue_review_pass2(job: Job, epub_path: Path, kind: str) -> None:
@@ -887,6 +986,7 @@ def prune_already_completed_sources(jobs: list[Job], args: argparse.Namespace) -
 
 def main() -> int:
     args = parse_args()
+    install_signal_handlers()
     KE_DIR.mkdir(parents=True, exist_ok=True)
     K_DIR.mkdir(parents=True, exist_ok=True)
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
@@ -943,6 +1043,7 @@ def main() -> int:
             job_blocked = False
             if ok and not args.force:
                 log(f"SKIP [k-e] verified {job.output_ke.name}: {reason}")
+                scrub_generated_epub(job.output_ke, "k-e")
                 run_final_tone_review(job, job.output_ke, "k-e")
                 run_final_dialogue_review_pass2(job, job.output_ke, "k-e")
                 quality_ok, quality_data = run_final_quality_audit(job, job.output_ke, "k-e")
@@ -957,6 +1058,7 @@ def main() -> int:
                     ok, reason = verify_ke(job.output_ke)
                     if ok:
                         log(f"DONE [k-e] {job.output_ke.name}: {reason}")
+                        scrub_generated_epub(job.output_ke, "k-e")
                         run_final_tone_review(job, job.output_ke, "k-e")
                         run_final_dialogue_review_pass2(job, job.output_ke, "k-e")
                         quality_ok, quality_data = run_final_quality_audit(job, job.output_ke, "k-e")
@@ -974,7 +1076,7 @@ def main() -> int:
                         except Exception as exc:
                             heartbeat_summary = f" heartbeat_read_error={exc}"
                     retry_detail = f"{reason} {heartbeat_summary}"
-                    cooldown = service_limit_retry_cooldown(
+                    cooldown = translation_retry_cooldown(
                         args,
                         attempts[job.source.name],
                         retry_detail,
@@ -984,7 +1086,7 @@ def main() -> int:
                         f"{heartbeat_summary}; cooldown={cooldown}s"
                     )
                     elapsed = 0.0
-                    if is_service_limit_retry_text(retry_detail):
+                    if should_use_retry_idle_time(retry_detail):
                         elapsed = run_idle_tone_maintenance(args, cooldown, retry_detail)
                     remaining_sleep = max(0.0, cooldown - elapsed)
                     if remaining_sleep:
@@ -994,6 +1096,7 @@ def main() -> int:
                 continue
             if not args.no_korean_only:
                 ensure_korean_only(job, overwrite=args.force or rebuilt_ke)
+                scrub_generated_epub(job.output_k, "k")
                 run_final_tone_review(job, job.output_k, "k")
                 run_final_dialogue_review_pass2(job, job.output_k, "k")
                 quality_ok, quality_data = run_final_quality_audit(job, job.output_k, "k")
@@ -1017,4 +1120,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except BatchInterrupted as exc:
+        log(f"STOP batch interrupted by signal {exc.signum}; active translation was cleaned up.")
+        raise SystemExit(128 + exc.signum) from None
+    except KeyboardInterrupt:
+        log("STOP batch interrupted by keyboard; active translation was cleaned up.")
+        raise SystemExit(130) from None

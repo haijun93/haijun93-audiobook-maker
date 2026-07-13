@@ -107,8 +107,8 @@ def kill_tree(root_pid: int, grace_sec: int) -> None:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             pass
-    deadline = time.time() + grace_sec
-    while time.time() < deadline:
+    deadline = time.monotonic() + grace_sec
+    while time.monotonic() < deadline:
         if not any(is_pid_alive(pid) for pid in pids):
             return
         time.sleep(1)

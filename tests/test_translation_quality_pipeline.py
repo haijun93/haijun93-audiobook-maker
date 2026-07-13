@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,9 +13,14 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from translation_quality_checks import assess_translations, extract_segment_sources  # noqa: E402
+from translation_quality_checks import (  # noqa: E402
+    assess_translations,
+    count_refusal_markers,
+    extract_segment_sources,
+)
 from final_epub_quality_audit import assess_epub_pairs  # noqa: E402
 import translate_epub_with_chatgpt_web_to_study_epub as translator  # noqa: E402
+import run_soseol2_chatgpt_k_e_batch as batch  # noqa: E402
 from translate_epub_with_chatgpt_web_to_study_epub import (  # noqa: E402
     SourceBlock,
     build_chunks,
@@ -21,7 +28,10 @@ from translate_epub_with_chatgpt_web_to_study_epub import (  # noqa: E402
     chunk_has_minor_context,
     load_translation_cache,
     parse_translation_response,
+    resolve_web_provider,
     select_relationship_guide_sample,
+    strip_source_watermarks,
+    translation_prompt_for_provider,
     validate_chunk_translations,
 )
 
@@ -50,6 +60,21 @@ def test_song_credit_can_intentionally_remain_in_english() -> None:
     assert result.severe_count == 0
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "An imprint of Penguin Random House LLC",
+        "Excerpt from Love on the Brain copyright © 2021 by Ali Hazelwood",
+        "LESSONS IN SIN © 2021 by Pam Godwin",
+        "This is a work of fiction. Names, characters, places, and incidents are products of the author's imagination.",
+    ],
+)
+def test_frontmatter_metadata_may_preserve_official_english(source: str) -> None:
+    result = assess_translations({"B1": source}, {"B1": source})
+
+    assert result.severe_count == 0
+
+
 def test_repeated_long_translation_is_detected() -> None:
     sources = {
         "B1": "The first source paragraph contains a distinct event and enough words to count as prose.",
@@ -62,6 +87,20 @@ def test_repeated_long_translation_is_detected() -> None:
 
     assert result.severe_count == 3
     assert all(finding.code == "repeated_translation" for finding in result.findings)
+
+
+def test_normal_fiction_dialogue_is_not_mistaken_for_refusal() -> None:
+    dialogue = "I can’t, okay? I’m sorry, but I can’t focus on anything because I had an incredible night."
+
+    assert count_refusal_markers(dialogue) == 0
+
+
+def test_actual_service_refusal_is_detected() -> None:
+    refusal = "I’m sorry, but I can’t help with that request."
+    result = assess_translations({"B1": "Translate this paragraph."}, {"B1": refusal})
+
+    assert count_refusal_markers(refusal) >= 1
+    assert any(finding.code == "refusal_residue" for finding in result.findings)
 
 
 def test_segment_extraction_and_chunk_context() -> None:
@@ -86,6 +125,17 @@ def test_relationship_sample_covers_late_book_dialogue() -> None:
 
     assert "B00499" in sample
     assert "Late Character" in sample
+
+
+def test_batch_termination_stops_active_translation_process_group() -> None:
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        start_new_session=True,
+    )
+
+    batch.terminate_process_group(process, grace_seconds=0.1)
+
+    assert process.poll() is not None
 
 
 def test_epub_pair_audit_works_without_source_cache() -> None:
@@ -173,7 +223,7 @@ def test_translation_cache_ignores_noncanonical_chunk_json(tmp_path: Path) -> No
     assert load_translation_cache(tmp_path) == {"B00001": "정상 번역"}
 
 
-def test_service_limit_returns_to_batch_without_long_inner_sleep(monkeypatch) -> None:
+def test_legacy_provider_account_limit_returns_to_batch_without_long_inner_sleep(monkeypatch) -> None:
     class FakePage:
         url = "https://chatgpt.com/c/test"
 
@@ -196,10 +246,10 @@ def test_service_limit_returns_to_batch_without_long_inner_sleep(monkeypatch) ->
     )
     slept: list[float] = []
     monkeypatch.setattr(translator.time, "sleep", lambda seconds: slept.append(seconds))
-    args = SimpleNamespace(chatgpt_web_max_attempts=5, request_timeout_sec=30)
+    args = SimpleNamespace(web_provider="chatgpt", chatgpt_web_max_attempts=5, request_timeout_sec=30)
 
-    with pytest.raises(translator.ChatGPTWebServiceLimitError):
-        translator.request_chatgpt_translation(
+    with pytest.raises(translator.WebServiceLimitError, match="error_kind=account_unavailable"):
+        translator.request_web_translation(
             context=FakeContext(),
             timeout_error_cls=TimeoutError,
             args=args,
@@ -212,6 +262,199 @@ def test_service_limit_returns_to_batch_without_long_inner_sleep(monkeypatch) ->
     assert slept == []
 
 
+def test_new_translation_work_defaults_to_gemini_and_honors_existing_pin(tmp_path: Path) -> None:
+    args = SimpleNamespace(web_provider=None)
+
+    assert resolve_web_provider(args, tmp_path) == "gemini"
+    assert translator.active_web_provider(SimpleNamespace()) == "gemini"
+
+    (tmp_path / translator.WEB_PROVIDER_MARKER).write_text("chatgpt\n", encoding="utf-8")
+    assert resolve_web_provider(args, tmp_path) == "chatgpt"
+    assert resolve_web_provider(SimpleNamespace(web_provider="gemini"), tmp_path) == "gemini"
+
+
+def test_gemini_translation_backend_collects_response(monkeypatch) -> None:
+    class FakePage:
+        url = "https://gemini.google.com/app/conversation-123"
+
+        def close(self) -> None:
+            return None
+
+    class FakeContext:
+        def new_page(self):
+            return FakePage()
+
+    prepared: list[str] = []
+    monkeypatch.setattr(translator, "prepare_gemini_web_page", lambda *args, **kwargs: prepared.append("yes"))
+    monkeypatch.setattr(translator, "send_gemini_web_prompt", lambda *args, **kwargs: (2, 1))
+    monkeypatch.setattr(
+        translator,
+        "wait_for_gemini_web_response",
+        lambda *args, **kwargs: "<<<B00001>>>\n자연스러운 번역입니다.\n<<<END_B00001>>>",
+    )
+    args = SimpleNamespace(web_provider="gemini", web_max_attempts=2, request_timeout_sec=30)
+
+    conversation_id, response = translator.request_web_translation(
+        context=FakeContext(),
+        timeout_error_cls=TimeoutError,
+        args=args,
+        prompt="translate",
+        heartbeat=None,
+        label="test",
+        prefix="chunk_0001",
+    )
+
+    assert prepared == ["yes"]
+    assert conversation_id == "conversation-123"
+    assert "자연스러운 번역" in response
+
+
+def test_gemini_prompt_uses_markers_that_survive_html_rendering() -> None:
+    prompt = "<<<B00001>>>\nSource\n<<<END_B00001>>>"
+
+    converted = translation_prompt_for_provider(prompt, "gemini")
+
+    assert converted == "[[[BEGIN:B00001]]]\nSource\n[[[END:B00001]]]"
+    assert translation_prompt_for_provider(prompt, "chatgpt") == prompt
+
+
+def test_gemini_marker_and_legacy_rendered_marker_responses_parse() -> None:
+    current = "[[[BEGIN:B00001]]]\n현재 번역\n[[[END:B00001]]]"
+    legacy_rendered = "<<>>\n이전 응답 복구\n<<<END_B00001>>>"
+
+    assert parse_translation_response(current, ["B00001"]) == {"B00001": "현재 번역"}
+    assert parse_translation_response(legacy_rendered, ["B00001"]) == {"B00001": "이전 응답 복구"}
+
+
+def test_gemini_service_limit_returns_to_batch_without_inner_sleep(monkeypatch) -> None:
+    class FakePage:
+        url = "https://gemini.google.com/app/conversation-123"
+
+        def close(self) -> None:
+            return None
+
+    class FakeContext:
+        def new_page(self):
+            return FakePage()
+
+    monkeypatch.setattr(translator, "prepare_gemini_web_page", lambda *args, **kwargs: None)
+    monkeypatch.setattr(translator, "send_gemini_web_prompt", lambda *args, **kwargs: (0, 0))
+    monkeypatch.setattr(
+        translator,
+        "wait_for_gemini_web_response",
+        lambda *args, **kwargs: "You've reached your limit. Please try again later.",
+    )
+    slept: list[float] = []
+    monkeypatch.setattr(translator.time, "sleep", lambda seconds: slept.append(seconds))
+    args = SimpleNamespace(web_provider="gemini", web_max_attempts=3, request_timeout_sec=30)
+
+    with pytest.raises(translator.WebServiceLimitError, match="Gemini error_kind=usage_limit"):
+        translator.request_web_translation(
+            context=FakeContext(),
+            timeout_error_cls=TimeoutError,
+            args=args,
+            prompt="translate",
+            heartbeat=None,
+            label="test",
+            prefix="chunk_0001",
+        )
+
+    assert slept == []
+
+
+@pytest.mark.parametrize(
+    ("detail", "attempt", "expected"),
+    [
+        ("Gemini error_kind=usage_limit", 1, 1800),
+        ("Gemini error_kind=rate_limit", 1, 300),
+        ("Gemini error_kind=temporary_service_error", 2, 30),
+        ("kind=missing_translation_ids", 3, 5),
+        ("kind=prompt_too_long", 1, 5),
+        ("unknown failure", 1, 120),
+    ],
+)
+def test_gemini_batch_cooldown_depends_on_error_kind(detail: str, attempt: int, expected: int) -> None:
+    args = SimpleNamespace(cooldown_seconds=900)
+
+    assert batch.translation_retry_cooldown(args, attempt, detail) == expected
+
+
+def test_successful_gemini_subchunks_resume_after_later_part_failure(tmp_path: Path, monkeypatch) -> None:
+    blocks = [
+        SourceBlock(
+            id=f"B{index:05d}",
+            text=(f"Distinct source passage {index} describes a separate scene and action. " * 6).strip(),
+        )
+        for index in range(1, 7)
+    ]
+    chunk = build_chunks(blocks, max_chars=10000)[0]
+    args = SimpleNamespace(
+        max_chars_per_chunk=3500,
+        inter_request_delay_sec=0,
+        web_provider="gemini",
+    )
+    failed_run_calls: list[str] = []
+
+    def response_for_prompt(prompt: str) -> str:
+        ids = list(dict.fromkeys(re.findall(r"<<<(B\d+)>>>", prompt)))
+        return "\n".join(
+            f"<<<{block_id}>>>\n"
+            + (f"{block_id}에 해당하는 서로 다른 장면을 충분한 길이의 자연스러운 한국어 문장으로 정확하게 옮긴 번역이다. " * 5)
+            + f"\n<<<END_{block_id}>>>"
+            for block_id in ids
+        )
+
+    def fail_second_part(**kwargs):
+        prefix = kwargs["prefix"]
+        failed_run_calls.append(prefix)
+        if prefix.endswith("part_02"):
+            return "conversation", "응답 형식 누락"
+        return "conversation", response_for_prompt(kwargs["prompt"])
+
+    monkeypatch.setattr(translator, "request_web_translation", fail_second_part)
+    monkeypatch.setattr(translator.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(RuntimeError, match="누락되거나 빈 번역 ID"):
+        translator.translate_refused_chunk_in_subchunks(
+            context=None,
+            timeout_error_cls=TimeoutError,
+            args=args,
+            work_dir=tmp_path,
+            book_title="Test Book",
+            relationship_guide="",
+            chunk=chunk,
+            chunk_count=1,
+            heartbeat=None,
+            fallback_reason="missing_translation_ids",
+        )
+
+    part_one = translator.subchunk_translation_path(tmp_path, "chunk_0001_part_01")
+    assert part_one.exists()
+
+    resumed_calls: list[str] = []
+
+    def succeed_remaining(**kwargs):
+        resumed_calls.append(kwargs["prefix"])
+        return "conversation", response_for_prompt(kwargs["prompt"])
+
+    monkeypatch.setattr(translator, "request_web_translation", succeed_remaining)
+    translator.translate_refused_chunk_in_subchunks(
+        context=None,
+        timeout_error_cls=TimeoutError,
+        args=args,
+        work_dir=tmp_path,
+        book_title="Test Book",
+        relationship_guide="",
+        chunk=chunk,
+        chunk_count=1,
+        heartbeat=None,
+        fallback_reason="missing_translation_ids",
+    )
+
+    assert "chunk_0001_part_01" not in resumed_calls
+    assert translator.chunk_translation_path(tmp_path, 1).exists()
+
+
 def test_duplicate_response_ids_are_rejected() -> None:
     response = """<<<B00001>>>
 첫 번째 번역
@@ -222,3 +465,10 @@ def test_duplicate_response_ids_are_rejected() -> None:
 
     with pytest.raises(RuntimeError, match="중복 번역 ID"):
         parse_translation_response(response, ["B00001"])
+
+
+def test_readrobe_watermark_is_removed_during_epub_build() -> None:
+    assert strip_source_watermarks("Visit readrobe.com for more") == "Visit for more"
+    assert strip_source_watermarks("READROBE.COM") == ""
+    assert strip_source_watermarks("리드로브닷컴") == ""
+    assert strip_source_watermarks("Visit www.readrobe . com now") == "Visit now"

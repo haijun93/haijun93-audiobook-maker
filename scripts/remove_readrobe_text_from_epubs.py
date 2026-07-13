@@ -6,13 +6,44 @@ import re
 import zipfile
 from pathlib import Path
 
+from atomic_io import atomic_output_path
 
-TEXT_EXTENSIONS = (".xhtml", ".html", ".htm", ".xml", ".opf", ".ncx", ".css", ".txt")
-READROBE_PATTERN = re.compile(r"\breadrobe\s*(?:\.|\s)\s*com\b", re.I)
+
+TEXT_EXTENSIONS = (
+    ".xhtml",
+    ".html",
+    ".htm",
+    ".xml",
+    ".opf",
+    ".ncx",
+    ".css",
+    ".txt",
+    ".svg",
+    ".js",
+    ".json",
+)
+WATERMARK_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])(?:www\s*\.\s*)?readrobe\s*(?:\.\s*|\s+)com(?![A-Za-z0-9])"
+    r"|리드\s*로브\s*(?:닷\s*컴|\.\s*(?:com|컴)|dot\s*com)",
+    re.I,
+)
+# Compatibility alias for existing importers.
+READROBE_PATTERN = WATERMARK_PATTERN
+
+
+def decode_text(data: bytes) -> tuple[str, str]:
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16"), "utf-16"
+    if data.startswith(b"\xef\xbb\xbf"):
+        return data.decode("utf-8-sig"), "utf-8-sig"
+    declaration = data[:256].decode("ascii", "ignore")
+    match = re.search(r"encoding\s*=\s*['\"]([^'\"]+)", declaration, re.I)
+    encoding = match.group(1) if match else "utf-8"
+    return data.decode(encoding), encoding
 
 
 def scrub_text(text: str) -> tuple[str, int]:
-    text, count = READROBE_PATTERN.subn("", text)
+    text, count = WATERMARK_PATTERN.subn("", text)
     if not count:
         return text, 0
     text = re.sub(r"(?is)<p\b([^>]*)>\s*</p>", "", text)
@@ -36,7 +67,6 @@ def clone_info(original: zipfile.ZipInfo, *, compress_type: int | None = None) -
 
 def scrub_epub(path: Path, *, dry_run: bool = False) -> dict[str, int | str]:
     totals: dict[str, int | str] = {"files_changed": 0, "replacements": 0, "status": "unchanged"}
-    tmp_path = path.with_suffix(path.suffix + ".readrobe-tmp")
     try:
         with zipfile.ZipFile(path, "r") as zin:
             names = zin.namelist()
@@ -46,10 +76,10 @@ def scrub_epub(path: Path, *, dry_run: bool = False) -> dict[str, int | str]:
                 if not lower.endswith(TEXT_EXTENSIONS):
                     continue
                 data = zin.read(name)
-                text = data.decode("utf-8", "replace")
+                text, encoding = decode_text(data)
                 scrubbed, count = scrub_text(text)
                 if count:
-                    changed_entries[name] = scrubbed.encode("utf-8")
+                    changed_entries[name] = scrubbed.encode(encoding)
                     totals["files_changed"] = int(totals["files_changed"]) + 1
                     totals["replacements"] = int(totals["replacements"]) + count
 
@@ -59,24 +89,38 @@ def scrub_epub(path: Path, *, dry_run: bool = False) -> dict[str, int | str]:
                 totals["status"] = "dry-run"
                 return totals
 
-            with zipfile.ZipFile(tmp_path, "w") as zout:
-                if "mimetype" in names:
-                    original = zin.getinfo("mimetype")
-                    zout.writestr(clone_info(original, compress_type=zipfile.ZIP_STORED), zin.read("mimetype"))
-                for name in names:
-                    if name == "mimetype":
-                        continue
-                    original = zin.getinfo(name)
-                    data = changed_entries.get(name)
-                    if data is None:
-                        data = zin.read(name)
-                    zout.writestr(clone_info(original), data)
-        tmp_path.replace(path)
+            with atomic_output_path(path) as tmp_path:
+                with zipfile.ZipFile(tmp_path, "w") as zout:
+                    zout.comment = zin.comment
+                    if "mimetype" in names:
+                        original = zin.getinfo("mimetype")
+                        zout.writestr(
+                            clone_info(original, compress_type=zipfile.ZIP_STORED),
+                            zin.read("mimetype"),
+                        )
+                    for name in names:
+                        if name == "mimetype":
+                            continue
+                        original = zin.getinfo(name)
+                        data = changed_entries.get(name)
+                        if data is None:
+                            data = zin.read(name)
+                        zout.writestr(clone_info(original), data)
+                with zipfile.ZipFile(tmp_path) as check:
+                    check_names = check.namelist()
+                    if check.testzip() is not None:
+                        raise RuntimeError("EPUB CRC verification failed")
+                    if "mimetype" in check_names and check_names[:1] != ["mimetype"]:
+                        raise RuntimeError("EPUB mimetype is not the first entry")
+                    for name in check_names:
+                        if not name.lower().endswith(TEXT_EXTENSIONS):
+                            continue
+                        text, _encoding = decode_text(check.read(name))
+                        if WATERMARK_PATTERN.search(text):
+                            raise RuntimeError(f"watermark remains in {name}")
         totals["status"] = "updated"
         return totals
     except Exception as exc:
-        if tmp_path.exists():
-            tmp_path.unlink()
         return {"files_changed": 0, "replacements": 0, "status": f"error: {exc}"}
 
 

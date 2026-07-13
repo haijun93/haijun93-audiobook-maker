@@ -12,11 +12,11 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from xml.etree import ElementTree as ET
 
 from bs4 import BeautifulSoup
 
 from atomic_io import atomic_write_json, atomic_write_text
+from safe_xml import safe_fromstring
 
 
 TEXT_SUFFIXES = (".xhtml", ".html", ".htm")
@@ -80,7 +80,7 @@ def read_metadata(epub_path: Path) -> tuple[str, str]:
             opf_name = next((name for name in archive.namelist() if name.lower().endswith(".opf")), "")
             if not opf_name:
                 return epub_path.stem, ""
-            root = ET.fromstring(archive.read(opf_name))
+            root = safe_fromstring(archive.read(opf_name))
     except Exception:
         return epub_path.stem, ""
     ns = {"dc": "http://purl.org/dc/elements/1.1/"}

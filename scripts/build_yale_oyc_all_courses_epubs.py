@@ -13,7 +13,6 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin
-from xml.etree import ElementTree as ET
 
 from bs4 import BeautifulSoup
 
@@ -29,6 +28,7 @@ from build_yale_oyc_game_theory_course_epub import (
     sentence_items_from_paragraphs,
     translate_session,
 )
+from safe_xml import safe_fromstring
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -478,7 +478,7 @@ def validate_epub(path: Path, expected_sessions: int, require_no_skip: bool) -> 
         if len(session_files) != expected_sessions:
             raise RuntimeError(f"Expected {expected_sessions} session pages, found {len(session_files)}")
         for name in ["OEBPS/content.opf", "OEBPS/nav.xhtml", "OEBPS/toc.ncx", "OEBPS/intro.xhtml", *session_files]:
-            ET.fromstring(epub.read(name))
+            safe_fromstring(epub.read(name))
         joined = "\n".join(epub.read(name).decode("utf-8") for name in session_files)
         inline_pattern = re.compile(
             r'<p class="sentence"><span class="en">.+?</span>\s+<span class="ko">\(.+?\)</span></p>'

@@ -9,9 +9,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from zipfile import ZipFile
-from xml.etree import ElementTree as ET
 
 from make_korean_only_epubs import convert_epub, output_name
+from safe_xml import safe_fromstring
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,8 +104,8 @@ def verify_epub(path: Path) -> tuple[bool, str]:
             en_blocks = sum(text.count('class="en"') for text in texts.values())
             nav_items = texts.get("OEBPS/nav.xhtml", "").count("<li>")
             ncx_points = texts.get("OEBPS/toc.ncx", "").count("<navPoint")
-            for name, text in texts.items():
-                ET.fromstring(text.encode())
+            for _name, text in texts.items():
+                safe_fromstring(text.encode())
     except Exception as exc:
         return False, str(exc)
     if missing_markers:
@@ -136,7 +136,7 @@ def verify_korean_only_epub(path: Path) -> tuple[bool, str]:
             nav_items = texts.get("OEBPS/nav.xhtml", "").count("<li>")
             ncx_points = texts.get("OEBPS/toc.ncx", "").count("<navPoint")
             for text in texts.values():
-                ET.fromstring(text.encode())
+                safe_fromstring(text.encode())
     except Exception as exc:
         return False, str(exc)
     if missing_markers:

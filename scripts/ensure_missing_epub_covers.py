@@ -18,6 +18,7 @@ from xml.etree import ElementTree as ET
 from PIL import Image, ImageDraw, ImageFont
 
 from book_cover_lookup import find_online_cover
+from safe_xml import safe_fromstring
 
 
 CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
@@ -75,7 +76,7 @@ def direct_children(parent: ET.Element, name: str) -> list[ET.Element]:
 
 
 def read_opf_path(archive: zipfile.ZipFile) -> str:
-    container = ET.fromstring(archive.read("META-INF/container.xml"))
+    container = safe_fromstring(archive.read("META-INF/container.xml"))
     for node in container.iter():
         if local_name(node.tag) == "rootfile":
             full_path = (node.attrib.get("full-path") or "").strip()
@@ -410,7 +411,7 @@ def add_cover(epub_path: Path, dry_run: bool = False, cache_dir: Path | None = N
         names = set(original_data)
         opf_path = read_opf_path(archive)
 
-    root = ET.fromstring(original_data[opf_path])
+    root = safe_fromstring(original_data[opf_path])
     opf_ns = namespace_uri(root.tag) or OPF_NS
     ET.register_namespace("", opf_ns)
     ET.register_namespace("dc", DC_NS)

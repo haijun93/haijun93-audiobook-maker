@@ -10,28 +10,19 @@ import zipfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from xml.etree import ElementTree as ET
 
 from bs4 import BeautifulSoup
 
 from atomic_io import atomic_write_json, atomic_write_text
-from translation_quality_checks import assess_translations
+from epub_integrity import validate_epub
+from remove_readrobe_text_from_epubs import WATERMARK_PATTERN
+from safe_xml import safe_fromstring
+from translation_quality_checks import assess_translations, count_refusal_markers
 
 
 TEXT_SUFFIXES = (".xhtml", ".html", ".htm", ".opf", ".ncx")
 MINIMUM_ACCEPTED_TRANSLATION_PIPELINE_VERSION = 2
-FINAL_QUALITY_AUDIT_VERSION = 4
-REFUSAL_MARKERS = (
-    "content can't be shown for safety reasons",
-    "content can’t be shown for safety reasons",
-    "i can't assist with that",
-    "i can’t assist with that",
-    "i'm sorry, but i can't",
-    "i’m sorry, but i can’t",
-    "번역 응답이 거절",
-    "content_refusal",
-    "minor_context_refusal",
-)
+FINAL_QUALITY_AUDIT_VERSION = 5
 
 
 @dataclass
@@ -66,6 +57,10 @@ class EpubAudit:
     audit_version: int = FINAL_QUALITY_AUDIT_VERSION
     size: int = 0
     mimetype_first: bool = False
+    integrity_issue_count: int = 0
+    integrity_warning_count: int = 0
+    integrity_issues: list[str] = field(default_factory=list)
+    integrity_warnings: list[str] = field(default_factory=list)
     xml_parse_error_count: int = 0
     xml_parse_errors: list[str] = field(default_factory=list)
     nav_items: int = 0
@@ -268,6 +263,17 @@ def audit_epub(epub_path: Path, *, kind: str, work_dir: Path | None) -> EpubAudi
         audit.status = "needs_attention"
         return audit
 
+    integrity = validate_epub(
+        epub_path,
+        require_nav=True,
+        require_ncx=True,
+        require_cover=True,
+    )
+    audit.integrity_issues = integrity.issues
+    audit.integrity_warnings = integrity.warnings
+    audit.integrity_issue_count = len(integrity.issues)
+    audit.integrity_warning_count = len(integrity.warnings)
+
     try:
         with zipfile.ZipFile(epub_path) as archive:
             names = archive.namelist()
@@ -280,7 +286,7 @@ def audit_epub(epub_path: Path, *, kind: str, work_dir: Path | None) -> EpubAudi
 
     for name, text in texts.items():
         try:
-            ET.fromstring(text.encode("utf-8"))
+            safe_fromstring(text.encode("utf-8"))
         except Exception as exc:
             audit.xml_parse_error_count += 1
             if len(audit.xml_parse_errors) < 20:
@@ -292,12 +298,11 @@ def audit_epub(epub_path: Path, *, kind: str, work_dir: Path | None) -> EpubAudi
         if lower_name.endswith(".ncx"):
             audit.ncx_points += text.count("<navPoint")
         audit.missing_marker_count += text.count("[번역 누락]")
-        audit.readrobe_count += count_lower(text, "readrobe.com")
+        audit.readrobe_count += len(WATERMARK_PATTERN.findall(text))
         audit.pair_blocks += count_class(text, "pair")
         audit.ko_blocks += count_class(text, "ko")
         audit.en_blocks += count_class(text, "en")
-        for marker in REFUSAL_MARKERS:
-            audit.refusal_marker_count += count_lower(text, marker)
+        audit.refusal_marker_count += count_refusal_markers(text)
         audit.old_inline_candidate_count += len(re.findall(r"[가-힣][^<]{0,220}\([A-Za-z][^)]{20,}\)", text))
 
     audit.cache = audit_cache(work_dir)
@@ -350,6 +355,18 @@ def audit_epub(epub_path: Path, *, kind: str, work_dir: Path | None) -> EpubAudi
 
     if not audit.mimetype_first:
         audit.issues.append("mimetype 항목이 EPUB 첫 번째 항목이 아닙니다.")
+    if audit.integrity_issues:
+        audit.issues.extend(
+            f"EPUB 무결성: {message}"
+            for message in audit.integrity_issues
+            if f"EPUB 무결성: {message}" not in audit.issues
+        )
+    if audit.integrity_warnings:
+        audit.warnings.extend(
+            f"EPUB 무결성: {message}"
+            for message in audit.integrity_warnings
+            if f"EPUB 무결성: {message}" not in audit.warnings
+        )
     if audit.xml_parse_error_count:
         audit.issues.append(f"XML 파싱 오류가 있습니다: {audit.xml_parse_error_count}개")
     if audit.nav_items <= 0 or audit.ncx_points <= 0:
@@ -357,9 +374,9 @@ def audit_epub(epub_path: Path, *, kind: str, work_dir: Path | None) -> EpubAudi
     if audit.missing_marker_count:
         audit.issues.append(f"[번역 누락] 표시가 남아 있습니다: {audit.missing_marker_count}개")
     if audit.readrobe_count:
-        audit.issues.append(f"readrobe.com 문구가 남아 있습니다: {audit.readrobe_count}개")
+        audit.issues.append(f"readrobe.com/리드로브닷컴 문구가 남아 있습니다: {audit.readrobe_count}개")
     if audit.refusal_marker_count:
-        audit.issues.append(f"ChatGPT 거절/안전문구 잔여 후보가 있습니다: {audit.refusal_marker_count}개")
+        audit.issues.append(f"웹 번역 서비스 거절/안전문구 잔여 후보가 있습니다: {audit.refusal_marker_count}개")
     if audit.paired_translation_severe_count:
         audit.issues.append(
             f"EPUB 한영쌍에서 미번역/과도한 축약/중복 후보가 있습니다: "
@@ -458,6 +475,8 @@ def render_markdown(audit: EpubAudit) -> str:
         "## Structure",
         "",
         f"- mimetype first: `{audit.mimetype_first}`",
+        f"- package/reference integrity: `issues={audit.integrity_issue_count}`, "
+        f"`warnings={audit.integrity_warning_count}`",
         f"- XML parse errors: `{audit.xml_parse_error_count}`",
         f"- TOC: `nav={audit.nav_items}`, `ncx={audit.ncx_points}`",
         f"- Study blocks: `pair={audit.pair_blocks}`, `ko={audit.ko_blocks}`, `en={audit.en_blocks}`",

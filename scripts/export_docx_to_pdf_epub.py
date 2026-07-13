@@ -10,6 +10,7 @@ import zipfile
 from pathlib import Path
 
 import fitz
+from defusedxml import ElementTree as DefusedElementTree
 
 
 CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
@@ -77,7 +78,7 @@ def render_pdf_first_page_to_png_bytes(pdf_path: Path, *, dpi: int) -> bytes:
 
 def resolve_epub_package_path(epub_path: Path, archive: zipfile.ZipFile) -> str:
     container_text = archive.read("META-INF/container.xml")
-    container_root = ET.fromstring(container_text)
+    container_root = DefusedElementTree.fromstring(container_text)
     rootfile = container_root.find(f".//{{{CONTAINER_NS}}}rootfile")
     if rootfile is None:
         raise RuntimeError(f"EPUB package document를 찾지 못했습니다: {epub_path}")
@@ -95,7 +96,7 @@ def ensure_epub_cover_from_png(epub_path: Path, cover_png_bytes: bytes) -> None:
             package_path = resolve_epub_package_path(epub_path, archive)
 
         opf_path = temp_root / package_path
-        opf_tree = ET.parse(opf_path)
+        opf_tree = DefusedElementTree.parse(opf_path)
         package = opf_tree.getroot()
 
         manifest = package.find(f"{{{OPF_NS}}}manifest")

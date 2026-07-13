@@ -17,12 +17,52 @@ REFUSAL_MARKERS = (
     "content can’t be shown for safety reasons",
     "i can't assist with that",
     "i can’t assist with that",
-    "i'm sorry, but i can't",
-    "i’m sorry, but i can’t",
+    "i can't help with that",
+    "i can’t help with that",
+    "i'm unable to help",
+    "i’m unable to help",
+    "i cannot assist",
+    "i'm sorry, but i can't assist",
+    "i’m sorry, but i can’t assist",
+    "i'm sorry, but i can't help",
+    "i’m sorry, but i can’t help",
+    "i'm sorry, but i can't provide",
+    "i’m sorry, but i can’t provide",
+    "i'm sorry, but i can't comply",
+    "i’m sorry, but i can’t comply",
+    "i'm sorry, but i can't translate",
+    "i’m sorry, but i can’t translate",
+    "i can't fulfill this request",
+    "i can’t fulfill this request",
+    "요청하신 내용에는 도움을 드릴 수 없",
+    "해당 요청에는 응답할 수 없",
     "번역 응답이 거절",
     "content_refusal",
     "minor_context_refusal",
 )
+FRONTMATTER_METADATA_RE = re.compile(
+    r"^(?:"
+    r"a\s+(?:jove|berkley|penguin)\s+book\b|"
+    r"published\s+by\b|an\s+imprint\s+of\b|copyright\b|excerpt\s+from\b.*\bcopyright\b|"
+    r".+\s+©\s+\d{4}\s+by\b|"
+    r".+\b(?:colophon|trademark)s?\b|library\s+of\s+congress\b|"
+    r"(?:names?|title|description|identifiers?|subjects?|classification):\s|"
+    r"lc\s+(?:ebook\s+)?record\b|first\s+edition\b|cover\s+(?:art|illustration|design)\b|"
+    r"book\s+design\b|this\s+is\s+a\s+work\s+of\s+fiction\b|"
+    r"penguin\s+random\s+house\s+supports\s+copyright\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def find_refusal_marker(text: str) -> str:
+    lowered = text.lower()
+    return next((marker for marker in REFUSAL_MARKERS if marker in lowered), "")
+
+
+def count_refusal_markers(text: str) -> int:
+    lowered = text.lower()
+    return sum(lowered.count(marker) for marker in REFUSAL_MARKERS)
 
 
 @dataclass
@@ -60,6 +100,8 @@ def is_separator_text(text: str) -> bool:
 
 def is_prose_source(text: str) -> bool:
     text = compact_text(text)
+    if FRONTMATTER_METADATA_RE.search(text):
+        return False
     if re.fullmatch(r"[“\"].{2,100}[”\"]\s+by\s+.{2,100}", text, flags=re.IGNORECASE):
         return False
     if re.search(r"(?:https?://|www\.|\bISBN\b|@\w+[.]\w+)", text, flags=re.IGNORECASE):
@@ -103,8 +145,7 @@ def assess_translations(
         if is_separator_text(source):
             continue
 
-        target_lower = target.lower()
-        marker = next((item for item in REFUSAL_MARKERS if item in target_lower), "")
+        marker = find_refusal_marker(target)
         if marker:
             add(block_id, "severe", "refusal_residue", f"서비스 거절 문구 후보가 포함되어 있습니다: {marker}")
 

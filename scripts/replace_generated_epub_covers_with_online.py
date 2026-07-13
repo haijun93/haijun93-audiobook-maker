@@ -16,6 +16,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from book_cover_lookup import OnlineCover, find_online_cover  # noqa: E402
+from safe_xml import safe_fromstring  # noqa: E402
 from ensure_missing_epub_covers import (  # noqa: E402
     DEFAULT_SKIP_DIRS,
     CoverResult,
@@ -95,7 +96,7 @@ def recognized_cover_item(metadata: ET.Element, manifest: ET.Element, opf_path: 
 
 
 def close_color(rgb: tuple[int, int, int], target: tuple[int, int, int], tolerance: int = 18) -> bool:
-    return all(abs(a - b) <= tolerance for a, b in zip(rgb[:3], target))
+    return all(abs(a - b) <= tolerance for a, b in zip(rgb[:3], target, strict=True))
 
 
 def is_generated_image(data: bytes, media_type: str, zip_path: str) -> bool:
@@ -212,7 +213,7 @@ def replace_generated_cover(epub_path: Path, cache_dir: Path, dry_run: bool = Fa
         names = set(original_data)
         opf_path = read_opf_path(archive)
 
-    root = ET.fromstring(original_data[opf_path])
+    root = safe_fromstring(original_data[opf_path])
     opf_ns = namespace_uri(root.tag) or "http://www.idpf.org/2007/opf"
     ET.register_namespace("", opf_ns)
     ET.register_namespace("dc", "http://purl.org/dc/elements/1.1/")

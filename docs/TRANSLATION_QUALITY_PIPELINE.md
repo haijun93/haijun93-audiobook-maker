@@ -25,7 +25,8 @@ This document defines when a translated EPUB may be treated as complete.
 - Preserve negation, causality, numbers, time, names, and reference targets.
 - Keep the ordinary translation prompt neutral. Add sensitive-context instructions only when the current source chunk requires them.
 - Return service-limit errors to the batch immediately so cooldown time can be used for completed-book review.
-- Pace consecutive web requests and limit conversation reuse to reduce transient UI and unusual-activity failures.
+- Use Gemini Web for newly started book translations. A provider marker in each work directory keeps retries for one book on the same service, so a book is never silently mixed across providers.
+- Pace consecutive web requests and limit conversation reuse to reduce transient UI, quota, and unusual-activity failures.
 
 ## 4. Per-chunk automatic validation
 
@@ -33,7 +34,7 @@ Before a translation chunk is cached, reject and retry it when any of these is f
 
 - missing or blank IDs;
 - source prose copied without Korean translation;
-- ChatGPT refusal or service text embedded as content;
+- web-provider refusal, quota, login, or service text embedded as content;
 - severe truncation relative to the source;
 - one long translation repeated for multiple distinct source blocks.
 
@@ -44,6 +45,8 @@ Record softer review candidates such as unusual length ratios, missing numbers, 
 - Build `[k-e]` with paired `.pair`, `.ko`, and `.en` blocks.
 - Derive `[k]` from the verified `[k-e]` output and remove every English study block.
 - Preserve table of contents, cover, metadata, reading order, and valid XML.
+- Validate ZIP paths and CRC, `mimetype` placement, container/package documents, manifest targets, spine IDs, navigation/NCX links and fragments, and cover metadata before publishing an output.
+- Parse source XML with DTD, entity, and external-reference expansion disabled.
 
 ## 6. Final reviews
 
@@ -64,5 +67,32 @@ Record softer review candidates such as unusual length ratios, missing numbers, 
 ## 8. Operational safety
 
 - Hold an exclusive batch lock and a per-book translation lock to prevent concurrent writers.
-- Write JSON, reports, and EPUB outputs through temporary files followed by atomic replacement.
+- Write JSON, reports, and EPUB outputs through unique same-directory temporary files, flush them to disk, validate them, and atomically replace the destination. Preserve the previous output after any exception.
 - Treat only canonical `chunk_NNNN.json` files as authoritative translation cache entries.
+- Keep `.translation_web_provider` in each work directory. Existing pinned work resumes with that provider; unpinned work defaults to `gemini` and can be explicitly overridden with `--web-provider`.
+- Verify the Chrome Google session before starting Gemini work and return quota errors immediately to the batch cooldown loop.
+- Start each translation in its own process group. On keyboard interruption, termination, or session shutdown, stop its browser helpers before releasing the batch lock so a later resume has only one writer.
+
+## 9. Gemini web error taxonomy
+
+- `usage_limit`: wait for Gemini's model limit refresh; use a long escalating cooldown and run completed-book maintenance.
+- `rate_limit`: use exponential backoff with a shorter cooldown.
+- `temporary_service_error` / `network_error`: retry quickly with bounded exponential backoff.
+- `session_expired`: reopen the browser with freshly loaded Google cookies before retrying.
+- `account_unavailable` / `region_unavailable`: pause for account, age, administrator, or region recovery.
+- `prompt_too_long`: reduce the source chunk immediately instead of repeating the same request.
+- `content_refusal`, `missing_translation_ids`, and `translation_quality_failure`: switch to smaller translation parts and cache every successful part independently.
+- `timeout_or_empty_response`: abandon an empty Gemini response after 60 seconds and retry in a fresh chat.
+
+The taxonomy follows Gemini Apps' documented limit-refresh and account-access behavior and Google's retry guidance for transient Gemini errors:
+
+- https://support.google.com/gemini/answer/16275805
+- https://support.google.com/gemini/answer/13278668
+- https://ai.google.dev/gemini-api/docs/troubleshooting
+
+## 10. Watermark cleanup gate
+
+- Scrub generated `[k-e]` and `[k]` EPUBs before tone review and final quality audit.
+- Remove `readrobe.com`, `www.readrobe.com`, spaced variants, `리드로브닷컴`, and mixed Korean/English variants from EPUB text resources, metadata, and navigation files.
+- Replace an EPUB only after CRC, `mimetype` ordering, decoding, and zero-residue checks pass.
+- Fail the final quality audit if either the English or Korean watermark remains.

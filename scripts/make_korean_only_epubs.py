@@ -11,6 +11,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from atomic_io import atomic_output_path
+from epub_integrity import validate_epub
+from remove_readrobe_text_from_epubs import clone_info, scrub_epub
+from safe_xml import safe_fromstring
+
 
 XHTML_NS = "http://www.w3.org/1999/xhtml"
 EPUB_NS = "http://www.idpf.org/2007/ops"
@@ -137,8 +142,7 @@ def strip_inline_english_from_tree(root: ET.Element) -> int:
 
 
 def convert_xhtml(data: bytes, remove_inline_parenthetical_english: bool = False) -> tuple[bytes, dict[str, int]]:
-    parser = ET.XMLParser()
-    root = ET.fromstring(data, parser=parser)
+    root = safe_fromstring(data)
     stats = {"pairs": 0, "en_removed": 0, "inline_removed": 0}
 
     for paragraph in root.iter(f"{{{XHTML_NS}}}p"):
@@ -238,43 +242,74 @@ def uses_structured_pairs(input_path: Path) -> bool:
 
 
 def convert_epub(input_path: Path, output_path: Path, overwrite: bool) -> dict[str, int]:
+    source_integrity = validate_epub(input_path)
+    if not source_integrity.valid:
+        raise RuntimeError(
+            "Source bilingual EPUB failed integrity validation: "
+            + "; ".join(source_integrity.issues[:8])
+        )
     if output_path.exists() and not overwrite:
-        return {"skipped": 1, "pairs": 0, "en_removed": 0, "inline_removed": 0}
+        cleanup = scrub_epub(output_path)
+        if str(cleanup.get("status") or "").startswith("error:"):
+            raise RuntimeError(f"Korean EPUB watermark cleanup failed: {cleanup['status']}")
+        integrity = validate_epub(output_path)
+        if not integrity.valid:
+            raise RuntimeError(
+                "Existing Korean EPUB failed integrity validation: "
+                + "; ".join(integrity.issues[:8])
+            )
+        return {
+            "skipped": 1,
+            "pairs": 0,
+            "en_removed": 0,
+            "inline_removed": 0,
+            "watermarks_removed": int(cleanup.get("replacements") or 0),
+        }
 
     remove_inline_parenthetical_english = not uses_structured_pairs(input_path)
     totals = {"skipped": 0, "pairs": 0, "en_removed": 0, "inline_removed": 0}
-    with zipfile.ZipFile(input_path, "r") as zin, zipfile.ZipFile(output_path, "w") as zout:
-        names = zin.namelist()
-        if "mimetype" in names:
-            info = zipfile.ZipInfo("mimetype")
-            info.compress_type = zipfile.ZIP_STORED
-            zout.writestr(info, zin.read("mimetype"))
+    with atomic_output_path(output_path) as temp_output:
+        with zipfile.ZipFile(input_path, "r") as zin, zipfile.ZipFile(temp_output, "w") as zout:
+            zout.comment = zin.comment
+            names = zin.namelist()
+            if "mimetype" in names:
+                original = zin.getinfo("mimetype")
+                zout.writestr(
+                    clone_info(original, compress_type=zipfile.ZIP_STORED),
+                    zin.read("mimetype"),
+                )
 
-        for name in names:
-            if name == "mimetype":
-                continue
-            data = zin.read(name)
-            lower = name.lower()
-            if lower.endswith((".xhtml", ".html", ".htm")):
-                data, stats = convert_xhtml(data, remove_inline_parenthetical_english)
-                totals["pairs"] += stats["pairs"]
-                totals["en_removed"] += stats["en_removed"]
-                totals["inline_removed"] += stats["inline_removed"]
-                data = data.replace(b">Kindle EPUB<", ">한국어판<".encode("utf-8"))
-                data = data.replace(b">Front Matter<", ">앞부분<".encode("utf-8"))
-            elif lower.endswith(".css"):
-                data = convert_css(data)
-            elif lower.endswith(".opf"):
-                data = convert_opf(data, input_path.name)
-            elif lower.endswith(".ncx"):
-                data = data.replace(b">Front Matter<", ">앞부분<".encode("utf-8"))
+            for name in names:
+                if name == "mimetype":
+                    continue
+                data = zin.read(name)
+                lower = name.lower()
+                if lower.endswith((".xhtml", ".html", ".htm")):
+                    data, stats = convert_xhtml(data, remove_inline_parenthetical_english)
+                    totals["pairs"] += stats["pairs"]
+                    totals["en_removed"] += stats["en_removed"]
+                    totals["inline_removed"] += stats["inline_removed"]
+                    data = data.replace(b">Kindle EPUB<", ">한국어판<".encode("utf-8"))
+                    data = data.replace(b">Front Matter<", ">앞부분<".encode("utf-8"))
+                elif lower.endswith(".css"):
+                    data = convert_css(data)
+                elif lower.endswith(".opf"):
+                    data = convert_opf(data, input_path.name)
+                elif lower.endswith(".ncx"):
+                    data = data.replace(b">Front Matter<", ">앞부분<".encode("utf-8"))
 
-            info = zipfile.ZipInfo(name)
-            original = zin.getinfo(name)
-            info.date_time = original.date_time
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = original.external_attr
-            zout.writestr(info, data)
+                original = zin.getinfo(name)
+                zout.writestr(clone_info(original), data)
+        cleanup = scrub_epub(temp_output)
+        if str(cleanup.get("status") or "").startswith("error:"):
+            raise RuntimeError(f"Korean EPUB watermark cleanup failed: {cleanup['status']}")
+        integrity = validate_epub(temp_output)
+        if not integrity.valid:
+            raise RuntimeError(
+                "Korean EPUB failed integrity validation: "
+                + "; ".join(integrity.issues[:8])
+            )
+        totals["watermarks_removed"] = int(cleanup.get("replacements") or 0)
     return totals
 
 

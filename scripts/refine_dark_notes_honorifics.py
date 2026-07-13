@@ -11,7 +11,8 @@ import zipfile
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from xml.etree import ElementTree as ET
+
+from safe_xml import safe_fromstring
 
 
 DEFAULT_EPUB = Path(
@@ -516,7 +517,7 @@ def validate_epub(epub_path: Path) -> None:
             suffix = Path(info.filename).suffix.lower()
             if suffix not in {".xhtml", ".xml", ".opf", ".ncx"}:
                 continue
-            ET.fromstring(zf.read(info.filename))
+            safe_fromstring(zf.read(info.filename))
 
 
 def main() -> None:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Use ChatGPT web cooldown time to review and safely refine completed EPUBs."""
+"""Use web-provider retry idle time to review and safely refine completed EPUBs."""
 
 from __future__ import annotations
 
@@ -510,7 +510,7 @@ def write_live_progress(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Review/refine completed EPUBs while ChatGPT web is cooling down.")
+    parser = argparse.ArgumentParser(description="Review/refine completed EPUBs during web-provider retry idle time.")
     parser.add_argument("--source-dir", type=Path, default=DEFAULT_SOURCE_DIR)
     parser.add_argument("--max-files", type=int, default=40)
     parser.add_argument("--time-budget-sec", type=int, default=600)
