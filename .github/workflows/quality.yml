@@ -2,10 +2,11 @@ name: quality
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 concurrency:
-  group: quality-${{ github.workflow }}-${{ github.ref }}
+  group: quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
