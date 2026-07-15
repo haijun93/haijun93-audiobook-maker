@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from webui.book_organizer import organize_from_output_dir, get_existing_korean_books
 from webui.storage import atomic_write_json
 
 
@@ -378,6 +379,16 @@ class JobManager:
             )
             default_output = source / "audiobooks"
         summary = scan_folder_sources(source, operation=operation, recursive=bool(normalized.get("recursive")))
+        
+        # 배치 번역 작업일 때 이미 번역된 파일들을 제외
+        if operation == "batch_translation":
+            korean_root = Path("/Users/hyeokjunkong/Desktop/소설2/[k]").expanduser().resolve()
+            existing_books = get_existing_korean_books(korean_root)
+            
+            # 이미 번역된 파일들을 샘플에서 제외
+            if existing_books and summary["sample"]:
+                summary["sample"] = [f for f in summary["sample"] if f not in existing_books]
+        
         if summary["total"] <= 0:
             raise JobValidationError("No supported source files were found in the selected folder")
         output = Path(output_dir).expanduser().resolve() if str(output_dir or "").strip() else default_output
@@ -629,6 +640,37 @@ class JobManager:
                     "batch_translation": "Folder translation complete",
                     "batch_audio": "Folder audiobooks complete",
                 }.get(job_type, "Job complete")
+                
+                # 번역 작업 완료 시 원본 파일을 finished 폴더로 이동 & 결과 파일 분류
+                if job_type == "translation":
+                    try:
+                        job_dir = self._job_dir(job_id)
+                        input_relpath = str(job.get("input_relpath") or "")
+                        if input_relpath:
+                            input_path = (job_dir / input_relpath).resolve()
+                            finished_folder = Path("/Users/hyeokjunkong/Desktop/소설2/finished").expanduser().resolve()
+                            if input_path.is_file():
+                                # finished 폴더가 없으면 자동 생성
+                                finished_folder.mkdir(parents=True, exist_ok=True)
+                                dest_path = finished_folder / input_path.name
+                                shutil.move(str(input_path), str(dest_path))
+                        
+                        # 생성된 EPUB 파일들을 장르/작가별로 분류
+                        output_relpath = str(job.get("output_relpath") or "")
+                        artifact_root = str(job.get("artifact_root") or "")
+                        if artifact_root:
+                            output_dir = Path(artifact_root).expanduser().resolve()
+                            korean_root = Path("/Users/hyeokjunkong/Desktop/소설2/[k]").expanduser().resolve()
+                            bilingual_root = Path("/Users/hyeokjunkong/Desktop/소설2/[k-e]").expanduser().resolve()
+                            try:
+                                organize_from_output_dir(output_dir, korean_root, bilingual_root)
+                            except Exception as organize_error:
+                                print(f"Warning: Failed to organize books: {organize_error}", file=sys.stderr)
+                    except Exception as e:
+                        # 파일 이동 중 오류가 발생해도 작업 완료는 유지
+                        import traceback
+                        print(f"Warning: Failed to process translation job: {e}", file=sys.stderr)
+                        traceback.print_exc()
             else:
                 job["status"] = "failed"
                 job["message"] = "Job engine exited with an error"

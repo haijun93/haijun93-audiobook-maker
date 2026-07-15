@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from webui.book_organizer import get_existing_korean_books  # noqa: E402
 from webui.platform import discover_ebook_convert  # noqa: E402
 from webui.storage import atomic_write_json  # noqa: E402
 
@@ -275,6 +276,14 @@ def source_files(
         if path.name.lower().startswith(("[k]", "[k-e]")):
             continue
         files.append(path.resolve())
+    
+    # 배치 번역일 때 이미 번역된 파일들을 제외
+    if operation == "batch_translation":
+        korean_root = Path("/Users/hyeokjunkong/Desktop/소설2/[k]").expanduser().resolve()
+        existing_books = get_existing_korean_books(korean_root)
+        if existing_books:
+            files = [f for f in files if f.name not in existing_books]
+    
     return sorted(files, key=lambda item: item.name.casefold())[:1000]
 
 
