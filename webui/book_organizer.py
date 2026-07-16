@@ -9,6 +9,7 @@ import re
 import shutil
 import unicodedata
 import zipfile
+from difflib import SequenceMatcher
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -211,6 +212,112 @@ def get_existing_korean_books(korean_root: Path) -> set[str]:
         if filename.startswith("[k] "):
             original_name = filename[4:]  # "[k] " 제거
             existing_books.add(original_name)
-    
+
     return existing_books
+
+
+NOISE_TITLE_PHRASES = (
+    "unabridged",
+    "a novel",
+    "the complete series",
+    "complete series",
+    "special edition",
+    "book club edition",
+    "anniversary edition",
+    "boxed set",
+    "collection",
+    "novel",
+)
+
+FINISHED_TITLE_MATCH_THRESHOLD = 0.92
+
+
+def normalize_book_title(value: str) -> str:
+    """제목 대조용 정규화: 괄호 속 부제/에디션 표기, 구두점, 대소문자 차이를 제거한다."""
+    value = unicodedata.normalize("NFKC", value or "")
+    value = re.sub(r"\([^)]*\)", " ", value)
+    value = value.lower()
+    for phrase in NOISE_TITLE_PHRASES:
+        value = value.replace(phrase, " ")
+    value = re.sub(r"[^a-z0-9가-힣]+", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
+
+
+def normalize_book_author(value: str) -> str:
+    """작가명 대조용 정규화: "성, 이름" / "이름 성" 표기 차이를 흡수한다."""
+    raw = unicodedata.normalize("NFKC", value or "")
+    parts = re.split(r"\s*(?:,|&|\band\b)\s*", raw, flags=re.IGNORECASE)
+    tokens = sorted(normalize_book_title(part) for part in parts if part.strip())
+    return " ".join(token for token in tokens if token)
+
+
+def build_finished_registry(finished_dir: Path) -> list[dict[str, object]]:
+    """finished 폴더(번역이 이미 끝난 원서 모음)에서 제목/작가 대조 목록을 만든다."""
+    registry: list[dict[str, object]] = []
+    if not finished_dir.exists():
+        return registry
+    for epub_path in sorted(finished_dir.glob("*.epub")):
+        metadata = extract_metadata_from_epub(epub_path)
+        registry.append(
+            {
+                "path": epub_path,
+                "title": metadata["title"],
+                "author": metadata["author"],
+                "norm_title": normalize_book_title(metadata["title"]),
+                "norm_author": normalize_book_author(metadata["author"]),
+            }
+        )
+    return registry
+
+
+def find_finished_match(
+    title: str,
+    author: str,
+    registry: list[dict[str, object]],
+) -> dict[str, object] | None:
+    """제목/작가가 finished 목록의 항목과 같은 작품인지 판단한다."""
+    norm_title = normalize_book_title(title)
+    norm_author = normalize_book_author(author)
+    if not norm_title or norm_title == "unknown":
+        return None
+
+    best: dict[str, object] | None = None
+    best_ratio = 0.0
+    for entry in registry:
+        entry_title = str(entry["norm_title"])
+        if not entry_title:
+            continue
+        ratio = SequenceMatcher(None, norm_title, entry_title).ratio()
+        if ratio < FINISHED_TITLE_MATCH_THRESHOLD:
+            continue
+        entry_author = str(entry["norm_author"])
+        author_known = (
+            bool(norm_author)
+            and norm_author != "unknown author"
+            and bool(entry_author)
+            and entry_author != "unknown author"
+        )
+        if author_known:
+            author_ratio = SequenceMatcher(None, norm_author, entry_author).ratio()
+            if author_ratio < 0.6:
+                continue
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best = entry
+    return best
+
+
+def archive_duplicate_source(source: Path, finished_dir: Path) -> Path:
+    """이미 번역이 끝난 것으로 확인된 원본 EPUB을 finished 폴더로 옮긴다."""
+    finished_dir.mkdir(parents=True, exist_ok=True)
+    target_path = finished_dir / source.name
+    if target_path.exists():
+        stem, suffix = target_path.stem, target_path.suffix
+        counter = 2
+        while target_path.exists():
+            target_path = finished_dir / f"{stem} ({counter}){suffix}"
+            counter += 1
+    shutil.move(str(source), str(target_path))
+    return target_path
 

@@ -603,6 +603,7 @@ class JobManager:
                     process = subprocess.Popen(
                         command,
                         cwd=self.runner_script.parent,
+                        stdin=subprocess.DEVNULL,
                         stdout=log_handle,
                         stderr=subprocess.STDOUT,
                         env=environment,

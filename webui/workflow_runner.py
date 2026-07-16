@@ -13,7 +13,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from webui.book_organizer import get_existing_korean_books  # noqa: E402
+from webui.book_organizer import (  # noqa: E402
+    archive_duplicate_source,
+    build_finished_registry,
+    extract_metadata_from_epub,
+    find_finished_match,
+    get_existing_korean_books,
+)
 from webui.platform import discover_ebook_convert  # noqa: E402
 from webui.storage import atomic_write_json  # noqa: E402
 
@@ -27,6 +33,10 @@ from make_korean_only_epubs import convert_epub, output_name  # noqa: E402
 
 TRANSLATION_EXTENSIONS = {".epub", ".pdf", ".mobi"}
 AUDIO_EXTENSIONS = {".txt", ".epub", ".docx", ".pdf", ".mobi"}
+
+# 이미 번역이 끝난 원서 EPUB을 모아 두는 폴더. 배치 번역 시 이 목록의 제목/작가와
+# 대조해 중복 번역을 피한다.
+FINISHED_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2/finished")
 
 
 def utc_now() -> str:
@@ -56,7 +66,7 @@ def beat(path: Path, *, stage: str, label: str = "", detail: str = "") -> None:
 
 def run_child(command: list[str]) -> None:
     print("$ " + " ".join(command), flush=True)
-    subprocess.run(command, cwd=ROOT, check=True)
+    subprocess.run(command, cwd=ROOT, check=True, stdin=subprocess.DEVNULL)
 
 
 def prepare_epub(source: Path, work_dir: Path) -> Path:
@@ -335,9 +345,22 @@ def run_batch(args: argparse.Namespace) -> int:
         raise RuntimeError("No supported source files were found in the selected folder")
     artifacts: list[dict[str, str]] = []
     failures: list[dict[str, str]] = []
+    finished_registry = build_finished_registry(FINISHED_ROOT) if args.task == "batch_translation" else []
     for index, source in enumerate(files, start=1):
         label = f"{index}/{len(files)} {source.name}"
         beat(args.heartbeat_file, stage="batch_item_start", label=label, detail=args.task)
+        if args.task == "batch_translation" and source.is_file() and source.suffix.lower() == ".epub":
+            metadata = extract_metadata_from_epub(source)
+            match = find_finished_match(metadata["title"], metadata["author"], finished_registry)
+            if match:
+                archived_path = archive_duplicate_source(source, FINISHED_ROOT)
+                print(
+                    f"SKIP duplicate (already finished as {match['path'].name}): "
+                    f"{source.name} -> moved to {archived_path}",
+                    flush=True,
+                )
+                beat(args.heartbeat_file, stage="batch_item_complete", label=f"{index}/{len(files)}", detail=source.name)
+                continue
         item_work = args.work_dir.resolve() / f"{index:04d}_{readable_stem(source)[:80]}"
         try:
             if args.task == "batch_translation":
