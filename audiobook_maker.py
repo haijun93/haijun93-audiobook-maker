@@ -184,46 +184,6 @@ RETRY_SPLIT_MIN_CHARS = 220
 RETRY_SPLIT_MAX_CHARS = 900
 GEMINI_API_KEY_ENV_NAMES = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
 CHATGPT_WEB_URL = "https://chatgpt.com/"
-CLAUDE_WEB_URL = "https://claude.ai/new"
-CLAUDE_WEB_PROMPT_SELECTORS = (
-    'div[contenteditable="true"][data-slate-editor="true"]',
-    'div[contenteditable="true"][role="textbox"]',
-    'div[contenteditable="true"]',
-    'textarea',
-)
-CLAUDE_WEB_RESPONSE_SELECTORS = (
-    '[data-testid="assistant-message"]',
-    '[data-testid="message-content"]',
-    'article[data-testid*="message"]',
-    'main article',
-)
-CLAUDE_WEB_SEND_BUTTON_SELECTORS = (
-    'button[aria-label*="Send"]',
-    'button[aria-label*="전송"]',
-    'button[data-testid*="send"]',
-    'form button[type="submit"]',
-)
-CLAUDE_WEB_USAGE_LIMIT_MARKERS = (
-    "usage limit",
-    "message limit",
-    "rate limit",
-    "too many requests",
-    "try again later",
-    "limit reached",
-    "usage cap",
-    "resets at",
-    "reset at",
-    "high demand",
-    "temporarily unavailable",
-    "upgrade to claude",
-    "upgrade your plan",
-    "please try again in a little while",
-    "한도",
-)
-
-
-class ClaudeWebUsageLimitError(RuntimeError):
-    """Claude 웹 사용량 한도로 인해 해당 단계를 건너뛰어야 할 때 발생한다."""
 
 
 def discover_chrome_executable() -> str:
@@ -592,7 +552,6 @@ GEMINI_API_TTS_PROMPT_TEMPLATE = """
 """.strip()
 GEMINI_WEB_URL = "https://gemini.google.com/app"
 GEMINI_WEB_CHROME_PATH = CHATGPT_WEB_CHROME_PATH
-CLAUDE_WEB_CHROME_PATH = CHATGPT_WEB_CHROME_PATH
 GEMINI_WEB_DEFAULT_VOICE = "account_default"
 GEMINI_WEB_VOICES = ("account_default",)
 GEMINI_WEB_REPEAT_PROMPT_TEMPLATE = """
@@ -1272,10 +1231,6 @@ def load_gemini_web_modules():
     return load_chatgpt_web_modules()
 
 
-def load_claude_web_modules():
-    return load_chatgpt_web_modules()
-
-
 def load_browser_cookies(
     browser_cookie3_module,
     *,
@@ -1341,15 +1296,6 @@ def load_gemini_web_cookies(browser_cookie3_module) -> list[dict[str, object]]:
     )
 
 
-def load_claude_web_cookies(browser_cookie3_module) -> list[dict[str, object]]:
-    return load_browser_cookies(
-        browser_cookie3_module,
-        domain_names=("claude.ai",),
-        read_error_prefix="Chrome 에서 Claude 웹 쿠키를 읽지 못했습니다",
-        missing_error="Chrome 에 로그인된 claude.ai 쿠키를 찾지 못했습니다.",
-    )
-
-
 def browser_cookie_session_available(browser_cookie3_module, *, domain_names: tuple[str, ...]) -> bool:
     try:
         for domain_name in domain_names:
@@ -1381,19 +1327,6 @@ def gemini_web_session_available(chrome_path: str = GEMINI_WEB_CHROME_PATH) -> b
         return browser_cookie_session_available(
             browser_cookie3,
             domain_names=("google.com", "accounts.google.com", "gemini.google.com"),
-        )
-    except Exception:
-        return False
-
-
-def claude_web_session_available(chrome_path: str = CLAUDE_WEB_CHROME_PATH) -> bool:
-    if not chrome_path or not Path(chrome_path).is_file():
-        return False
-    try:
-        browser_cookie3, _, _ = load_claude_web_modules()
-        return browser_cookie_session_available(
-            browser_cookie3,
-            domain_names=("claude.ai",),
         )
     except Exception:
         return False
@@ -4696,211 +4629,6 @@ def wait_for_gemini_web_response(
         page.wait_for_timeout(1000)
 
     raise TimeoutError("Gemini 웹 응답 완료를 기다리다 시간 초과되었습니다.")
-
-
-def first_visible_claude_locator(page, selectors: tuple[str, ...]):
-    for selector in selectors:
-        locator = page.locator(selector).first
-        try:
-            if locator.count() and locator.is_visible():
-                return locator
-        except Exception:
-            continue
-    return None
-
-
-def read_claude_web_page_body_text(page) -> str:
-    try:
-        return normalized_file_text(page.locator("body").inner_text(timeout=5_000))
-    except Exception:
-        return ""
-
-
-def is_claude_web_usage_limit_text(text: str) -> bool:
-    normalized = normalized_file_text(text)
-    lowered = normalized.lower()
-    if not normalized:
-        return False
-    return any(marker in lowered for marker in CLAUDE_WEB_USAGE_LIMIT_MARKERS)
-
-
-def claude_web_usage_limit_message(page, exc: Exception | None = None) -> str | None:
-    candidates: list[str] = []
-    if exc is not None:
-        candidates.append(str(exc))
-    body_text = read_claude_web_page_body_text(page)
-    if body_text:
-        candidates.append(body_text)
-    for candidate in candidates:
-        if is_claude_web_usage_limit_text(candidate):
-            return normalized_file_text(candidate)
-    return None
-
-
-def prepare_claude_web_page(
-    page,
-    *,
-    timeout_error_cls,
-    heartbeat: ProgressHeartbeat | None = None,
-    label: str | None = None,
-    section_prefix: str | None = None,
-    attempt: int | None = None,
-) -> None:
-    beat_heartbeat(
-        heartbeat,
-        stage="open_page",
-        label=label,
-        section_prefix=section_prefix,
-        attempt=attempt,
-        detail="claude_web_open",
-    )
-    page.goto(CLAUDE_WEB_URL, wait_until="domcontentloaded")
-    if any(token in page.url for token in ("login", "auth", "signin")):
-        raise RuntimeError("Claude 웹 로그인 페이지로 이동했습니다. Claude 세션을 확인하세요.")
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        locator = first_visible_claude_locator(page, CLAUDE_WEB_PROMPT_SELECTORS)
-        if locator is not None:
-            return
-        page.wait_for_timeout(500)
-    raise timeout_error_cls("Claude 웹 프롬프트 입력창을 찾지 못했습니다.")
-
-
-def read_last_claude_web_response(page) -> str:
-    for selector in CLAUDE_WEB_RESPONSE_SELECTORS:
-        locator = page.locator(selector)
-        try:
-            count = locator.count()
-        except Exception:
-            count = 0
-        if count < 1:
-            continue
-        texts: list[str] = []
-        for index in range(count):
-            try:
-                text = locator.nth(index).inner_text().strip()
-            except Exception:
-                continue
-            normalized = normalized_file_text(text)
-            if normalized:
-                texts.append(normalized)
-        if texts:
-            return texts[-1]
-    return read_claude_web_page_body_text(page)
-
-
-def send_claude_web_prompt(
-    page,
-    prompt: str,
-    *,
-    timeout_error_cls,
-    heartbeat: ProgressHeartbeat | None = None,
-    label: str | None = None,
-    section_prefix: str | None = None,
-    attempt: int | None = None,
-) -> tuple[int, str]:
-    prompt_locator = first_visible_claude_locator(page, CLAUDE_WEB_PROMPT_SELECTORS)
-    if prompt_locator is None:
-        raise TimeoutError("Claude 웹 프롬프트 입력창을 찾지 못했습니다.")
-    previous_count = 0
-    previous_text = read_last_claude_web_response(page)
-    for selector in CLAUDE_WEB_RESPONSE_SELECTORS:
-        try:
-            previous_count = max(previous_count, page.locator(selector).count())
-        except Exception:
-            continue
-    try:
-        tag_name = (prompt_locator.evaluate("(el) => el.tagName") or "").lower()
-    except Exception:
-        tag_name = ""
-    try:
-        if tag_name == "textarea":
-            prompt_locator.fill(prompt, timeout=30_000)
-        else:
-            prompt_locator.click(timeout=30_000)
-            prompt_locator.evaluate(
-                """(el, value) => {
-                  el.focus();
-                  el.textContent = value;
-                  el.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertText', data: value}));
-                }""",
-                prompt,
-            )
-    except timeout_error_cls as exc:
-        raise TimeoutError("Claude 웹 프롬프트 입력에 실패했습니다.") from exc
-
-    beat_heartbeat(
-        heartbeat,
-        stage="submit_prompt",
-        label=label,
-        section_prefix=section_prefix,
-        attempt=attempt,
-        detail=f"chars={len(prompt)}",
-    )
-    for selector in CLAUDE_WEB_SEND_BUTTON_SELECTORS:
-        button = page.locator(selector).first
-        try:
-            if button.count() and button.is_visible():
-                button.click(timeout=15_000)
-                return previous_count, previous_text
-        except Exception:
-            continue
-    try:
-        prompt_locator.press("Enter")
-    except Exception as exc:
-        raise RuntimeError("Claude 웹 전송 버튼을 찾지 못했습니다.") from exc
-    return previous_count, previous_text
-
-
-def wait_for_claude_web_response(
-    page,
-    *,
-    previous_response_count: int,
-    previous_response_text: str,
-    timeout_sec: int,
-    heartbeat: ProgressHeartbeat | None = None,
-    label: str | None = None,
-    section_prefix: str | None = None,
-    attempt: int | None = None,
-) -> str:
-    deadline = time.monotonic() + max(10, timeout_sec)
-    last_text = ""
-    stable_polls = 0
-    baseline_text = normalized_file_text(previous_response_text)
-    while time.monotonic() < deadline:
-        response_count = 0
-        for selector in CLAUDE_WEB_RESPONSE_SELECTORS:
-            try:
-                response_count = max(response_count, page.locator(selector).count())
-            except Exception:
-                continue
-        current_text = read_last_claude_web_response(page)
-        if current_text and current_text == last_text:
-            stable_polls += 1
-        elif current_text:
-            last_text = current_text
-            stable_polls = 0
-        beat_heartbeat(
-            heartbeat,
-            stage="wait_for_response",
-            label=label,
-            section_prefix=section_prefix,
-            attempt=attempt,
-            detail=f"stable_polls={stable_polls} chars={len(current_text)}",
-        )
-        current_normalized = normalized_file_text(current_text)
-        is_new_response = bool(current_normalized and current_normalized != baseline_text)
-        if current_text and stable_polls >= 2 and (response_count > previous_response_count or is_new_response):
-            return current_text
-        page.wait_for_timeout(1500)
-    raise TimeoutError("Claude 웹 응답 완료를 기다리다 시간 초과되었습니다.")
-
-
-def extract_claude_web_conversation_id(url: str) -> str | None:
-    match = re.search(r"/chat/([^/?#]+)", url or "")
-    if not match:
-        return None
-    return match.group(1).strip() or None
 
 
 def fetch_gemini_web_audio_bytes(
