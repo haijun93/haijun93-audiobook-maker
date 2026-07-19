@@ -178,6 +178,13 @@ def translation_command(
         command.append("--web-visible")
     if provider_fallback_state_dir is not None:
         command.extend(["--provider-fallback-state-dir", str(provider_fallback_state_dir)])
+    if getattr(args, "task", None) == "batch_translation":
+        # The independent draft-lookahead thread (run_draft_lookahead_queue) already walks the
+        # whole batch queue and fills each book's ollama_drafts cache on its own. Without this
+        # flag, this per-book polish process would ALSO run its own ensure_ollama_drafts() pass
+        # for the same book at the same time, and the two processes would contend for Ollama's
+        # single decode slot and time out against each other instead of either one succeeding.
+        command.append("--precomputed-drafts-only")
     return command
 
 

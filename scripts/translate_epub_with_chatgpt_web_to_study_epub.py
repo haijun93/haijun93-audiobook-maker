@@ -186,6 +186,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--precomputed-drafts-only",
+        action="store_true",
+        help=(
+            "이 프로세스 자신은 Ollama 초벌 번역을 새로 생성하지 않고, 이미 캐시된 초벌 번역만 "
+            "읽어서 사용합니다. 배치 작업의 독립 초벌번역 큐가 같은 work-dir을 이미 채우고 있을 때, "
+            "두 프로세스가 동시에 같은 책을 초벌 번역하며 Ollama 단일 슬롯을 두고 경합하는 것을 "
+            "막기 위한 옵션입니다."
+        ),
+    )
+    parser.add_argument(
         "--skip-final-tone-review",
         action="store_true",
         help="EPUB 생성 후 인물관계/말투 최종 점검 리포트를 만들지 않습니다.",
@@ -3420,13 +3430,14 @@ def main() -> int:
         return 0
 
     if not args.build_only:
-        ensure_ollama_drafts(
-            work_dir=work_dir,
-            chunks=chunks,
-            args=args,
-            book_title=book_title,
-            heartbeat=heartbeat,
-        )
+        if not getattr(args, "precomputed_drafts_only", False):
+            ensure_ollama_drafts(
+                work_dir=work_dir,
+                chunks=chunks,
+                args=args,
+                book_title=book_title,
+                heartbeat=heartbeat,
+            )
         translate_missing_chunks(
             args=args,
             work_dir=work_dir,
