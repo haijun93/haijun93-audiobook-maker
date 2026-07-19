@@ -370,6 +370,34 @@ def run_single_translation(args: argparse.Namespace) -> int:
     return 0
 
 
+def start_draft_lookahead(source: Path, *, work_dir: Path, args: argparse.Namespace) -> subprocess.Popen | None:
+    """Kick off the next queued book's Ollama draft pass in the background while the current
+    book is still busy with the (much slower, network-bound) Gemini/ChatGPT polish step.
+
+    Gemini itself stays strictly single-session (see provider_fallback_state_dir/the
+    single-session lock in the translation script) - this only parallelizes the local Ollama
+    draft stage, which sits otherwise idle for the entire polish phase of the current book.
+    Skipped for non-.epub sources since those need format conversion first; the main pass
+    handles that normally, just without the pre-draft speed benefit.
+    """
+    if source.suffix.lower() != ".epub":
+        return None
+    work_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        sys.executable,
+        str(SCRIPTS_DIR / "translate_epub_with_chatgpt_web_to_study_epub.py"),
+        "--input-epub", str(source),
+        "--output-epub", str(work_dir / "_lookahead_unused.epub"),
+        "--work-dir", str(work_dir / "translation"),
+        "--draft-only",
+        "--max-chars-per-chunk", str(args.max_chars),
+    ]
+    try:
+        return subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        return None
+
+
 def run_batch(args: argparse.Namespace) -> int:
     source_dir = args.source_dir.resolve()
     output_root = args.output_dir.resolve()
@@ -398,9 +426,18 @@ def run_batch(args: argparse.Namespace) -> int:
         current_index=None,
         completed=completed_items,
     )
+    lookahead_procs: list[subprocess.Popen] = []
+    lookahead_started_for: set[int] = set()
     for index, source in enumerate(files, start=1):
         label = f"{index}/{len(files)} {source.name}"
         beat(args.heartbeat_file, stage="batch_item_start", label=label, detail=args.task)
+        if args.task == "batch_translation" and index < len(files) and (index + 1) not in lookahead_started_for:
+            next_source = files[index]
+            next_item_work = args.work_dir.resolve() / f"{index + 1:04d}_{readable_stem(next_source)[:80]}"
+            proc = start_draft_lookahead(next_source, work_dir=next_item_work, args=args)
+            lookahead_started_for.add(index + 1)
+            if proc is not None:
+                lookahead_procs.append(proc)
         write_batch_status(
             args.batch_status_file,
             total=len(files),

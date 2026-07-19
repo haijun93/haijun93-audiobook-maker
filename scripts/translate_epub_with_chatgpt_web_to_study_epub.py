@@ -178,6 +178,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--translate-only", action="store_true")
     parser.add_argument("--build-only", action="store_true")
     parser.add_argument(
+        "--draft-only",
+        action="store_true",
+        help=(
+            "Ollama 초벌 번역만 실행하고 종료합니다(Gemini/ChatGPT 호출 없음). "
+            "배치 작업이 다음 책의 초벌 번역을 현재 책 처리 중에 미리 준비해 두는 용도."
+        ),
+    )
+    parser.add_argument(
         "--skip-final-tone-review",
         action="store_true",
         help="EPUB 생성 후 인물관계/말투 최종 점검 리포트를 만들지 않습니다.",
@@ -3398,6 +3406,18 @@ def main() -> int:
         },
     )
     beat_heartbeat(heartbeat, stage="extracted", detail=f"blocks={len(blocks)} chunks={len(chunks)}")
+
+    if args.draft_only:
+        ensure_ollama_drafts(
+            work_dir=work_dir,
+            chunks=chunks,
+            args=args,
+            book_title=book_title,
+            heartbeat=heartbeat,
+        )
+        print(json.dumps({"work_dir": str(work_dir), "chunks": len(chunks), "draft_only": True}, ensure_ascii=False))
+        translation_lock.close()
+        return 0
 
     if not args.build_only:
         ensure_ollama_drafts(
