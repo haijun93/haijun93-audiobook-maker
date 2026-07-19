@@ -329,6 +329,25 @@ textarea { resize: vertical; line-height: 1.55; }
 .detail-error strong { display: block; margin-bottom: 5px; color: #8e2923; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
 .detail-error pre { margin: 0; color: #8e2923; font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 
+.gemma-stats {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 0 0 12px;
+  padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fbf8f2; font-size: 12px;
+}
+.gemma-stats-label { font-weight: 700; color: #7a4a10; }
+.gemma-stats-count strong { margin-right: 4px; }
+.gemma-stats-count.success strong { color: var(--accent); }
+.gemma-stats-count.failed strong { color: var(--danger); }
+
+.progress-history { margin: 0 0 15px; }
+.progress-history summary { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--muted); padding: 4px 0; }
+.progress-history-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 220px; overflow-y: auto; }
+.history-row {
+  display: flex; flex-direction: column; gap: 2px; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 5px; background: var(--soft); font-size: 11px;
+}
+.history-row strong { font-size: 11px; color: var(--ink); }
+.history-row span { color: var(--muted); overflow-wrap: anywhere; }
+
 .batch-progress { margin: 0 0 15px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 6px; background: white; }
 .batch-progress-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
 .batch-stat { padding: 8px 10px; border-radius: 5px; background: var(--soft); text-align: center; }

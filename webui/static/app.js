@@ -28,6 +28,8 @@ const STRINGS = {
     stageBrowserLaunch: "번역 브라우저 시작 중", stageWaiting: "웹 번역 응답 대기 중", stagePacing: "다음 요청 대기 중",
     stagePolishDone: "번역 응답 수신", stageRetrying: "재시도 중", stageFallbackSwitch: "Gemini 과부하 → ChatGPT 웹으로 전환",
     stageGuidePrep: "인물관계/용어 가이드 준비 중", stageFinalReview: "최종 검수 중(말투·용어 일관성)", stageComplete: "완료",
+    gemmaStatsLabel: "Gemma 초벌 번역", gemmaSuccess: "성공", gemmaFailed: "실패(직접 번역으로 대체)",
+    progressHistoryTitle: "진행 이력 (30분 간격)",
   },
   en: {
     brandSub: "Korean Audiobook Maker", newJob: "New job", taskAudio: "Audio", taskTranslation: "Translate",
@@ -58,6 +60,8 @@ const STRINGS = {
     stageBrowserLaunch: "Launching translation browser", stageWaiting: "Waiting for web response", stagePacing: "Pacing before next request",
     stagePolishDone: "Response received", stageRetrying: "Retrying", stageFallbackSwitch: "Gemini overloaded -> switched to ChatGPT web",
     stageGuidePrep: "Preparing relationship/terminology guide", stageFinalReview: "Final review (tone/terminology consistency)", stageComplete: "Complete",
+    gemmaStatsLabel: "Gemma draft translation", gemmaSuccess: "Succeeded", gemmaFailed: "Failed (fell back to direct translation)",
+    progressHistoryTitle: "Progress history (every 30 min)",
   },
 };
 
@@ -71,7 +75,59 @@ const state = {
   language: localStorage.getItem("audiobook-language") || "ko",
   task: "audio", system: {}, jobs: [], selectedId: null, logOffset: 0, logText: "", polling: false,
   submitting: { audio: false, translation: false, batch: false },
+  gemmaStats: {}, gemmaSeenPrefixes: {}, progressHistory: {},
 };
+
+const PROGRESS_HISTORY_INTERVAL_MS = 30 * 60 * 1000;
+
+function loadProgressHistory(jobId) {
+  if (state.progressHistory[jobId]) return state.progressHistory[jobId];
+  try {
+    const raw = localStorage.getItem(`audiobook-progress-history-${jobId}`);
+    state.progressHistory[jobId] = raw ? JSON.parse(raw) : [];
+  } catch (_) {
+    state.progressHistory[jobId] = [];
+  }
+  return state.progressHistory[jobId];
+}
+
+function saveProgressHistory(jobId, history) {
+  state.progressHistory[jobId] = history;
+  try {
+    localStorage.setItem(`audiobook-progress-history-${jobId}`, JSON.stringify(history.slice(-200)));
+  } catch (_) { /* storage full or unavailable; keep in-memory only */ }
+}
+
+function recordProgressSnapshot(job) {
+  const history = loadProgressHistory(job.id);
+  const last = history[history.length - 1];
+  const now = Date.now();
+  if (last && now - last.at < PROGRESS_HISTORY_INTERVAL_MS) return;
+  const batch = job.batch;
+  const heartbeat = job.heartbeat || {};
+  history.push({
+    at: now,
+    total: batch?.total ?? null,
+    doneCount: batch ? (batch.completed || []).filter((item) => item.status === "done").length : null,
+    failedCount: batch ? (batch.completed || []).filter((item) => item.status === "failed").length : null,
+    current: batch?.current || null,
+    stageLabel: heartbeat.label || heartbeat.stage || "",
+  });
+  saveProgressHistory(job.id, history);
+}
+
+function recordGemmaStats(job) {
+  const heartbeat = job.heartbeat || {};
+  const stage = heartbeat.stage;
+  if (stage !== "ollama_draft_ready" && stage !== "ollama_draft_failed") return;
+  const key = `${heartbeat.section_prefix || ""}:${stage}`;
+  const seen = state.gemmaSeenPrefixes[job.id] || (state.gemmaSeenPrefixes[job.id] = new Set());
+  if (seen.has(key)) return;
+  seen.add(key);
+  const stats = state.gemmaStats[job.id] || (state.gemmaStats[job.id] = { success: 0, failed: 0 });
+  if (stage === "ollama_draft_ready") stats.success += 1;
+  else stats.failed += 1;
+}
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -383,6 +439,36 @@ function renderBatchProgress(job) {
   }).join("");
 }
 
+function renderGemmaStats(job) {
+  const panel = $("#gemma-stats");
+  if (!panel) return;
+  const stats = state.gemmaStats[job.id];
+  const isTranslationJob = job.job_type === "translation" || job.job_type === "batch_translation";
+  if (!isTranslationJob || !stats || (stats.success === 0 && stats.failed === 0)) { panel.hidden = true; return; }
+  panel.hidden = false;
+  $("#gemma-success-count").textContent = stats.success;
+  $("#gemma-failed-count").textContent = stats.failed;
+}
+
+function formatHistoryTime(ts) {
+  const date = new Date(ts);
+  return date.toLocaleString(state.language === "ko" ? "ko-KR" : "en-US", { hour: "2-digit", minute: "2-digit", month: "numeric", day: "numeric" });
+}
+
+function renderProgressHistory(job) {
+  const panel = $("#progress-history");
+  if (!panel) return;
+  const history = loadProgressHistory(job.id);
+  if (!history.length) { panel.hidden = true; return; }
+  panel.hidden = false;
+  $("#progress-history-list").innerHTML = history.slice().reverse().map((entry) => {
+    const counts = entry.total != null ? `${entry.doneCount ?? 0}/${entry.total} (${t("batchFailedCount")} ${entry.failedCount ?? 0})` : "";
+    const currentText = entry.current ? ` · ${escapeHtml(entry.current)}` : "";
+    const stageText = entry.stageLabel ? ` · ${escapeHtml(entry.stageLabel)}` : "";
+    return `<div class="history-row"><strong>${formatHistoryTime(entry.at)}</strong><span>${escapeHtml(counts)}${currentText}${stageText}</span></div>`;
+  }).join("");
+}
+
 function renderDetail() {
   const panel = $("#job-detail");
   const job = state.jobs.find((item) => item.id === state.selectedId);
@@ -417,6 +503,8 @@ function renderDetail() {
   $("#detail-error-text").textContent = errorText;
 
   renderBatchProgress(job);
+  renderGemmaStats(job);
+  renderProgressHistory(job);
 
   const actions = $("#detail-actions");
   actions.innerHTML = "";
@@ -462,6 +550,11 @@ async function refreshJobs() {
     const data = await api("/api/jobs");
     state.jobs = data.jobs;
     if (state.selectedId && !state.jobs.some((job) => job.id === state.selectedId)) state.selectedId = null;
+    state.jobs.forEach((job) => {
+      if (!activeStatus(job.status)) return;
+      recordGemmaStats(job);
+      if (job.batch) recordProgressSnapshot(job);
+    });
     renderJobs();
     if (state.selectedId) await refreshLog();
   } catch (error) { toast(error.message, true); }

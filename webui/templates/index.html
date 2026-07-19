@@ -313,6 +313,17 @@
           </details>
         </section>
 
+        <section id="gemma-stats" class="gemma-stats" hidden>
+          <span class="gemma-stats-label" data-i18n="gemmaStatsLabel">Gemma 초벌 번역</span>
+          <span class="gemma-stats-count success"><strong id="gemma-success-count">0</strong> <span data-i18n="gemmaSuccess">성공</span></span>
+          <span class="gemma-stats-count failed"><strong id="gemma-failed-count">0</strong> <span data-i18n="gemmaFailed">실패(직접 번역으로 대체)</span></span>
+        </section>
+
+        <details id="progress-history" class="progress-history" hidden>
+          <summary><span data-i18n="progressHistoryTitle">진행 이력 (30분 간격)</span></summary>
+          <div id="progress-history-list" class="progress-history-list"></div>
+        </details>
+
         <div class="detail-actions" id="detail-actions"></div>
         <div class="artifact-list" id="artifact-list"></div>
         <audio id="audio-player" controls preload="metadata" hidden></audio>
