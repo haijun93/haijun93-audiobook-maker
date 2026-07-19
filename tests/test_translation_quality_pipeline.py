@@ -314,7 +314,7 @@ def test_new_translation_work_defaults_to_gemini_and_honors_existing_pin(tmp_pat
     assert resolve_web_provider(SimpleNamespace(web_provider="gemini"), tmp_path) == "gemini"
 
 
-def test_overnight_fallback_escalates_from_gemini_to_claude_to_chatgpt(monkeypatch, tmp_path: Path) -> None:
+def test_overnight_fallback_escalates_from_gemini_to_chatgpt_to_claude(monkeypatch, tmp_path: Path) -> None:
     real_datetime = translator.datetime
 
     class FrozenDatetime(real_datetime):
@@ -329,13 +329,63 @@ def test_overnight_fallback_escalates_from_gemini_to_claude_to_chatgpt(monkeypat
     assert translator.resolve_session_provider(args, tmp_path) == "gemini"
 
     translator.mark_gemini_temporarily_down(tmp_path)
-    assert translator.resolve_session_provider(args, tmp_path) == "claude"
-
-    translator.mark_claude_refused(tmp_path)
     assert translator.resolve_session_provider(args, tmp_path) == "chatgpt"
 
-    state = translator._read_provider_fallback_state(tmp_path)
-    assert "gemini_down_until" in state and "claude_avoid_until" in state
+    translator.mark_chatgpt_refused(tmp_path)
+    assert translator.resolve_session_provider(args, tmp_path) == "claude"
+
+    shared_state = translator._read_fallback_state(translator.provider_fallback_state_dir(args, tmp_path))
+    book_state = translator._read_fallback_state(tmp_path)
+    assert "gemini_down_until" in shared_state
+    assert "chatgpt_avoid_until" in book_state
+
+
+def test_claude_last_resort_skipped_without_session_falls_back_to_gemini(monkeypatch, tmp_path: Path) -> None:
+    real_datetime = translator.datetime
+
+    class FrozenDatetime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(2026, 7, 17, 22, 0, tzinfo=tz)
+
+    monkeypatch.setattr(translator, "datetime", FrozenDatetime)
+    monkeypatch.setattr(translator, "claude_web_session_available", lambda *a, **k: False)
+    args = SimpleNamespace(web_provider="gemini", disable_overnight_web_fallback=False, claude_web_chrome_path="/x")
+
+    translator.mark_gemini_temporarily_down(tmp_path)
+    translator.mark_chatgpt_refused(tmp_path)
+
+    assert translator.resolve_session_provider(args, tmp_path) == "gemini"
+
+
+def test_content_avoid_state_is_book_local_not_batch_shared(monkeypatch, tmp_path: Path) -> None:
+    real_datetime = translator.datetime
+
+    class FrozenDatetime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(2026, 7, 17, 22, 0, tzinfo=tz)
+
+    monkeypatch.setattr(translator, "datetime", FrozenDatetime)
+    monkeypatch.setattr(translator, "claude_web_session_available", lambda *a, **k: True)
+    batch_root = tmp_path / "batch"
+    book_a = tmp_path / "book_a"
+    book_b = tmp_path / "book_b"
+    args = SimpleNamespace(
+        web_provider="gemini",
+        disable_overnight_web_fallback=False,
+        claude_web_chrome_path="/x",
+        provider_fallback_state_dir=str(batch_root),
+    )
+
+    translator.mark_gemini_temporarily_down(translator.provider_fallback_state_dir(args, book_a))
+    translator.mark_chatgpt_refused(book_a)
+
+    # Book A escalates all the way to Claude after ChatGPT declined its content...
+    assert translator.resolve_session_provider(args, book_a) == "claude"
+    # ...but Book B, which never had its own ChatGPT refusal, still just uses the shared
+    # Gemini-outage fallback (ChatGPT), unaffected by Book A's content-specific decision.
+    assert translator.resolve_session_provider(args, book_b) == "chatgpt"
 
 
 def test_gemini_translation_backend_collects_response(monkeypatch) -> None:
