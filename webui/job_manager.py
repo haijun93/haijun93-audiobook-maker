@@ -173,6 +173,9 @@ class JobManager:
         workflow_runner_script: Path | None = None,
         python_executable: str | None = None,
         start_worker: bool = True,
+        korean_root: Path | None = None,
+        bilingual_root: Path | None = None,
+        finished_root: Path | None = None,
     ) -> None:
         self.data_root = Path(data_root).expanduser().resolve()
         self.jobs_root = self.data_root / "jobs"
@@ -182,6 +185,11 @@ class JobManager:
             workflow_runner_script or Path(__file__).resolve().parent / "workflow_runner.py"
         ).resolve()
         self.python_executable = python_executable or sys.executable
+        # 실제 서재 위치. 테스트에서는 반드시 tmp_path 하위 값으로 주입해서 실사용자의
+        # ~/Desktop/소설2 를 건드리지 않도록 한다.
+        self.korean_root = Path(korean_root or "~/Desktop/소설2/[k]").expanduser().resolve()
+        self.bilingual_root = Path(bilingual_root or "~/Desktop/소설2/[k-e]").expanduser().resolve()
+        self.finished_root = Path(finished_root or "~/Desktop/소설2/finished").expanduser().resolve()
         self._queue: queue.Queue[str | None] = queue.Queue()
         self._lock = threading.RLock()
         self._processes: dict[str, subprocess.Popen[bytes]] = {}
@@ -417,6 +425,7 @@ class JobManager:
             "output_name": output.name,
             "work_relpath": str(work_dir.relative_to(job_dir)),
             "heartbeat_relpath": "heartbeat.json",
+            "batch_status_relpath": "batch_status.json",
             "artifact_manifest_relpath": "artifacts.json",
             "artifact_root": str(output),
             "log_relpath": "job.log",
@@ -499,6 +508,8 @@ class JobManager:
             "--max-attempts",
             str(settings.get("max_attempts") or 5),
         ]
+        if job.get("batch_status_relpath"):
+            command.extend(["--batch-status-file", str(job_dir / str(job["batch_status_relpath"]))])
         if job_type == "translation":
             command.extend(["--input-file", str(job_dir / str(job["input_relpath"]))])
         else:
@@ -642,29 +653,27 @@ class JobManager:
                     "batch_audio": "Folder audiobooks complete",
                 }.get(job_type, "Job complete")
                 
-                # 번역 작업 완료 시 원본 파일을 finished 폴더로 이동 & 결과 파일 분류
-                if job_type == "translation":
+                # 번역 작업(단일/폴더 일괄) 완료 시 원본 파일을 finished 폴더로 이동 & 결과 파일 분류
+                if job_type in {"translation", "batch_translation"}:
                     try:
-                        job_dir = self._job_dir(job_id)
-                        input_relpath = str(job.get("input_relpath") or "")
-                        if input_relpath:
-                            input_path = (job_dir / input_relpath).resolve()
-                            finished_folder = Path("/Users/hyeokjunkong/Desktop/소설2/finished").expanduser().resolve()
-                            if input_path.is_file():
-                                # finished 폴더가 없으면 자동 생성
-                                finished_folder.mkdir(parents=True, exist_ok=True)
-                                dest_path = finished_folder / input_path.name
-                                shutil.move(str(input_path), str(dest_path))
-                        
+                        if job_type == "translation":
+                            job_dir = self._job_dir(job_id)
+                            input_relpath = str(job.get("input_relpath") or "")
+                            if input_relpath:
+                                input_path = (job_dir / input_relpath).resolve()
+                                if input_path.is_file():
+                                    # finished 폴더가 없으면 자동 생성
+                                    self.finished_root.mkdir(parents=True, exist_ok=True)
+                                    dest_path = self.finished_root / input_path.name
+                                    shutil.move(str(input_path), str(dest_path))
+
                         # 생성된 EPUB 파일들을 장르/작가별로 분류
-                        output_relpath = str(job.get("output_relpath") or "")
                         artifact_root = str(job.get("artifact_root") or "")
                         if artifact_root:
                             output_dir = Path(artifact_root).expanduser().resolve()
-                            korean_root = Path("/Users/hyeokjunkong/Desktop/소설2/[k]").expanduser().resolve()
-                            bilingual_root = Path("/Users/hyeokjunkong/Desktop/소설2/[k-e]").expanduser().resolve()
                             try:
-                                organize_from_output_dir(output_dir, korean_root, bilingual_root)
+                                # copy(원본 유지): 작업 상세 화면의 다운로드 링크가 계속 유효해야 한다.
+                                organize_from_output_dir(output_dir, self.korean_root, self.bilingual_root, mode="copy")
                             except Exception as organize_error:
                                 print(f"Warning: Failed to organize books: {organize_error}", file=sys.stderr)
                     except Exception as e:
@@ -675,6 +684,7 @@ class JobManager:
             else:
                 job["status"] = "failed"
                 job["message"] = "Job engine exited with an error"
+                job["error_detail"] = self._log_error_detail(job)
             self._write_job(job)
 
     def _terminate_process(self, process: subprocess.Popen[bytes], grace_seconds: float = 8.0) -> None:
@@ -730,6 +740,35 @@ class JobManager:
             return payload if isinstance(payload, dict) else {}
         except (OSError, ValueError, TypeError):
             return {}
+
+    def _log_error_detail(self, job: dict[str, Any], max_bytes: int = 4000) -> str:
+        job_dir = self._job_dir(str(job["id"]))
+        log_path = job_dir / str(job.get("log_relpath") or "job.log")
+        try:
+            with log_path.open("rb") as handle:
+                handle.seek(0, os.SEEK_END)
+                size = handle.tell()
+                handle.seek(max(0, size - max_bytes))
+                tail = handle.read().decode("utf-8", errors="replace")
+        except OSError:
+            return ""
+        lines = [line.strip() for line in tail.splitlines() if line.strip()]
+        if not lines:
+            return ""
+        error_lines = [line for line in lines if re.search(r"error|failed|traceback|실패|오류", line, re.IGNORECASE)]
+        candidates = error_lines[-3:] if error_lines else lines[-3:]
+        return "\n".join(candidates)[:800]
+
+    def _batch_status(self, job: dict[str, Any]) -> dict[str, Any] | None:
+        relpath = job.get("batch_status_relpath")
+        if not relpath:
+            return None
+        path = self._job_dir(str(job["id"])) / str(relpath)
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else None
+        except (OSError, ValueError, TypeError):
+            return None
 
     def _artifact_entries(self, job: dict[str, Any]) -> list[dict[str, Any]]:
         job_id = str(job["id"])
@@ -810,6 +849,25 @@ class JobManager:
         artifacts = self._artifact_entries(job)
         if str(job.get("job_type") or "audio") == "audio" and status != "completed":
             artifacts = []
+        batch_status = self._batch_status(job)
+        batch = None
+        if batch_status is not None:
+            completed = batch_status.get("completed") if isinstance(batch_status.get("completed"), list) else []
+            batch = {
+                "total": int(batch_status.get("total") or 0),
+                "targets": [str(name) for name in (batch_status.get("targets") or [])],
+                "current": batch_status.get("current"),
+                "current_index": batch_status.get("current_index"),
+                "completed": [
+                    {
+                        "name": str(item.get("name") or ""),
+                        "status": str(item.get("status") or "done"),
+                        "error": str(item.get("error") or "") or None,
+                    }
+                    for item in completed
+                    if isinstance(item, dict)
+                ],
+            }
         return {
             "id": job_id,
             "job_type": str(job.get("job_type") or "audio"),
@@ -821,8 +879,10 @@ class JobManager:
             "input_name": job.get("input_name"),
             "output_name": job.get("output_name"),
             "message": job.get("message"),
+            "error_detail": job.get("error_detail"),
             "return_code": job.get("return_code"),
             "settings": job.get("settings") if isinstance(job.get("settings"), dict) else {},
+            "batch": batch,
             "heartbeat": {
                 key: heartbeat.get(key)
                 for key in ("iso_time", "stage", "label", "section_prefix", "attempt", "detail")

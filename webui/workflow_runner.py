@@ -64,6 +64,31 @@ def beat(path: Path, *, stage: str, label: str = "", detail: str = "") -> None:
     )
 
 
+def write_batch_status(
+    path: Path | None,
+    *,
+    total: int,
+    targets: list[str],
+    current: str | None,
+    current_index: int | None,
+    completed: list[dict[str, str]],
+) -> None:
+    if path is None:
+        return
+    atomic_write_json(
+        path,
+        {
+            "iso_time": utc_now(),
+            "total": total,
+            "targets": targets,
+            "current": current,
+            "current_index": current_index,
+            "completed": completed,
+            "completed_count": len(completed),
+        },
+    )
+
+
 def run_child(command: list[str]) -> None:
     print("$ " + " ".join(command), flush=True)
     subprocess.run(command, cwd=ROOT, check=True, stdin=subprocess.DEVNULL)
@@ -99,6 +124,7 @@ def translation_command(
     work_dir: Path,
     heartbeat_file: Path,
     args: argparse.Namespace,
+    provider_fallback_state_dir: Path | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -126,6 +152,8 @@ def translation_command(
     ]
     if args.visible:
         command.append("--web-visible")
+    if provider_fallback_state_dir is not None:
+        command.extend(["--provider-fallback-state-dir", str(provider_fallback_state_dir)])
     return command
 
 
@@ -137,6 +165,7 @@ def translate_one(
     heartbeat_file: Path,
     args: argparse.Namespace,
     split_output_dirs: bool,
+    provider_fallback_state_dir: Path | None = None,
 ) -> list[dict[str, str]]:
     title = readable_stem(source)
     bilingual_dir = output_root / "[k-e]" if split_output_dirs else output_root
@@ -167,6 +196,7 @@ def translate_one(
                     work_dir=work_dir / "translation",
                     heartbeat_file=heartbeat_file,
                     args=args,
+                    provider_fallback_state_dir=provider_fallback_state_dir,
                 )
             )
             translated = True
@@ -346,9 +376,27 @@ def run_batch(args: argparse.Namespace) -> int:
     artifacts: list[dict[str, str]] = []
     failures: list[dict[str, str]] = []
     finished_registry = build_finished_registry(FINISHED_ROOT) if args.task == "batch_translation" else []
+    targets = [source.name for source in files]
+    completed_items: list[dict[str, str]] = []
+    write_batch_status(
+        args.batch_status_file,
+        total=len(files),
+        targets=targets,
+        current=None,
+        current_index=None,
+        completed=completed_items,
+    )
     for index, source in enumerate(files, start=1):
         label = f"{index}/{len(files)} {source.name}"
         beat(args.heartbeat_file, stage="batch_item_start", label=label, detail=args.task)
+        write_batch_status(
+            args.batch_status_file,
+            total=len(files),
+            targets=targets,
+            current=source.name,
+            current_index=index,
+            completed=completed_items,
+        )
         if args.task == "batch_translation" and source.is_file() and source.suffix.lower() == ".epub":
             metadata = extract_metadata_from_epub(source)
             match = find_finished_match(metadata["title"], metadata["author"], finished_registry)
@@ -360,6 +408,15 @@ def run_batch(args: argparse.Namespace) -> int:
                     flush=True,
                 )
                 beat(args.heartbeat_file, stage="batch_item_complete", label=f"{index}/{len(files)}", detail=source.name)
+                completed_items.append({"name": source.name, "status": "skipped"})
+                write_batch_status(
+                    args.batch_status_file,
+                    total=len(files),
+                    targets=targets,
+                    current=None,
+                    current_index=index,
+                    completed=completed_items,
+                )
                 continue
         item_work = args.work_dir.resolve() / f"{index:04d}_{readable_stem(source)[:80]}"
         try:
@@ -372,6 +429,7 @@ def run_batch(args: argparse.Namespace) -> int:
                         heartbeat_file=args.heartbeat_file.resolve(),
                         args=args,
                         split_output_dirs=True,
+                        provider_fallback_state_dir=args.work_dir.resolve(),
                     )
                 )
             else:
@@ -384,10 +442,20 @@ def run_batch(args: argparse.Namespace) -> int:
                         args=args,
                     )
                 )
+            completed_items.append({"name": source.name, "status": "done"})
         except Exception as exc:  # noqa: BLE001 - continue the remaining user-selected batch.
             failures.append({"source": source.name, "error": str(exc)})
             print(f"FAILED {source.name}: {exc}", flush=True)
+            completed_items.append({"name": source.name, "status": "failed", "error": str(exc)[:500]})
         beat(args.heartbeat_file, stage="batch_item_complete", label=f"{index}/{len(files)}", detail=source.name)
+        write_batch_status(
+            args.batch_status_file,
+            total=len(files),
+            targets=targets,
+            current=None,
+            current_index=index,
+            completed=completed_items,
+        )
     write_manifest(
         args.artifact_manifest_file,
         root=output_root,
@@ -411,6 +479,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--heartbeat-file", type=Path, required=True)
+    parser.add_argument("--batch-status-file", type=Path, default=None)
     parser.add_argument("--artifact-manifest-file", type=Path, required=True)
     parser.add_argument("--translation-provider", choices=("gemini", "chatgpt"), default="gemini")
     parser.add_argument("--translation-output", choices=("both", "korean", "bilingual"), default="both")

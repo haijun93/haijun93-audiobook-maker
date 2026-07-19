@@ -103,6 +103,9 @@ def make_manager(tmp_path: Path, *, start_worker: bool = True) -> JobManager:
         workflow_runner_script=workflow_runner,
         python_executable=sys.executable,
         start_worker=start_worker,
+        korean_root=tmp_path / "library" / "[k]",
+        bilingual_root=tmp_path / "library" / "[k-e]",
+        finished_root=tmp_path / "library" / "finished",
     )
 
 

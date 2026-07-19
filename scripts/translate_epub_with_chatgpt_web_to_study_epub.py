@@ -11,7 +11,7 @@ import time
 import uuid
 import zipfile
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import unquote
@@ -39,28 +39,37 @@ if str(ROOT_DIR) not in sys.path:
 
 from audiobook_maker import (  # noqa: E402
     CHATGPT_WEB_CHROME_PATH,
+    CLAUDE_WEB_CHROME_PATH,
     DEFAULT_CHATGPT_WEB_MAX_ATTEMPTS,
     GEMINI_WEB_CHROME_PATH,
     ProgressHeartbeat,
     beat_heartbeat,
     chatgpt_web_launch_args,
+    claude_web_session_available,
+    claude_web_usage_limit_message,
     classify_gemini_web_notice_text,
     extract_chatgpt_conversation_id,
+    extract_claude_web_conversation_id,
     extract_gemini_web_conversation_id,
     handle_chatgpt_web_page_notices,
     is_chatgpt_web_refusal_response,
     load_chatgpt_web_cookies,
     load_chatgpt_web_modules,
+    load_claude_web_cookies,
+    load_claude_web_modules,
     load_gemini_web_cookies,
     load_gemini_web_modules,
     normalize_chatgpt_web_copy,
     normalized_file_text,
     prepare_chatgpt_web_page,
+    prepare_claude_web_page,
     prepare_gemini_web_page,
     read_last_chatgpt_web_response,
     send_chatgpt_web_prompt,
+    send_claude_web_prompt,
     send_gemini_web_prompt,
     wait_for_chatgpt_web_response,
+    wait_for_claude_web_response,
     wait_for_gemini_web_response,
 )
 
@@ -72,6 +81,12 @@ ERROR_TAXONOMY_VERSION = 1
 WEB_PROVIDER_MARKER = ".translation_web_provider"
 GEMINI_MARKER_OPEN_TEMPLATE = "[[[BEGIN:{block_id}]]]"
 GEMINI_MARKER_CLOSE_TEMPLATE = "[[[END:{block_id}]]]"
+WEB_PROVIDERS = ("chatgpt", "gemini", "claude")
+OVERNIGHT_FALLBACK_PROVIDER = "claude"
+OVERNIGHT_FALLBACK_START_HOUR = 18
+OVERNIGHT_FALLBACK_END_HOUR = 9
+GEMINI_DOWN_RECHECK_SEC = 900
+PROVIDER_FALLBACK_STATE_FILE = "provider_fallback_state.json"
 
 
 @dataclass
@@ -117,10 +132,27 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-chars-per-chunk", type=int, default=8500)
     parser.add_argument("--request-timeout-sec", type=int, default=1200)
-    parser.add_argument("--web-provider", choices=("chatgpt", "gemini"))
+    parser.add_argument("--web-provider", choices=WEB_PROVIDERS)
     parser.add_argument("--chatgpt-web-chrome-path", default=CHATGPT_WEB_CHROME_PATH)
     parser.add_argument("--gemini-web-chrome-path", default=GEMINI_WEB_CHROME_PATH)
+    parser.add_argument("--claude-web-chrome-path", default=CLAUDE_WEB_CHROME_PATH)
     parser.add_argument("--web-visible", "--chatgpt-web-visible", dest="web_visible", action="store_true")
+    parser.add_argument(
+        "--disable-overnight-web-fallback",
+        action="store_true",
+        help=(
+            "야간(18:00~09:00) 및 주말(토/일 종일) 시간대에 Gemini 웹이 오류/일시 중단되어도 "
+            "Claude 웹으로 자동 전환하지 않습니다."
+        ),
+    )
+    parser.add_argument(
+        "--provider-fallback-state-dir",
+        type=Path,
+        help=(
+            "Gemini 일시 중단 상태를 기록할 공유 디렉터리(배치 작업 시 모든 도서가 같은 곳을 보게 "
+            "하여 도서마다 중단 상태를 다시 발견하지 않도록 함). 지정하지 않으면 --work-dir을 사용합니다."
+        ),
+    )
     parser.add_argument(
         "--web-max-attempts",
         "--chatgpt-web-max-attempts",
@@ -159,15 +191,15 @@ def resolve_work_dir(args: argparse.Namespace) -> Path:
 
 def resolve_web_provider(args: argparse.Namespace, work_dir: Path) -> str:
     requested = getattr(args, "web_provider", None)
-    if requested in {"chatgpt", "gemini"}:
+    if requested in WEB_PROVIDERS:
         return requested
     marker_path = work_dir / WEB_PROVIDER_MARKER
     if marker_path.exists():
         pinned = marker_path.read_text(encoding="utf-8").strip().lower()
-        if pinned in {"chatgpt", "gemini"}:
+        if pinned in WEB_PROVIDERS:
             return pinned
     configured = os.getenv("EPUB_TRANSLATION_WEB_PROVIDER", "gemini").strip().lower()
-    return configured if configured in {"chatgpt", "gemini"} else "gemini"
+    return configured if configured in WEB_PROVIDERS else "gemini"
 
 
 def persist_web_provider(work_dir: Path, provider: str) -> None:
@@ -176,6 +208,122 @@ def persist_web_provider(work_dir: Path, provider: str) -> None:
 
 def web_max_attempts(args: argparse.Namespace) -> int:
     return max(1, int(getattr(args, "web_max_attempts", getattr(args, "chatgpt_web_max_attempts", 5))))
+
+
+class OvernightProviderSwitch(Exception):
+    """Raised to interrupt the current browser session so it can relaunch on another web provider.
+
+    Gemini's overnight overload banners can persist for hours; rather than sleeping through
+    them, an active gemini session in the 18:00-09:00 window (or anytime on Sat/Sun) switches
+    to Claude web for the remaining chunks. The next session started by translate_missing_chunks
+    tries Gemini again first, so translation resumes on Gemini automatically once it recovers.
+    """
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def in_web_fallback_window(now: datetime) -> bool:
+    """True during the nightly 18:00-09:00 window on any day, and all day on Sat/Sun.
+
+    Weekends get all-day coverage because there's no need to protect daytime Gemini usage
+    from an automatic Claude switch-over on days without normal daytime work going on.
+    """
+    if now.weekday() >= 5:  # Saturday=5, Sunday=6
+        return True
+    hour = now.hour
+    if OVERNIGHT_FALLBACK_START_HOUR <= OVERNIGHT_FALLBACK_END_HOUR:
+        return OVERNIGHT_FALLBACK_START_HOUR <= hour < OVERNIGHT_FALLBACK_END_HOUR
+    return hour >= OVERNIGHT_FALLBACK_START_HOUR or hour < OVERNIGHT_FALLBACK_END_HOUR
+
+
+def overnight_web_fallback_enabled(args: argparse.Namespace) -> bool:
+    return not bool(getattr(args, "disable_overnight_web_fallback", False))
+
+
+def overnight_fallback_active(args: argparse.Namespace, provider: str) -> bool:
+    """Whether an active Gemini session should switch to Claude web right now.
+
+    Gates on: the configured provider being Gemini, the feature not being disabled, being
+    inside the fallback time window, and Claude actually having a usable browser session
+    (logged-in cookies present). That last check matters: without it, a session with no
+    Claude login would "switch" straight into another guaranteed failure instead of falling
+    back to the old cooldown-and-retry-Gemini behavior.
+    """
+    if provider != "gemini" or not overnight_web_fallback_enabled(args):
+        return False
+    if not in_web_fallback_window(datetime.now()):
+        return False
+    chrome_path = getattr(args, "claude_web_chrome_path", CLAUDE_WEB_CHROME_PATH)
+    return claude_web_session_available(chrome_path)
+
+
+def provider_fallback_state_dir(args: argparse.Namespace, work_dir: Path) -> Path:
+    """Directory used to persist the "Gemini is temporarily down" marker.
+
+    Batch runs process many books as separate subprocesses, each with its own --work-dir.
+    Without a shared location, every book would have to independently rediscover a Gemini
+    outage (3 consecutive temporary errors) before switching, instead of the whole batch
+    benefiting from what the previous book already learned. workflow_runner.py points this
+    at the batch job's root work directory; a single-book run just uses its own work_dir.
+    """
+    configured = getattr(args, "provider_fallback_state_dir", None)
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return work_dir
+
+
+def _provider_fallback_state_path(state_dir: Path) -> Path:
+    return state_dir / PROVIDER_FALLBACK_STATE_FILE
+
+
+def _read_provider_fallback_state(state_dir: Path) -> dict:
+    path = _provider_fallback_state_path(state_dir)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def mark_gemini_temporarily_down(state_dir: Path) -> None:
+    state = {
+        "gemini_down_until": (
+            datetime.now(timezone.utc) + timedelta(seconds=GEMINI_DOWN_RECHECK_SEC)
+        ).isoformat(),
+    }
+    path = _provider_fallback_state_path(state_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+
+def resolve_session_provider(args: argparse.Namespace, work_dir: Path) -> str:
+    """Effective web provider for the next browser session.
+
+    Only Gemini gets the overnight/weekend auto-fallback: outside the fallback window, when
+    the configured provider isn't Gemini, or when Claude has no usable session, this always
+    returns the configured provider unchanged.
+    """
+    base = active_web_provider(args)
+    if not overnight_fallback_active(args, base):
+        return base
+    state = _read_provider_fallback_state(provider_fallback_state_dir(args, work_dir))
+    down_until = state.get("gemini_down_until")
+    if down_until:
+        try:
+            if datetime.now(timezone.utc) < datetime.fromisoformat(down_until):
+                return OVERNIGHT_FALLBACK_PROVIDER
+        except ValueError:
+            pass
+    return "gemini"
+
+
+def args_with_provider(args: argparse.Namespace, provider: str) -> argparse.Namespace:
+    if active_web_provider(args) == provider:
+        return args
+    clone = argparse.Namespace(**vars(args))
+    clone.web_provider = provider
+    return clone
 
 
 def translation_prompt_for_provider(prompt: str, provider: str) -> str:
@@ -194,7 +342,13 @@ def translation_prompt_for_provider(prompt: str, provider: str) -> str:
 
 
 def prepare_translation_web_page(page, *, timeout_error_cls, args, heartbeat, label, section_prefix, attempt) -> None:
-    prepare = prepare_gemini_web_page if active_web_provider(args) == "gemini" else prepare_chatgpt_web_page
+    provider = active_web_provider(args)
+    if provider == "gemini":
+        prepare = prepare_gemini_web_page
+    elif provider == "claude":
+        prepare = prepare_claude_web_page
+    else:
+        prepare = prepare_chatgpt_web_page
     prepare(
         page,
         timeout_error_cls=timeout_error_cls,
@@ -1041,6 +1195,7 @@ def build_translation_prompt(
 7. 인과관계, 부정 표현, 숫자, 시간, 고유명사, 대명사의 지시대상을 빠뜨리지 않습니다.
 8. 서술문과 내면 독백은 특별한 문체적 이유가 없으면 한국어 소설의 평서형 '~다'체를 사용하고, '~요'체는 실제 대화에서만 사용합니다.
 9. 저작권, 발췌 출처, 추천사, 서지정보 문장도 생략하지 말고 번역하되 작품명, 인명, ISBN, URL은 원문 표기를 유지합니다.
+10. 대사에 사극(시대극)투 어미(예: ~하였소, ~하오, ~이오, ~하시오, ~했소, ~었소)를 쓰지 않습니다. 원문이 실제 사극/역사물 배경이 아닌 한, 현대 소설 대사처럼 자연스러운 반말/존댓말 어미(~해, ~했어, ~야, ~이에요 등)로 번역하세요.
 {guide_section}
 {context_section}
 
@@ -1209,6 +1364,16 @@ def is_missing_translation_error(exc: Exception) -> bool:
     )
 
 
+def is_prompt_interaction_error(exc: Exception) -> bool:
+    """페이지가 열렸지만 프롬프트 입력창을 찾거나 채우지 못한 경우(서비스 거부/한도 배너와는 무관한 UI 상태 문제)."""
+    message = str(exc)
+    return (
+        "프롬프트 입력에 실패" in message
+        or "입력창을 찾지 못했습니다" in message
+        or "프롬프트 입력창을 찾지 못" in message
+    )
+
+
 def classify_translation_web_error(
     exc: Exception,
     chunk: TranslationChunk | None = None,
@@ -1236,6 +1401,8 @@ def classify_translation_web_error(
         return "missing_translation_ids", "fresh_chat_then_subchunk_retry"
     if "translation_quality_failed" in lowered:
         return "translation_quality_failure", "fresh_chat_then_subchunk_retry"
+    if is_prompt_interaction_error(exc):
+        return "prompt_interaction_failed", "reload_page_with_longer_settle_then_retry"
     if "message_id" in lowered:
         return "missing_message_id", "fresh_chat_retry"
     if "응답 본문" in message or "시간 초과" in message or "timeout" in lowered:
@@ -1424,7 +1591,7 @@ WEB_REFUSAL_MARKERS = (
 
 def active_web_provider(args: argparse.Namespace) -> str:
     provider = str(getattr(args, "web_provider", "gemini") or "gemini").lower()
-    return provider if provider in {"chatgpt", "gemini"} else "gemini"
+    return provider if provider in WEB_PROVIDERS else "gemini"
 
 
 def is_translation_web_refusal_response(response: str, args: argparse.Namespace) -> bool:
@@ -1483,13 +1650,15 @@ def is_web_provider_pause_error(exc: Exception) -> bool:
 
 
 def web_provider_retry_sleep_seconds(exc: Exception, attempt: int) -> int:
-    kind = web_provider_error_kind(str(exc))
+    kind, _action = classify_translation_web_error(exc)
     if kind == "network_error":
         return min(30, 2 ** max(1, attempt))
     if kind == "temporary_service_error":
-        return min(60, 3 * (2 ** max(0, attempt - 1)))
+        return min(180, 5 * (2 ** max(0, attempt - 1)))
     if kind == "timeout_or_empty_response":
         return min(30, 3 * attempt)
+    if kind == "prompt_interaction_failed":
+        return min(45, 5 * attempt)
     return min(20, 2 * attempt)
 
 
@@ -1503,10 +1672,12 @@ def request_web_translation(
     heartbeat: ProgressHeartbeat | None,
     label: str,
     prefix: str,
+    work_dir: Path | None = None,
 ) -> tuple[str, str]:
     last_error: Exception | None = None
     active_prompt = prompt
     provider = active_web_provider(args)
+    consecutive_temporary_errors = 0
     for attempt in range(1, web_max_attempts(args) + 1):
         page = None
         try:
@@ -1535,6 +1706,36 @@ def request_web_translation(
                     attempt=attempt,
                 )
                 conversation_id = extract_gemini_web_conversation_id(page.url)
+            elif provider == "claude":
+                prepare_claude_web_page(page, timeout_error_cls=timeout_error_cls, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
+                previous_response_count, previous_response_text = send_claude_web_prompt(
+                    page,
+                    active_prompt,
+                    timeout_error_cls=timeout_error_cls,
+                    heartbeat=heartbeat,
+                    label=label,
+                    section_prefix=prefix,
+                    attempt=attempt,
+                )
+                try:
+                    response = wait_for_claude_web_response(
+                        page,
+                        previous_response_count=previous_response_count,
+                        previous_response_text=previous_response_text,
+                        timeout_sec=args.request_timeout_sec,
+                        heartbeat=heartbeat,
+                        label=label,
+                        section_prefix=prefix,
+                        attempt=attempt,
+                    )
+                except Exception as wait_exc:
+                    usage_limit_message = claude_web_usage_limit_message(page, wait_exc)
+                    if usage_limit_message:
+                        raise RuntimeError(
+                            f"Claude error_kind=usage_limit retry_action=wait_for_limit_refresh: {usage_limit_message[:700]}"
+                        ) from wait_exc
+                    raise
+                conversation_id = extract_claude_web_conversation_id(page.url)
             else:
                 prepare_chatgpt_web_page(page, timeout_error_cls=timeout_error_cls, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
                 send_chatgpt_web_prompt(page, active_prompt, timeout_error_cls=timeout_error_cls, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
@@ -1557,6 +1758,15 @@ def request_web_translation(
             beat_heartbeat(heartbeat, stage="translation_attempt_error", label=label, section_prefix=prefix, attempt=attempt, detail=str(exc)[:300])
             if is_web_provider_pause_error(exc) or web_provider_error_kind(str(exc)) == "prompt_too_long":
                 raise
+            error_kind, _action = classify_translation_web_error(exc)
+            consecutive_temporary_errors = consecutive_temporary_errors + 1 if error_kind == "temporary_service_error" else 0
+            if (
+                work_dir is not None
+                and consecutive_temporary_errors >= GEMINI_TEMP_ERROR_BURST_THRESHOLD
+                and overnight_fallback_active(args, provider)
+            ):
+                mark_gemini_temporarily_down(provider_fallback_state_dir(args, work_dir))
+                raise OvernightProviderSwitch("gemini_outage") from exc
             if is_refusal_error(exc) and refusal_retry_prompt and active_prompt != refusal_retry_prompt:
                 active_prompt = refusal_retry_prompt
                 beat_heartbeat(
@@ -1619,6 +1829,33 @@ def request_web_translation_on_prepared_page(
             attempt=attempt,
         )
         conversation_id = extract_gemini_web_conversation_id(page.url)
+    elif provider == "claude":
+        previous_response_count, previous_response_text = send_claude_web_prompt(
+            page,
+            prompt,
+            timeout_error_cls=timeout_error_cls,
+            heartbeat=heartbeat,
+            label=label,
+            section_prefix=prefix,
+            attempt=attempt,
+        )
+        try:
+            response = wait_for_claude_web_response(
+                page,
+                previous_response_count=previous_response_count,
+                previous_response_text=previous_response_text,
+                timeout_sec=args.request_timeout_sec,
+                heartbeat=heartbeat,
+                label=label,
+                section_prefix=prefix,
+                attempt=attempt,
+            )
+        except Exception as exc:
+            usage_limit_message = claude_web_usage_limit_message(page, exc)
+            if usage_limit_message:
+                raise RuntimeError(f"Claude error_kind=usage_limit retry_action=wait_for_limit_refresh: {usage_limit_message[:700]}") from exc
+            raise
+        conversation_id = extract_claude_web_conversation_id(page.url)
     else:
         previous_message_id, _ = read_last_chatgpt_web_response(page)
         send_chatgpt_web_prompt(
@@ -1948,6 +2185,7 @@ def translate_refused_chunk_in_subchunks(
                     heartbeat=heartbeat,
                     label=label,
                     prefix=prefix,
+                    work_dir=work_dir,
                 )
                 write_text(work_dir / "responses" / f"{prefix}_response.txt", response)
                 translations = parse_translation_response(response, subchunk.block_ids)
@@ -1993,7 +2231,7 @@ def translate_refused_chunk_in_subchunks(
                     attempt=quality_attempt,
                     detail=f"kind={kind}; action={action}; error={str(exc)[:220]}",
                 )
-                if is_web_provider_pause_error(exc) or quality_attempt >= 3:
+                if isinstance(exc, OvernightProviderSwitch) or is_web_provider_pause_error(exc) or quality_attempt >= 3:
                     raise
                 time.sleep(web_provider_retry_sleep_seconds(exc, quality_attempt))
         else:
@@ -2041,6 +2279,12 @@ def translate_refused_chunk_in_subchunks(
     )
 
 
+# temporary_service_error(예: Gemini 1095 배너)가 연달아 발생하면 짧은 지수 백오프로는
+# 서비스 부하가 해소되지 않는 경우가 많아, 일정 횟수 연속 실패 시 긴 냉각 시간을 둔다.
+GEMINI_TEMP_ERROR_BURST_THRESHOLD = 3
+GEMINI_TEMP_ERROR_COOLDOWN_SEC = 300
+
+
 def translate_missing_chunks_reusing_conversations(
     *,
     context,
@@ -2054,6 +2298,7 @@ def translate_missing_chunks_reusing_conversations(
 ) -> None:
     chunk_index = 0
     chunks_per_conversation = max(1, args.chunks_per_conversation)
+    consecutive_temporary_errors = 0
     while chunk_index < len(chunks):
         page = context.new_page()
         prepared = False
@@ -2148,6 +2393,7 @@ def translate_missing_chunks_reusing_conversations(
                         completed_on_page += 1
                         chunk_index += 1
                         chunk_completed = True
+                        consecutive_temporary_errors = 0
                         break
                     except Exception as exc:
                         last_error = exc
@@ -2170,10 +2416,13 @@ def translate_missing_chunks_reusing_conversations(
                         )
                         if is_web_provider_pause_error(exc):
                             raise
-                        if active_web_provider(args) == "gemini" and error_kind in {
-                            "missing_translation_ids",
-                            "translation_quality_failure",
-                        }:
+                        if error_kind == "prompt_too_long" or (
+                            active_web_provider(args) == "gemini"
+                            and error_kind in {
+                                "missing_translation_ids",
+                                "translation_quality_failure",
+                            }
+                        ):
                             fallback_after_attempts = exc
                             beat_heartbeat(
                                 heartbeat,
@@ -2244,15 +2493,48 @@ def translate_missing_chunks_reusing_conversations(
                         page = context.new_page()
                         prepared = False
                         completed_on_page = 0
-                        sleep_sec = web_provider_retry_sleep_seconds(exc, attempt)
-                        beat_heartbeat(
-                            heartbeat,
-                            stage="translation_retry_sleep",
-                            label=label,
-                            section_prefix=prefix,
-                            attempt=attempt,
-                            detail=f"sleep_sec={sleep_sec}; error={str(exc)[:240]}",
-                        )
+                        if error_kind == "temporary_service_error":
+                            consecutive_temporary_errors += 1
+                        else:
+                            consecutive_temporary_errors = 0
+                        if consecutive_temporary_errors >= GEMINI_TEMP_ERROR_BURST_THRESHOLD:
+                            if overnight_fallback_active(args, active_web_provider(args)):
+                                mark_gemini_temporarily_down(provider_fallback_state_dir(args, work_dir))
+                                beat_heartbeat(
+                                    heartbeat,
+                                    stage="translation_overnight_provider_switch",
+                                    label=label,
+                                    section_prefix=prefix,
+                                    attempt=attempt,
+                                    detail=(
+                                        f"{GEMINI_TEMP_ERROR_BURST_THRESHOLD}회 연속 temporary_service_error 발생; "
+                                        f"야간 시간대이므로 대기 없이 {OVERNIGHT_FALLBACK_PROVIDER} 웹으로 전환"
+                                    ),
+                                )
+                                raise OvernightProviderSwitch("gemini_outage") from exc
+                            sleep_sec = GEMINI_TEMP_ERROR_COOLDOWN_SEC
+                            consecutive_temporary_errors = 0
+                            beat_heartbeat(
+                                heartbeat,
+                                stage="translation_temporary_error_cooldown",
+                                label=label,
+                                section_prefix=prefix,
+                                attempt=attempt,
+                                detail=(
+                                    f"{GEMINI_TEMP_ERROR_BURST_THRESHOLD}회 연속 temporary_service_error 발생; "
+                                    f"{sleep_sec}초간 냉각 대기"
+                                ),
+                            )
+                        else:
+                            sleep_sec = web_provider_retry_sleep_seconds(exc, attempt)
+                            beat_heartbeat(
+                                heartbeat,
+                                stage="translation_retry_sleep",
+                                label=label,
+                                section_prefix=prefix,
+                                attempt=attempt,
+                                detail=f"sleep_sec={sleep_sec}; error={str(exc)[:240]}",
+                            )
                         time.sleep(sleep_sec)
                 if chunk_completed:
                     continue
@@ -2304,7 +2586,7 @@ def translate_missing_chunks_reusing_conversations(
             close_page_quietly(page)
 
 
-def translate_missing_chunks(
+def _translate_missing_chunks_session(
     *,
     args: argparse.Namespace,
     work_dir: Path,
@@ -2319,6 +2601,10 @@ def translate_missing_chunks(
         browser_cookie3, sync_playwright, timeout_error_cls = load_gemini_web_modules()
         cookies = load_gemini_web_cookies(browser_cookie3)
         chrome_path = args.gemini_web_chrome_path
+    elif provider == "claude":
+        browser_cookie3, sync_playwright, timeout_error_cls = load_claude_web_modules()
+        cookies = load_claude_web_cookies(browser_cookie3)
+        chrome_path = args.claude_web_chrome_path
     else:
         browser_cookie3, sync_playwright, timeout_error_cls = load_chatgpt_web_modules()
         cookies = load_chatgpt_web_cookies(browser_cookie3)
@@ -2389,6 +2675,7 @@ def translate_missing_chunks(
                     heartbeat=heartbeat,
                     label=f"번역 {chunk.index}/{len(chunks)}",
                     prefix=prefix,
+                    work_dir=work_dir,
                 )
                 write_text(work_dir / "responses" / f"{prefix}_response.txt", response)
                 translations = parse_translation_response(response, chunk.block_ids)
@@ -2467,6 +2754,49 @@ def translate_missing_chunks(
             if context is not None:
                 context.close()
             browser.close()
+
+
+def translate_missing_chunks(
+    *,
+    args: argparse.Namespace,
+    work_dir: Path,
+    book_title: str,
+    creator: str,
+    blocks: list[SourceBlock],
+    chunks: list[TranslationChunk],
+    heartbeat: ProgressHeartbeat | None,
+) -> None:
+    """Run (and resume) the translation browser session, switching web providers on demand.
+
+    Normally this launches one browser session for the configured provider and runs until every
+    chunk is translated. When the configured provider is Gemini and it's inside the fallback
+    window (18:00-09:00 nightly, or anytime on Sat/Sun) and Claude has a usable session, a Gemini
+    outage raises OvernightProviderSwitch instead of sleeping through a long cooldown; this loop
+    catches it, relaunches the browser on Claude web, and resumes from the on-disk chunk cache.
+    Each new session tries Gemini again first, so once Gemini recovers translation resumes on
+    Gemini automatically.
+    """
+    while True:
+        session_provider = resolve_session_provider(args, work_dir)
+        session_args = args_with_provider(args, session_provider)
+        try:
+            _translate_missing_chunks_session(
+                args=session_args,
+                work_dir=work_dir,
+                book_title=book_title,
+                creator=creator,
+                blocks=blocks,
+                chunks=chunks,
+                heartbeat=heartbeat,
+            )
+            return
+        except OvernightProviderSwitch as switch:
+            beat_heartbeat(
+                heartbeat,
+                stage="translation_overnight_provider_switch_resume",
+                detail=f"reason={switch.reason}; previous_provider={session_provider}",
+            )
+            continue
 
 
 def strip_source_watermarks(text: str) -> str:

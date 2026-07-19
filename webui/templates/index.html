@@ -287,6 +287,28 @@
         </div>
         <div class="detail-meta" id="detail-meta"></div>
         <div class="progress-track large" id="detail-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="detail-progress"></span></div>
+
+        <div id="detail-error" class="detail-error" role="alert" hidden>
+          <strong data-i18n="failureReason">실패 원인</strong>
+          <pre id="detail-error-text"></pre>
+        </div>
+
+        <section id="batch-progress" class="batch-progress" hidden>
+          <div class="batch-progress-summary">
+            <div class="batch-stat"><strong id="batch-total">0</strong><span data-i18n="batchTargets">대상 파일</span></div>
+            <div class="batch-stat"><strong id="batch-completed-count">0</strong><span data-i18n="batchCompleted">완료</span></div>
+            <div class="batch-stat"><strong id="batch-failed-count">0</strong><span data-i18n="batchFailedCount">실패</span></div>
+          </div>
+          <div class="batch-current" id="batch-current" hidden>
+            <span class="batch-current-label" data-i18n="batchCurrent">작업 중</span>
+            <strong id="batch-current-name"></strong>
+          </div>
+          <details class="batch-file-list">
+            <summary><span data-i18n="batchFileList">파일 목록</span></summary>
+            <div id="batch-files" class="batch-files"></div>
+          </details>
+        </section>
+
         <div class="detail-actions" id="detail-actions"></div>
         <div class="artifact-list" id="artifact-list"></div>
         <audio id="audio-player" controls preload="metadata" hidden></audio>

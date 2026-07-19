@@ -21,6 +21,9 @@ const STRINGS = {
     progress: "진행률", confirmDelete: "이 작업과 내부 저장 결과를 삭제할까요? 외부 폴더의 결과물은 유지됩니다.",
     folderFound: "{total}개 파일 · {counts}", folderEmpty: "지원되는 파일이 없습니다", artifacts: "결과 파일",
     audioJob: "오디오", translationJob: "번역", batchTranslationJob: "일괄 번역", batchAudioJob: "일괄 오디오",
+    batchTargets: "대상 파일", batchCompleted: "완료", batchFailedCount: "실패", batchCurrent: "작업 중",
+    batchFileList: "파일 목록", batchStatusDone: "완료", batchStatusFailed: "실패", batchStatusSkipped: "건너뜀",
+    batchStatusPending: "대기", failureReason: "실패 원인",
   },
   en: {
     brandSub: "Korean Audiobook Maker", newJob: "New job", taskAudio: "Audio", taskTranslation: "Translate",
@@ -44,6 +47,9 @@ const STRINGS = {
     progress: "Progress", confirmDelete: "Delete this job and internally stored output? Files in external folders are kept.",
     folderFound: "{total} files · {counts}", folderEmpty: "No supported files found", artifacts: "Output files",
     audioJob: "Audio", translationJob: "Translation", batchTranslationJob: "Batch translation", batchAudioJob: "Batch audio",
+    batchTargets: "Target files", batchCompleted: "Completed", batchFailedCount: "Failed", batchCurrent: "In progress",
+    batchFileList: "File list", batchStatusDone: "Done", batchStatusFailed: "Failed", batchStatusSkipped: "Skipped",
+    batchStatusPending: "Pending", failureReason: "Failure reason",
   },
 };
 
@@ -277,6 +283,45 @@ function renderArtifacts(job) {
     </div>`).join("") : "";
 }
 
+function renderBatchProgress(job) {
+  const panel = $("#batch-progress");
+  const batch = job.batch;
+  if (!batch || !batch.total) { panel.hidden = true; return; }
+  panel.hidden = false;
+  $("#batch-total").textContent = batch.total;
+  const completedByName = new Map((batch.completed || []).map((item) => [item.name, item]));
+  const failedCount = (batch.completed || []).filter((item) => item.status === "failed").length;
+  const doneCount = (batch.completed || []).length - failedCount;
+  $("#batch-completed-count").textContent = doneCount;
+  $("#batch-failed-count").textContent = failedCount;
+  const currentNode = $("#batch-current");
+  if (batch.current) {
+    currentNode.hidden = false;
+    $("#batch-current-name").textContent = batch.current;
+  } else {
+    currentNode.hidden = true;
+  }
+  const statusLabel = { done: t("batchStatusDone"), failed: t("batchStatusFailed"), skipped: t("batchStatusSkipped") };
+  $("#batch-files").innerHTML = (batch.targets || []).map((name) => {
+    const item = completedByName.get(name);
+    const status = item?.status;
+    const isCurrent = !status && batch.current === name;
+    const cls = isCurrent ? "current" : (status || "pending");
+    const label = isCurrent ? t("batchCurrent") : (statusLabel[status] || t("batchStatusPending"));
+    const errorLine = status === "failed" && item?.error
+      ? `<span class="batch-file-error">${escapeHtml(item.error)}</span>` : "";
+    return `
+      <div class="batch-file-row ${cls}">
+        <span class="batch-file-dot" aria-hidden="true"></span>
+        <span class="batch-file-main">
+          <span class="batch-file-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+          ${errorLine}
+        </span>
+        <span class="batch-file-status">${escapeHtml(label)}</span>
+      </div>`;
+  }).join("");
+}
+
 function renderDetail() {
   const panel = $("#job-detail");
   const job = state.jobs.find((item) => item.id === state.selectedId);
@@ -294,6 +339,13 @@ function renderDetail() {
     jobTypeLabel(job.job_type), statusLabel(job.status), settings.provider || settings.translation_provider, settings.voice,
     heartbeat.label || heartbeat.stage || job.message,
   ].filter(Boolean).map((value) => `<span>${escapeHtml(String(value).replaceAll("_", " "))}</span>`).join("");
+
+  const errorPanel = $("#detail-error");
+  const errorText = job.status === "failed" ? (job.error_detail || job.message || "") : "";
+  errorPanel.hidden = !errorText;
+  $("#detail-error-text").textContent = errorText;
+
+  renderBatchProgress(job);
 
   const actions = $("#detail-actions");
   actions.innerHTML = "";
