@@ -5,6 +5,7 @@ import argparse
 import re
 import subprocess
 import sys
+import threading
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
@@ -370,32 +371,38 @@ def run_single_translation(args: argparse.Namespace) -> int:
     return 0
 
 
-def start_draft_lookahead(source: Path, *, work_dir: Path, args: argparse.Namespace) -> subprocess.Popen | None:
-    """Kick off the next queued book's Ollama draft pass in the background while the current
-    book is still busy with the (much slower, network-bound) Gemini/ChatGPT polish step.
+def run_draft_lookahead_queue(files: list[Path], args: argparse.Namespace) -> None:
+    """Run the local Ollama draft pass for every queued book, one after another, as its own
+    independent process - not paced by, or limited to looking one book ahead of, the main
+    polish loop below.
 
     Gemini itself stays strictly single-session (see provider_fallback_state_dir/the
-    single-session lock in the translation script) - this only parallelizes the local Ollama
-    draft stage, which sits otherwise idle for the entire polish phase of the current book.
-    Skipped for non-.epub sources since those need format conversion first; the main pass
-    handles that normally, just without the pre-draft speed benefit.
+    single-session lock in the translation script); this only parallelizes the local Ollama
+    draft stage against it. Ollama has a single decode slot, so these still run strictly
+    sequentially here too - the point isn't concurrent Ollama calls, it's that Ollama keeps
+    working through the whole remaining queue instead of sitting idle whenever the main loop
+    is stuck waiting on a slow Gemini/ChatGPT response for whichever book it's currently on.
+    Skipped for non-.epub sources (need format conversion first); the main pass handles those
+    normally, just without the pre-draft speed benefit. Meant to be run in a background thread.
     """
-    if source.suffix.lower() != ".epub":
-        return None
-    work_dir.mkdir(parents=True, exist_ok=True)
-    command = [
-        sys.executable,
-        str(SCRIPTS_DIR / "translate_epub_with_chatgpt_web_to_study_epub.py"),
-        "--input-epub", str(source),
-        "--output-epub", str(work_dir / "_lookahead_unused.epub"),
-        "--work-dir", str(work_dir / "translation"),
-        "--draft-only",
-        "--max-chars-per-chunk", str(args.max_chars),
-    ]
-    try:
-        return subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError:
-        return None
+    for index, source in enumerate(files, start=1):
+        if source.suffix.lower() != ".epub":
+            continue
+        item_work = args.work_dir.resolve() / f"{index:04d}_{readable_stem(source)[:80]}"
+        item_work.mkdir(parents=True, exist_ok=True)
+        command = [
+            sys.executable,
+            str(SCRIPTS_DIR / "translate_epub_with_chatgpt_web_to_study_epub.py"),
+            "--input-epub", str(source),
+            "--output-epub", str(item_work / "_lookahead_unused.epub"),
+            "--work-dir", str(item_work / "translation"),
+            "--draft-only",
+            "--max-chars-per-chunk", str(args.max_chars),
+        ]
+        try:
+            subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            continue
 
 
 def run_batch(args: argparse.Namespace) -> int:
@@ -426,18 +433,11 @@ def run_batch(args: argparse.Namespace) -> int:
         current_index=None,
         completed=completed_items,
     )
-    lookahead_procs: list[subprocess.Popen] = []
-    lookahead_started_for: set[int] = set()
+    if args.task == "batch_translation":
+        threading.Thread(target=run_draft_lookahead_queue, args=(files, args), daemon=True).start()
     for index, source in enumerate(files, start=1):
         label = f"{index}/{len(files)} {source.name}"
         beat(args.heartbeat_file, stage="batch_item_start", label=label, detail=args.task)
-        if args.task == "batch_translation" and index < len(files) and (index + 1) not in lookahead_started_for:
-            next_source = files[index]
-            next_item_work = args.work_dir.resolve() / f"{index + 1:04d}_{readable_stem(next_source)[:80]}"
-            proc = start_draft_lookahead(next_source, work_dir=next_item_work, args=args)
-            lookahead_started_for.add(index + 1)
-            if proc is not None:
-                lookahead_procs.append(proc)
         write_batch_status(
             args.batch_status_file,
             total=len(files),
