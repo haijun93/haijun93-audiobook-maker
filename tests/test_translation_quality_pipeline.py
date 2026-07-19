@@ -67,12 +67,53 @@ def test_song_credit_can_intentionally_remain_in_english() -> None:
         "Excerpt from Love on the Brain copyright © 2021 by Ali Hazelwood",
         "LESSONS IN SIN © 2021 by Pam Godwin",
         "This is a work of fiction. Names, characters, places, and incidents are products of the author's imagination.",
+        "First published in the UK in 2024 by Head of Zeus Ltd, part of Bloomsbury Publishing Plc.",
+        "The moral right of Ian Green to be identified as the author of this work has been asserted in accordance with the Copyright, Designs and Patents Act of 1988.",
+        "All rights reserved. No part of this publication may be reproduced, stored in a retrieval system, or transmitted in any form or by any means, electronic, mechanical, photocopying, recording, or otherwise, without the prior permission of both the copyright owner and the above publisher of this book.",
+        "A catalogue record for this book is available from the British Library.",
+        "Chapter Illustrations: Shutterstock",
     ],
 )
 def test_frontmatter_metadata_may_preserve_official_english(source: str) -> None:
     result = assess_translations({"B1": source}, {"B1": source})
 
     assert result.severe_count == 0
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Barnes & Noble, Inc. 122 Fifth Avenue New York, NY 10011",
+        "1745 Broadway, New York, New York 10019",
+        "linkedin.com/company/penguin-random-house-uk",
+    ],
+)
+def test_publisher_address_and_bare_domain_may_remain_untranslated(source: str) -> None:
+    result = assess_translations({"B1": source}, {"B1": source})
+
+    assert result.severe_count == 0
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "The Anthropocene Reviewed: Essays on a Human-Centered Planet",
+        "“Earl Aubec of Malador: Outline for a Series of Four Fantasy Novels”",
+    ],
+)
+def test_bare_title_subtitle_line_may_remain_untranslated(source: str) -> None:
+    result = assess_translations({"B1": source}, {"B1": source})
+
+    assert result.severe_count == 0
+
+
+def test_title_case_heuristic_does_not_shield_real_untranslated_dialogue() -> None:
+    source = "He looked at her and said: I never wanted any of this to happen between us and I am truly sorry for everything"
+
+    result = assess_translations({"B1": source}, {"B1": source})
+
+    assert result.severe_count == 1
+    assert result.findings[0].code == "untranslated_identity"
 
 
 def test_repeated_long_translation_is_detected() -> None:

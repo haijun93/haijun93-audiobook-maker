@@ -49,10 +49,43 @@ FRONTMATTER_METADATA_RE = re.compile(
     r"(?:names?|title|description|identifiers?|subjects?|classification):\s|"
     r"lc\s+(?:ebook\s+)?record\b|first\s+edition\b|cover\s+(?:art|illustration|design)\b|"
     r"book\s+design\b|this\s+is\s+a\s+work\s+of\s+fiction\b|"
-    r"penguin\s+random\s+house\s+supports\s+copyright\b"
+    r"penguin\s+random\s+house\s+supports\s+copyright\b|"
+    r"first\s+published\b|all\s+rights\s+reserved\b|the\s+moral\s+right\b|"
+    r"(?:a\s+)?catalogue\s+record\b|cataloguing[\s-]in[\s-]publication\b|"
+    r"chapter\s+illustrations?:"
     r")",
     re.IGNORECASE,
 )
+# Bare company/social domains without a scheme or "www." prefix (e.g. publisher social
+# links like "linkedin.com/company/..." dropped into front matter) should be left alone
+# just like the https://-prefixed URLs the prose check already exempts below.
+BARE_DOMAIN_RE = re.compile(r"\b[a-z0-9][a-z0-9-]{1,62}\.(?:com|net|org|io|co|edu|gov)\b", re.IGNORECASE)
+# Publisher mailing addresses ("122 Fifth Avenue New York, NY 10011", "1745 Broadway,
+# New York, New York 10019") are proper nouns/numbers with no real sentence to translate.
+ADDRESS_RE = re.compile(
+    r"\b\d{1,6}\s+(?:[A-Z][a-zA-Z']*\s+){0,3}"
+    r"(?:Avenue|Ave\.?|Street|St\.?|Broadway|Boulevard|Blvd\.?|Road|Rd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Place|Pl\.?|Suite|Floor)\b"
+    r".{0,40}\b\d{5}(?:-\d{4})?\b",
+)
+# A short quoted-or-bare "Title: Subtitle" line (in-story document titles, "also by"
+# bibliography entries) has no sentence punctuation to translate and should keep its
+# official English title per the translation prompt's title-preservation rule.
+TITLE_SUBTITLE_MINOR_WORDS = {
+    "a", "an", "the", "of", "in", "on", "for", "and", "or", "to", "from", "with", "at", "by",
+}
+
+
+def is_bare_title_subtitle_line(text: str) -> bool:
+    stripped = text.strip().strip("\"“”'")
+    if not stripped or len(stripped) > 140 or ":" not in stripped:
+        return False
+    if re.search(r"[.!?]", stripped):
+        return False
+    words = re.findall(r"[A-Za-z][A-Za-z'’-]*", stripped)
+    if len(words) < 3:
+        return False
+    capitalized = sum(1 for word in words if word[0].isupper() or word.lower() in TITLE_SUBTITLE_MINOR_WORDS)
+    return capitalized / len(words) >= 0.9
 
 
 def find_refusal_marker(text: str) -> str:
@@ -105,6 +138,10 @@ def is_prose_source(text: str) -> bool:
     if re.fullmatch(r"[“\"].{2,100}[”\"]\s+by\s+.{2,100}", text, flags=re.IGNORECASE):
         return False
     if re.search(r"(?:https?://|www\.|\bISBN\b|@\w+[.]\w+)", text, flags=re.IGNORECASE):
+        return False
+    if BARE_DOMAIN_RE.search(text) or ADDRESS_RE.search(text):
+        return False
+    if is_bare_title_subtitle_line(text):
         return False
     return len(text) >= 35 and len(LATIN_RE.findall(text)) >= 20 and not is_separator_text(text)
 
