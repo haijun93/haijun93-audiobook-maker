@@ -24,6 +24,10 @@ const STRINGS = {
     batchTargets: "대상 파일", batchCompleted: "완료", batchFailedCount: "실패", batchCurrent: "작업 중",
     batchFileList: "파일 목록", batchStatusDone: "완료", batchStatusFailed: "실패", batchStatusSkipped: "건너뜀",
     batchStatusPending: "대기", failureReason: "실패 원인",
+    stageOllamaDraft: "Gemma 초벌 번역 완료 → Gemini 문체 다듬는 중", stageOllamaFailed: "Gemma 사용 불가 → 웹 provider가 직접 번역",
+    stageBrowserLaunch: "번역 브라우저 시작 중", stageWaiting: "웹 번역 응답 대기 중", stagePacing: "다음 요청 대기 중",
+    stagePolishDone: "번역 응답 수신", stageRetrying: "재시도 중", stageFallbackSwitch: "Gemini 과부하 → ChatGPT 웹으로 전환",
+    stageGuidePrep: "인물관계/용어 가이드 준비 중", stageFinalReview: "최종 검수 중(말투·용어 일관성)", stageComplete: "완료",
   },
   en: {
     brandSub: "Korean Audiobook Maker", newJob: "New job", taskAudio: "Audio", taskTranslation: "Translate",
@@ -50,6 +54,10 @@ const STRINGS = {
     batchTargets: "Target files", batchCompleted: "Completed", batchFailedCount: "Failed", batchCurrent: "In progress",
     batchFileList: "File list", batchStatusDone: "Done", batchStatusFailed: "Failed", batchStatusSkipped: "Skipped",
     batchStatusPending: "Pending", failureReason: "Failure reason",
+    stageOllamaDraft: "Gemma draft done -> Gemini polishing", stageOllamaFailed: "Gemma unavailable -> web provider translating directly",
+    stageBrowserLaunch: "Launching translation browser", stageWaiting: "Waiting for web response", stagePacing: "Pacing before next request",
+    stagePolishDone: "Response received", stageRetrying: "Retrying", stageFallbackSwitch: "Gemini overloaded -> switched to ChatGPT web",
+    stageGuidePrep: "Preparing relationship/terminology guide", stageFinalReview: "Final review (tone/terminology consistency)", stageComplete: "Complete",
   },
 };
 
@@ -237,6 +245,59 @@ function jobTypeLabel(type) {
   return t({ audio: "audioJob", translation: "translationJob", batch_translation: "batchTranslationJob", batch_audio: "batchAudioJob" }[type] || "audioJob");
 }
 
+const PIPELINE_STAGE_MAP = {
+  ollama_draft_ready: "stageOllamaDraft",
+  ollama_draft_failed: "stageOllamaFailed",
+  translation_browser_launch: "stageBrowserLaunch",
+  translation_attempt_start: "stageWaiting",
+  wait_for_response: "stageWaiting",
+  translation_request_pacing: "stagePacing",
+  translation_response_received: "stagePolishDone",
+  translation_retry_sleep: "stageRetrying",
+  translation_temporary_error_cooldown: "stageRetrying",
+  translation_overnight_provider_switch: "stageFallbackSwitch",
+  translation_overnight_provider_switch_resume: "stageFallbackSwitch",
+  translation_gemini_subchunk_early: "stageRetrying",
+  translation_refusal_subchunk_early: "stageRetrying",
+  translation_literary_retry_prompt: "stageRetrying",
+  translation_minor_context_retry_prompt: "stageRetrying",
+  translation_subchunk_error: "stageRetrying",
+  relationship_guide_start: "stageGuidePrep",
+  relationship_guide_cached: "stageGuidePrep",
+  relationship_guide_complete: "stageGuidePrep",
+  relationship_guide_incomplete: "stageGuidePrep",
+  relationship_guide_request_error: "stageGuidePrep",
+  relationship_guide_local_fallback: "stageGuidePrep",
+  relationship_guide_cache_invalid: "stageGuidePrep",
+  final_tone_review_complete: "stageFinalReview",
+  final_tone_review_failed: "stageFinalReview",
+  final_dialogue_review_pass2_complete: "stageFinalReview",
+  final_dialogue_review_pass2_failed: "stageFinalReview",
+  final_terminology_review_complete: "stageFinalReview",
+  final_terminology_review_failed: "stageFinalReview",
+  complete: "stageComplete",
+};
+
+const PIPELINE_STAGE_KIND = {
+  ollama_draft_ready: "gemma",
+  ollama_draft_failed: "fallback",
+  translation_overnight_provider_switch: "fallback",
+  translation_overnight_provider_switch_resume: "fallback",
+  final_tone_review_complete: "review",
+  final_tone_review_failed: "review",
+  final_dialogue_review_pass2_complete: "review",
+  final_dialogue_review_pass2_failed: "review",
+  final_terminology_review_complete: "review",
+  final_terminology_review_failed: "review",
+  complete: "done",
+};
+
+function pipelineStageInfo(heartbeat) {
+  const stage = heartbeat?.stage;
+  if (!stage || !PIPELINE_STAGE_MAP[stage]) return null;
+  return { label: t(PIPELINE_STAGE_MAP[stage]) || stage, kind: PIPELINE_STAGE_KIND[stage] || "gemini" };
+}
+
 function renderSummary() {
   $("#active-count").textContent = state.jobs.filter((job) => activeStatus(job.status)).length;
   $("#done-count").textContent = state.jobs.filter((job) => job.status === "completed").length;
@@ -339,6 +400,16 @@ function renderDetail() {
     jobTypeLabel(job.job_type), statusLabel(job.status), settings.provider || settings.translation_provider, settings.voice,
     heartbeat.label || heartbeat.stage || job.message,
   ].filter(Boolean).map((value) => `<span>${escapeHtml(String(value).replaceAll("_", " "))}</span>`).join("");
+
+  const stageNode = $("#pipeline-stage");
+  const stageInfo = activeStatus(job.status) ? pipelineStageInfo(heartbeat) : null;
+  if (stageInfo) {
+    stageNode.hidden = false;
+    stageNode.className = `pipeline-stage kind-${stageInfo.kind}`;
+    $("#pipeline-stage-label").textContent = stageInfo.label;
+  } else {
+    stageNode.hidden = true;
+  }
 
   const errorPanel = $("#detail-error");
   const errorText = job.status === "failed" ? (job.error_detail || job.message || "") : "";

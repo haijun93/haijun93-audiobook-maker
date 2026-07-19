@@ -286,6 +286,10 @@
           <button class="icon-button" id="close-detail" type="button" title="Close" aria-label="Close"><img class="ui-icon" src="{{ url_for('static', filename='icons/x.svg') }}" alt=""></button>
         </div>
         <div class="detail-meta" id="detail-meta"></div>
+        <div class="pipeline-stage" id="pipeline-stage" hidden>
+          <span class="pipeline-stage-dot" id="pipeline-stage-dot" aria-hidden="true"></span>
+          <span id="pipeline-stage-label"></span>
+        </div>
         <div class="progress-track large" id="detail-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="detail-progress"></span></div>
 
         <div id="detail-error" class="detail-error" role="alert" hidden>
