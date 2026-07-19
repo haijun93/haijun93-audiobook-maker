@@ -14,6 +14,13 @@ def test_readable_stem_preserves_title_words() -> None:
     assert workflow_runner.readable_stem(Path("[e]The_Memory-Book.epub")) == "The Memory Book"
 
 
+def test_readable_stem_strips_oceanofpdf_watermark() -> None:
+    assert (
+        workflow_runner.readable_stem(Path("_OceanofPDF.com_Buckled_-_Pam_Godwin.epub"))
+        == "Buckled Pam Godwin"
+    )
+
+
 def test_prepare_epub_reflows_english_pdf(tmp_path: Path) -> None:
     source = tmp_path / "lecture.pdf"
     document = fitz.open()

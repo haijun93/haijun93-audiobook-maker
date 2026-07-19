@@ -24,7 +24,8 @@ TEXT_EXTENSIONS = (
 )
 WATERMARK_PATTERN = re.compile(
     r"(?<![A-Za-z0-9])(?:www\s*\.\s*)?readrobe\s*(?:\.\s*|\s+)com(?![A-Za-z0-9])"
-    r"|리드\s*로브\s*(?:닷\s*컴|\.\s*(?:com|컴)|dot\s*com)",
+    r"|리드\s*로브\s*(?:닷\s*컴|\.\s*(?:com|컴)|dot\s*com)"
+    r"|(?<![A-Za-z0-9])(?:www\s*\.\s*)?oceanofpdf\s*(?:\.\s*|\s+)com(?![A-Za-z0-9])",
     re.I,
 )
 # Compatibility alias for existing importers.

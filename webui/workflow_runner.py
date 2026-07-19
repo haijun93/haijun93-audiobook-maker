@@ -47,6 +47,9 @@ def utc_now() -> str:
 def readable_stem(path: Path) -> str:
     stem = unicodedata.normalize("NFKC", path.stem)
     stem = re.sub(r"^\[(?:e|s|k|k-e)\]\s*", "", stem, flags=re.IGNORECASE)
+    # Piracy-site watermark ("_OceanofPDF.com_...") baked into the downloaded filename - strip it
+    # so it never leaks into generated output filenames or per-book work directory names.
+    stem = re.sub(r"(?i)[_\s]*oceanofpdf[._\s-]*com[_\s]*", " ", stem)
     stem = re.sub(r"[_-]+", " ", stem)
     stem = re.sub(r"\s+", " ", stem).strip()
     stem = re.sub(r"[\\/:*?\"<>|]+", "", stem)

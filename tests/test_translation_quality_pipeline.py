@@ -623,3 +623,17 @@ def test_readrobe_watermark_is_removed_during_epub_build() -> None:
     assert strip_source_watermarks("READROBE.COM") == ""
     assert strip_source_watermarks("리드로브닷컴") == ""
     assert strip_source_watermarks("Visit www.readrobe . com now") == "Visit now"
+
+
+def test_oceanofpdf_watermark_paragraphs_are_dropped_before_translation() -> None:
+    xhtml = (
+        b"<html><body>"
+        b"<p>Real chapter content that should survive.</p>"
+        b'<div><p><a href="https://oceanofpdf.com"><i>OceanofPDF.com</i></a></p></div>'
+        b"<p>More real content.</p>"
+        b"</body></html>"
+    )
+
+    blocks = translator.blocks_from_xhtml(xhtml)
+
+    assert blocks == ["Real chapter content that should survive.", "More real content."]

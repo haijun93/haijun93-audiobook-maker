@@ -15,6 +15,15 @@ def test_scrub_text_removes_english_and_korean_watermark_variants() -> None:
     assert not WATERMARK_PATTERN.search(cleaned)
 
 
+def test_scrub_text_removes_oceanofpdf_watermark_variants() -> None:
+    source = "OceanofPDF.com / www.oceanofpdf . com / https://oceanofpdf.com link"
+
+    cleaned, count = scrub_text(source)
+
+    assert count == 3
+    assert not WATERMARK_PATTERN.search(cleaned)
+
+
 def test_scrub_epub_removes_watermarks_and_preserves_valid_archive(tmp_path: Path) -> None:
     epub = tmp_path / "sample.epub"
     with zipfile.ZipFile(epub, "w") as archive:

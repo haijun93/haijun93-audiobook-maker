@@ -585,12 +585,23 @@ def parse_ncx_nav(resources: dict[str, bytes], spine_hrefs: list[str]) -> list[t
     return deduped
 
 
+PIRACY_WATERMARK_RE = re.compile(r"^\W*oceanofpdf\W*com\W*$", re.IGNORECASE)
+
+
+def is_piracy_watermark_block(text: str) -> bool:
+    """Piracy sites like OceanofPDF.com stamp a standalone link/line into nearly every
+    chapter of the books they redistribute. It carries no book content, but a naive
+    tag-based extraction picks it up as its own paragraph block and it rides along
+    through translation into the generated EPUB otherwise."""
+    return bool(PIRACY_WATERMARK_RE.match(text))
+
+
 def blocks_from_xhtml(data: bytes) -> list[str]:
     soup = BeautifulSoup(data, "html.parser")
     blocks: list[str] = []
     for tag in soup.find_all(["h1", "h2", "h3", "p", "blockquote", "li"]):
         text = clean_text(tag.get_text(" ", strip=True))
-        if text:
+        if text and not is_piracy_watermark_block(text):
             blocks.append(text)
     if blocks:
         return blocks
@@ -599,7 +610,7 @@ def blocks_from_xhtml(data: bytes) -> list[str]:
     text = clean_text(body.get_text(" ", strip=True))
     if not text:
         return []
-    return split_plain_text_blocks(text)
+    return [block for block in split_plain_text_blocks(text) if not is_piracy_watermark_block(block)]
 
 
 def split_plain_text_blocks(text: str, max_chars: int = 1400) -> list[str]:
