@@ -1415,6 +1415,61 @@ def ollama_draft_translations(chunk: TranslationChunk, *, args: argparse.Namespa
     return drafts
 
 
+def ollama_draft_cache_path(work_dir: Path, chunk_index: int) -> Path:
+    return work_dir / "ollama_drafts" / f"chunk_{chunk_index:04d}.json"
+
+
+def load_ollama_draft(work_dir: Path, chunk_index: int) -> dict[str, str] | None:
+    path = ollama_draft_cache_path(work_dir, chunk_index)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        translations = payload.get("translations")
+        return translations if isinstance(translations, dict) else None
+    except Exception:
+        return None
+
+
+def ensure_ollama_drafts(
+    *,
+    work_dir: Path,
+    chunks: list[TranslationChunk],
+    args: argparse.Namespace,
+    book_title: str,
+    heartbeat: ProgressHeartbeat | None,
+) -> None:
+    """Run the local Ollama draft pass straight through every chunk of the book, one after
+    another, before the web provider (Gemini/ChatGPT) starts at all.
+
+    Decoupled from the polish step on purpose: the web provider's pacing/retry delays used to
+    block drafting of the next chunk (drafts were generated inline, one at a time, right
+    before each web call). Running the whole book's draft pass up front means Ollama keeps
+    working at its own local pace the entire time, and the web polish step that follows just
+    reads whichever chunks already have a cached draft - it never waits on Ollama itself.
+    A chunk that fails to draft (Ollama down, bad response, etc.) is simply skipped so the
+    pass keeps moving through the rest of the book; that chunk's polish step later falls back
+    to translating directly from English instead of refining a draft.
+    """
+    if not ollama_draft_enabled(args):
+        return
+    for chunk in chunks:
+        translation_cache = chunk_translation_path(work_dir, chunk.index)
+        if cached_chunk_is_complete(translation_cache, chunk.block_ids, chunk):
+            continue
+        draft_cache = ollama_draft_cache_path(work_dir, chunk.index)
+        if draft_cache.exists():
+            continue
+        prefix = f"chunk_{chunk.index:04d}"
+        label = f"초벌 번역 {chunk.index}/{len(chunks)}"
+        try:
+            drafts = ollama_draft_translations(chunk, args=args, book_title=book_title)
+            write_json(draft_cache, {"chunk_index": chunk.index, "translations": drafts})
+            beat_heartbeat(heartbeat, stage="ollama_draft_ready", label=label, section_prefix=prefix)
+        except Exception as exc:  # noqa: BLE001 - keep drafting the rest of the book regardless
+            beat_heartbeat(heartbeat, stage="ollama_draft_failed", label=label, section_prefix=prefix, detail=str(exc)[:300])
+
+
 def build_polish_prompt(
     chunk: TranslationChunk,
     draft_translations: dict[str, str],
@@ -2503,8 +2558,8 @@ def translate_missing_chunks_reusing_conversations(
                 prompt = None
                 used_ollama_draft = False
                 if ollama_draft_enabled(args):
-                    try:
-                        draft_translations = ollama_draft_translations(chunk, args=args, book_title=book_title)
+                    draft_translations = load_ollama_draft(work_dir, chunk.index)
+                    if draft_translations is not None:
                         prompt = build_polish_prompt(
                             chunk,
                             draft_translations,
@@ -2514,15 +2569,6 @@ def translate_missing_chunks_reusing_conversations(
                             relationship_guide=relationship_guide,
                         )
                         used_ollama_draft = True
-                        beat_heartbeat(heartbeat, stage="ollama_draft_ready", label=f"번역 {chunk.index}/{len(chunks)}", section_prefix=prefix)
-                    except Exception as exc:  # noqa: BLE001 - fall back to direct translation if the local draft step fails
-                        beat_heartbeat(
-                            heartbeat,
-                            stage="ollama_draft_failed",
-                            label=f"번역 {chunk.index}/{len(chunks)}",
-                            section_prefix=prefix,
-                            detail=str(exc)[:300],
-                        )
                 if prompt is None:
                     prompt = build_translation_prompt(
                         chunk,
@@ -3354,6 +3400,13 @@ def main() -> int:
     beat_heartbeat(heartbeat, stage="extracted", detail=f"blocks={len(blocks)} chunks={len(chunks)}")
 
     if not args.build_only:
+        ensure_ollama_drafts(
+            work_dir=work_dir,
+            chunks=chunks,
+            args=args,
+            book_title=book_title,
+            heartbeat=heartbeat,
+        )
         translate_missing_chunks(
             args=args,
             work_dir=work_dir,
