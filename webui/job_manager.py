@@ -776,6 +776,26 @@ class JobManager:
         except (OSError, ValueError, TypeError):
             return None
 
+    def _draft_status(self, job: dict[str, Any]) -> dict[str, Any] | None:
+        if str(job.get("job_type") or "") != "batch_translation":
+            return None
+        path = self._job_dir(str(job["id"])) / "draft_queue_status.json"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else None
+        except (OSError, ValueError, TypeError):
+            return None
+
+    def _draft_heartbeat(self, job: dict[str, Any]) -> dict[str, Any]:
+        if str(job.get("job_type") or "") != "batch_translation":
+            return {}
+        path = self._job_dir(str(job["id"])) / "draft_heartbeat.json"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except (OSError, ValueError, TypeError):
+            return {}
+
     def _artifact_entries(self, job: dict[str, Any]) -> list[dict[str, Any]]:
         job_id = str(job["id"])
         job_dir = self._job_dir(job_id)
@@ -874,6 +894,25 @@ class JobManager:
                     if isinstance(item, dict)
                 ],
             }
+        draft_status = self._draft_status(job)
+        draft_heartbeat = self._draft_heartbeat(job)
+        draft = None
+        if draft_status is not None:
+            draft_completed = (
+                draft_status.get("completed") if isinstance(draft_status.get("completed"), list) else []
+            )
+            draft = {
+                "total": int(draft_status.get("total") or 0),
+                "current": draft_status.get("current"),
+                "current_index": draft_status.get("current_index"),
+                "completed_count": len(draft_completed),
+                "finished": bool(draft_status.get("finished")),
+                "heartbeat": {
+                    key: draft_heartbeat.get(key)
+                    for key in ("stage", "label", "section_prefix", "detail")
+                    if draft_heartbeat.get(key) is not None
+                },
+            }
         return {
             "id": job_id,
             "job_type": str(job.get("job_type") or "audio"),
@@ -889,6 +928,7 @@ class JobManager:
             "return_code": job.get("return_code"),
             "settings": job.get("settings") if isinstance(job.get("settings"), dict) else {},
             "batch": batch,
+            "draft": draft,
             "heartbeat": {
                 key: heartbeat.get(key)
                 for key in ("iso_time", "stage", "label", "section_prefix", "attempt", "detail")

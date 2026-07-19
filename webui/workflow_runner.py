@@ -90,6 +90,29 @@ def write_batch_status(
     )
 
 
+def write_draft_status(
+    path: Path,
+    *,
+    total: int,
+    current: str | None,
+    current_index: int | None,
+    completed: list[dict[str, str]],
+    finished: bool,
+) -> None:
+    atomic_write_json(
+        path,
+        {
+            "iso_time": utc_now(),
+            "total": total,
+            "current": current,
+            "current_index": current_index,
+            "completed": completed,
+            "completed_count": len(completed),
+            "finished": finished,
+        },
+    )
+
+
 def run_child(command: list[str]) -> None:
     print("$ " + " ".join(command), flush=True)
     subprocess.run(command, cwd=ROOT, check=True, stdin=subprocess.DEVNULL)
@@ -371,7 +394,13 @@ def run_single_translation(args: argparse.Namespace) -> int:
     return 0
 
 
-def run_draft_lookahead_queue(files: list[Path], args: argparse.Namespace) -> None:
+def run_draft_lookahead_queue(
+    files: list[Path],
+    args: argparse.Namespace,
+    *,
+    status_path: Path,
+    draft_heartbeat_path: Path,
+) -> None:
     """Run the local Ollama draft pass for every queued book, one after another, as its own
     independent process - not paced by, or limited to looking one book ahead of, the main
     polish loop below.
@@ -384,10 +413,30 @@ def run_draft_lookahead_queue(files: list[Path], args: argparse.Namespace) -> No
     is stuck waiting on a slow Gemini/ChatGPT response for whichever book it's currently on.
     Skipped for non-.epub sources (need format conversion first); the main pass handles those
     normally, just without the pre-draft speed benefit. Meant to be run in a background thread.
+
+    Progress is reported to status_path (which book) and draft_heartbeat_path (chunk-level
+    progress within that book, written by the --draft-only subprocess itself) so the web UI
+    can show live Ollama draft progress independent of the main polish loop's own heartbeat.
     """
-    for index, source in enumerate(files, start=1):
-        if source.suffix.lower() != ".epub":
-            continue
+    epub_files = [(i, source) for i, source in enumerate(files, start=1) if source.suffix.lower() == ".epub"]
+    completed: list[dict[str, str]] = []
+    write_draft_status(
+        status_path,
+        total=len(epub_files),
+        current=None,
+        current_index=None,
+        completed=completed,
+        finished=False,
+    )
+    for index, source in epub_files:
+        write_draft_status(
+            status_path,
+            total=len(epub_files),
+            current=source.name,
+            current_index=index,
+            completed=completed,
+            finished=False,
+        )
         item_work = args.work_dir.resolve() / f"{index:04d}_{readable_stem(source)[:80]}"
         item_work.mkdir(parents=True, exist_ok=True)
         command = [
@@ -398,11 +447,21 @@ def run_draft_lookahead_queue(files: list[Path], args: argparse.Namespace) -> No
             "--work-dir", str(item_work / "translation"),
             "--draft-only",
             "--max-chars-per-chunk", str(args.max_chars),
+            "--heartbeat-file", str(draft_heartbeat_path),
         ]
         try:
-            subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            completed.append({"name": source.name, "status": "done" if result.returncode == 0 else "failed"})
         except OSError:
-            continue
+            completed.append({"name": source.name, "status": "failed"})
+    write_draft_status(
+        status_path,
+        total=len(epub_files),
+        current=None,
+        current_index=None,
+        completed=completed,
+        finished=True,
+    )
 
 
 def run_batch(args: argparse.Namespace) -> int:
@@ -434,7 +493,14 @@ def run_batch(args: argparse.Namespace) -> int:
         completed=completed_items,
     )
     if args.task == "batch_translation":
-        threading.Thread(target=run_draft_lookahead_queue, args=(files, args), daemon=True).start()
+        draft_status_path = args.heartbeat_file.parent / "draft_queue_status.json"
+        draft_heartbeat_path = args.heartbeat_file.parent / "draft_heartbeat.json"
+        threading.Thread(
+            target=run_draft_lookahead_queue,
+            args=(files, args),
+            kwargs={"status_path": draft_status_path, "draft_heartbeat_path": draft_heartbeat_path},
+            daemon=True,
+        ).start()
     for index, source in enumerate(files, start=1):
         label = f"{index}/{len(files)} {source.name}"
         beat(args.heartbeat_file, stage="batch_item_start", label=label, detail=args.task)

@@ -30,6 +30,8 @@ const STRINGS = {
     stageGuidePrep: "인물관계/용어 가이드 준비 중", stageFinalReview: "최종 검수 중(말투·용어 일관성)", stageComplete: "완료",
     gemmaStatsLabel: "Gemma 초벌 번역", gemmaSuccess: "성공", gemmaFailed: "실패(직접 번역으로 대체)",
     progressHistoryTitle: "진행 이력 (30분 간격)",
+    batchOverallLabel: "전체 배치 진행률", draftQueueLabel: "초벌번역 큐 (Ollama)", draftQueueCurrent: "드래프팅 중",
+    draftQueueFinished: "전체 큐 초벌번역 완료",
   },
   en: {
     brandSub: "Korean Audiobook Maker", newJob: "New job", taskAudio: "Audio", taskTranslation: "Translate",
@@ -62,6 +64,8 @@ const STRINGS = {
     stageGuidePrep: "Preparing relationship/terminology guide", stageFinalReview: "Final review (tone/terminology consistency)", stageComplete: "Complete",
     gemmaStatsLabel: "Gemma draft translation", gemmaSuccess: "Succeeded", gemmaFailed: "Failed (fell back to direct translation)",
     progressHistoryTitle: "Progress history (every 30 min)",
+    batchOverallLabel: "Overall batch progress", draftQueueLabel: "Ollama draft queue", draftQueueCurrent: "Drafting",
+    draftQueueFinished: "Whole queue drafted",
   },
 };
 
@@ -105,6 +109,7 @@ function recordProgressSnapshot(job) {
   if (last && now - last.at < PROGRESS_HISTORY_INTERVAL_MS) return;
   const batch = job.batch;
   const heartbeat = job.heartbeat || {};
+  const draft = job.draft;
   history.push({
     at: now,
     total: batch?.total ?? null,
@@ -112,6 +117,9 @@ function recordProgressSnapshot(job) {
     failedCount: batch ? (batch.completed || []).filter((item) => item.status === "failed").length : null,
     current: batch?.current || null,
     stageLabel: heartbeat.label || heartbeat.stage || "",
+    draftTotal: draft?.total ?? null,
+    draftDone: draft?.completed_count ?? null,
+    draftCurrent: draft?.current || null,
   });
   saveProgressHistory(job.id, history);
 }
@@ -411,6 +419,9 @@ function renderBatchProgress(job) {
   const doneCount = (batch.completed || []).length - failedCount;
   $("#batch-completed-count").textContent = doneCount;
   $("#batch-failed-count").textContent = failedCount;
+  const overallPct = batch.total ? Math.min(100, Math.round(((doneCount + failedCount) * 100) / batch.total)) : 0;
+  $("#batch-overall-pct").textContent = `${overallPct}%`;
+  $("#batch-overall-track > span").style.width = `${overallPct}%`;
   const currentNode = $("#batch-current");
   if (batch.current) {
     currentNode.hidden = false;
@@ -450,6 +461,42 @@ function renderGemmaStats(job) {
   $("#gemma-failed-count").textContent = stats.failed;
 }
 
+function renderDraftQueueProgress(job) {
+  const panel = $("#draft-queue-progress");
+  if (!panel) return;
+  const draft = job.draft;
+  if (!draft || !draft.total) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const done = draft.completed_count || 0;
+  const total = draft.total;
+  const pct = total ? Math.min(100, Math.round((done * 100) / total)) : 0;
+  $("#draft-queue-done").textContent = done;
+  $("#draft-queue-total").textContent = total;
+  $("#draft-queue-track > span").style.width = `${pct}%`;
+
+  const currentNode = $("#draft-queue-current");
+  if (draft.current) {
+    currentNode.hidden = false;
+    $("#draft-queue-current-name").textContent = draft.current;
+  } else {
+    currentNode.hidden = true;
+  }
+
+  const chunkNode = $("#draft-queue-chunk");
+  const heartbeat = draft.heartbeat || {};
+  const match = /(\d+)\s*\/\s*(\d+)/.exec(heartbeat.label || "");
+  if (draft.current && match) {
+    chunkNode.hidden = false;
+    $("#draft-queue-chunk-label").textContent = heartbeat.label;
+    const chunkPct = Math.min(100, Math.round((Number(match[1]) * 100) / Number(match[2])));
+    $("#draft-queue-chunk-track > span").style.width = `${chunkPct}%`;
+  } else {
+    chunkNode.hidden = true;
+  }
+
+  $("#draft-queue-finished").hidden = !draft.finished;
+}
+
 function formatHistoryTime(ts) {
   const date = new Date(ts);
   return date.toLocaleString(state.language === "ko" ? "ko-KR" : "en-US", { hour: "2-digit", minute: "2-digit", month: "numeric", day: "numeric" });
@@ -465,7 +512,10 @@ function renderProgressHistory(job) {
     const counts = entry.total != null ? `${entry.doneCount ?? 0}/${entry.total} (${t("batchFailedCount")} ${entry.failedCount ?? 0})` : "";
     const currentText = entry.current ? ` · ${escapeHtml(entry.current)}` : "";
     const stageText = entry.stageLabel ? ` · ${escapeHtml(entry.stageLabel)}` : "";
-    return `<div class="history-row"><strong>${formatHistoryTime(entry.at)}</strong><span>${escapeHtml(counts)}${currentText}${stageText}</span></div>`;
+    const draftText = entry.draftTotal != null
+      ? ` · ${escapeHtml(t("draftQueueLabel"))} ${entry.draftDone ?? 0}/${entry.draftTotal}${entry.draftCurrent ? ` (${escapeHtml(entry.draftCurrent)})` : ""}`
+      : "";
+    return `<div class="history-row"><strong>${formatHistoryTime(entry.at)}</strong><span>${escapeHtml(counts)}${currentText}${stageText}${draftText}</span></div>`;
   }).join("");
 }
 
@@ -503,6 +553,7 @@ function renderDetail() {
   $("#detail-error-text").textContent = errorText;
 
   renderBatchProgress(job);
+  renderDraftQueueProgress(job);
   renderGemmaStats(job);
   renderProgressHistory(job);
 
