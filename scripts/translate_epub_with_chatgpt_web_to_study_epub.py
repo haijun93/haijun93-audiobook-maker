@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import time
+import urllib.request
 import uuid
 import zipfile
 from dataclasses import dataclass, field
@@ -67,7 +68,7 @@ from audiobook_maker import (  # noqa: E402
 
 TRANSLATION_PIPELINE_VERSION = 3
 MINIMUM_ACCEPTED_CACHE_VERSION = 2
-RELATIONSHIP_GUIDE_VERSION = 2
+RELATIONSHIP_GUIDE_VERSION = 3
 ERROR_TAXONOMY_VERSION = 1
 WEB_PROVIDER_MARKER = ".translation_web_provider"
 GEMINI_MARKER_OPEN_TEMPLATE = "[[[BEGIN:{block_id}]]]"
@@ -143,6 +144,17 @@ def parse_args() -> argparse.Namespace:
             "하여 도서마다 중단 상태를 다시 발견하지 않도록 함). 지정하지 않으면 --work-dir을 사용합니다."
         ),
     )
+    parser.add_argument(
+        "--draft-provider",
+        choices=("ollama", "none"),
+        default="ollama",
+        help=(
+            "번역 전 로컬 Ollama 모델로 초벌 번역을 만들고, 웹 provider는 그 초벌 번역을 다듬어 "
+            "완성합니다. 'none'이면 기존처럼 웹 provider가 처음부터 번역합니다."
+        ),
+    )
+    parser.add_argument("--ollama-model", default=DEFAULT_OLLAMA_DRAFT_MODEL)
+    parser.add_argument("--ollama-host", default=None, help=f"기본값: {DEFAULT_OLLAMA_API_URL}")
     parser.add_argument(
         "--web-max-attempts",
         "--chatgpt-web-max-attempts",
@@ -991,7 +1003,8 @@ def build_relationship_guide_prompt(book_title: str, creator: str, blocks: list[
 4. 특히 대화문에서 누가 누구에게 반말을 써야 하는지, 누가 존댓말을 써야 하는지 명시합니다.
 5. 관계가 장면에 따라 변하면 변화 조건을 적습니다.
 6. 논픽션이거나 인물 대화가 적은 책이면, 인터뷰/인용/전문가/가족/공식 발화의 말투 원칙을 정리합니다.
-7. 번역문 자체는 만들지 말고, 이후 번역자가 참고할 간결한 한국어 가이드만 출력합니다.
+7. 책 전체에서 반복 등장하는 고유명사(인명, 지명, 조직명 등)의 한국어 표기를 정합니다. 번역 내내 이 표기만 일관되게 사용해야 합니다.
+8. 번역문 자체는 만들지 말고, 이후 번역자가 참고할 간결한 한국어 가이드만 출력합니다.
 
 출력 형식:
 [인물관계 요약]
@@ -1004,10 +1017,15 @@ def build_relationship_guide_prompt(book_title: str, creator: str, blocks: list[
 [주의할 호칭과 일관성]
 - ...
 
+[고유명사 표기]
+- English Name -> 한글 표기
+- ...
+
 중요:
 - 계획, 안내, "정리하겠습니다" 같은 예고 문장을 쓰지 말고 완성된 가이드 본문만 출력합니다.
-- 위 세 개 제목을 반드시 포함합니다.
+- 위 네 개 제목을 반드시 포함합니다.
 - 최소 8개 이상의 구체적 말투 규칙을 작성합니다.
+- [고유명사 표기]에는 책에서 반복 등장하는 고유명사를 최소 5개 이상, "영어 -> 한글" 형식 한 줄에 하나씩 적습니다.
 
 대표 본문 샘플:
 {sample}
@@ -1028,7 +1046,7 @@ def relationship_guide_is_complete(guide: str) -> tuple[bool, str]:
     compact = clean_text(normalized)
     if len(compact) < 500:
         return False, f"too short: {len(compact)} chars"
-    required_headers = ["[인물관계 요약]", "[말투 규칙]"]
+    required_headers = ["[인물관계 요약]", "[말투 규칙]", "[고유명사 표기]"]
     missing = [header for header in required_headers if header not in normalized]
     if missing:
         return False, f"missing headers: {', '.join(missing)}"
@@ -1111,7 +1129,121 @@ def build_local_relationship_guide(book_title: str, creator: str, blocks: list[S
 - 별명, 애칭, 모욕적 호칭은 원문의 정서 강도를 보존하되 한국어에서 어색하지 않게 옮긴다.
 - 대화문의 말투와 내면 독백의 말투를 섞지 않는다.
 - 불확실한 관계는 지나친 반말보다 존댓말을 우선하고, 반복되는 친밀 단서가 나오면 반말로 조정한다.
+
+[고유명사 표기]
+- 이 가이드는 웹 응답이 반복 실패해 로컬 휴리스틱으로 생성되어, 고유명사의 한글 표기를 확정하지 못했습니다. 번역 중 처음 등장하는 표기를 그대로 책 전체에서 유지하세요.
 """
+
+
+TERMINOLOGY_GLOSSARY_LINE_RE = re.compile(r"^-?\s*([A-Z][A-Za-z.' -]{1,40}?)\s*(?:->|→)\s*([가-힣][가-힣 ]{0,20})\s*$")
+
+
+def parse_terminology_glossary(guide: str) -> dict[str, str]:
+    """Extract the "English Name -> 한글 표기" lines from the relationship guide's
+    [고유명사 표기] section into a lookup table used to check translation consistency.
+
+    Deliberately does not run the guide through normalize_chatgpt_web_copy first: that
+    helper collapses all whitespace (including newlines) onto one line, which would merge
+    every glossary entry together and break this line-by-line parse.
+    """
+    raw = guide.replace("\r\n", "\n").replace("\r", "\n")
+    match = re.search(r"\[고유명사 표기\](.*?)(?:\n\s*\[|\Z)", raw, re.DOTALL)
+    if not match:
+        return {}
+    glossary: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        line_match = TERMINOLOGY_GLOSSARY_LINE_RE.match(line.strip())
+        if not line_match:
+            continue
+        name, korean_form = line_match.group(1).strip(), line_match.group(2).strip()
+        if name and korean_form:
+            glossary[name] = korean_form
+    return glossary
+
+
+@dataclass
+class TerminologyFinding:
+    name: str
+    expected_korean: str
+    block_id: str
+    translation_snippet: str
+
+
+def check_terminology_consistency(
+    blocks: list[SourceBlock],
+    translations: dict[str, str],
+    glossary: dict[str, str],
+) -> list[TerminologyFinding]:
+    """For each glossary name, find source blocks mentioning it and flag any translated
+    block whose text doesn't contain the glossary's canonical Korean form - a likely sign
+    the name was rendered inconsistently in that spot.
+    """
+    findings: list[TerminologyFinding] = []
+    for name, korean_form in glossary.items():
+        name_re = re.compile(rf"\b{re.escape(name)}\b")
+        for block in blocks:
+            if not name_re.search(block.text):
+                continue
+            translation = translations.get(block.id, "")
+            if not translation:
+                continue
+            if korean_form not in translation:
+                findings.append(
+                    TerminologyFinding(
+                        name=name,
+                        expected_korean=korean_form,
+                        block_id=block.id,
+                        translation_snippet=translation[:160],
+                    )
+                )
+    return findings
+
+
+def write_terminology_consistency_report(
+    *,
+    out_dir: Path,
+    glossary: dict[str, str],
+    findings: list[TerminologyFinding],
+) -> dict:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    status = "checked" if not findings else "needs_attention"
+    report = {
+        "status": status,
+        "glossary": glossary,
+        "finding_count": len(findings),
+        "findings": [
+            {
+                "name": finding.name,
+                "expected_korean": finding.expected_korean,
+                "block_id": finding.block_id,
+                "translation_snippet": finding.translation_snippet,
+            }
+            for finding in findings
+        ],
+    }
+    write_json(out_dir / "terminology_consistency_report.json", report)
+    lines = [
+        "# 고유명사 표기 일관성 검수",
+        "",
+        f"상태: {status}",
+        f"고유명사 표기표: {len(glossary)}개",
+        f"불일치 후보: {len(findings)}건",
+        "",
+    ]
+    if glossary:
+        lines.append("## 표기표")
+        for name, korean_form in glossary.items():
+            lines.append(f"- {name} -> {korean_form}")
+        lines.append("")
+    if findings:
+        lines.append("## 불일치 후보")
+        for finding in findings[:200]:
+            lines.append(
+                f"- [{finding.block_id}] `{finding.name}` -> 기대 표기 `{finding.expected_korean}`이(가) "
+                f"보이지 않음: {finding.translation_snippet}"
+            )
+    write_text(out_dir / "terminology_consistency_report.md", "\n".join(lines) + "\n")
+    return report
 
 
 def build_translation_prompt(
@@ -1208,6 +1340,119 @@ def build_translation_prompt(
 SEGMENTS:
 {chunk.text}
 """
+
+
+OLLAMA_API_URL_ENV = "OLLAMA_API_URL"
+DEFAULT_OLLAMA_API_URL = "http://localhost:11434"
+DEFAULT_OLLAMA_DRAFT_MODEL = "gemma4:26b"
+DEFAULT_OLLAMA_TIMEOUT_SEC = 240
+
+
+def ollama_api_url(args: argparse.Namespace) -> str:
+    configured = getattr(args, "ollama_host", None)
+    if configured:
+        return str(configured).rstrip("/")
+    return os.getenv(OLLAMA_API_URL_ENV, DEFAULT_OLLAMA_API_URL).rstrip("/")
+
+
+def ollama_draft_enabled(args: argparse.Namespace) -> bool:
+    return str(getattr(args, "draft_provider", "ollama") or "ollama").lower() == "ollama"
+
+
+def ollama_server_available(args: argparse.Namespace) -> bool:
+    try:
+        request = urllib.request.Request(f"{ollama_api_url(args)}/api/tags")
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status == 200
+    except Exception:
+        return False
+
+
+def build_ollama_draft_prompt(chunk: TranslationChunk, book_title: str) -> str:
+    return f"""EPUB `{book_title}`의 일부를 한국어로 초벌 번역합니다.
+
+규칙:
+1. 아래 각 SEGMENT의 영어 원문을 빠짐없이 한국어로 번역합니다. 요약, 생략, 해설을 하지 않습니다.
+2. 문체를 다듬는 것보다 의미, 인과관계, 대사 내용을 정확하게 옮기는 것을 우선합니다. 다음 단계에서 문체를 다듬을 것이므로 초벌 번역은 다소 투박해도 됩니다.
+3. 출력은 반드시 입력과 같은 ID 마커 형식만 사용하고, 각 ID는 정확히 한 번씩 출력합니다. 영어 원문은 출력하지 마세요.
+4. 고유명사와 인명은 자연스럽게 음역합니다.
+
+출력 형식 예:
+<<<B00001>>>
+한국어 초벌 번역문
+<<<END_B00001>>>
+
+SEGMENTS:
+{chunk.text}
+"""
+
+
+def call_ollama_generate(prompt: str, *, args: argparse.Namespace, timeout_sec: int = DEFAULT_OLLAMA_TIMEOUT_SEC) -> str:
+    model = str(getattr(args, "ollama_model", None) or DEFAULT_OLLAMA_DRAFT_MODEL)
+    payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{ollama_api_url(args)}/api/generate",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_sec) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"Ollama 초벌 번역 요청에 실패했습니다: {exc}") from exc
+    text = str(body.get("response") or "")
+    if not text.strip():
+        raise RuntimeError("Ollama 초벌 번역 응답이 비어 있습니다.")
+    return text
+
+
+def ollama_draft_translations(chunk: TranslationChunk, *, args: argparse.Namespace, book_title: str) -> dict[str, str]:
+    prompt = build_ollama_draft_prompt(chunk, book_title)
+    response = call_ollama_generate(prompt, args=args)
+    drafts = parse_translation_response(response, chunk.block_ids)
+    fill_passthrough_translations(drafts, chunk)
+    return drafts
+
+
+def build_polish_prompt(
+    chunk: TranslationChunk,
+    draft_translations: dict[str, str],
+    chunk_count: int,
+    book_title: str,
+    *,
+    safety_retry: bool = False,
+    minor_safety_retry: bool = False,
+    relationship_guide: str = "",
+) -> str:
+    base_prompt = build_translation_prompt(
+        chunk,
+        chunk_count,
+        book_title,
+        safety_retry=safety_retry,
+        minor_safety_retry=minor_safety_retry,
+        relationship_guide=relationship_guide,
+    )
+    source_by_id = chunk_source_texts(chunk)
+    draft_segments = []
+    for block_id in chunk.block_ids:
+        draft_segments.append(
+            f"<<<{block_id}>>>\n[원문]\n{source_by_id.get(block_id, '')}\n"
+            f"[초벌 번역]\n{draft_translations.get(block_id, '')}\n<<<END_{block_id}>>>"
+        )
+    draft_section = "\n\n".join(draft_segments)
+    polish_instructions = """
+추가 작업 안내:
+- 아래 SEGMENTS는 [원문]과 로컬 모델이 만든 [초벌 번역]을 함께 제공합니다.
+- 초벌 번역을 그대로 베끼지 말고, 자연스러운 문학적 한국어 문체로 다듬어 완성하세요.
+- 초벌 번역에 오역, 누락, 어색한 표현이 있으면 원문을 기준으로 바로잡습니다.
+- 위에 안내된 인물관계/말투 가이드와 중요 규칙을 최우선으로 적용합니다.
+- 출력은 초벌 번역이 아니라, 다듬어 완성한 최종 한국어 번역문이어야 합니다.
+"""
+    return base_prompt.replace(
+        f"SEGMENTS:\n{chunk.text}",
+        f"{polish_instructions}\nSEGMENTS ([원문]+[초벌 번역]):\n{draft_section}",
+    )
 
 
 def validate_chunk_translations(
@@ -2255,13 +2500,35 @@ def translate_missing_chunks_reusing_conversations(
 
                 prefix = f"chunk_{chunk.index:04d}"
                 minor_mode = chunk_has_minor_context(chunk)
-                prompt = build_translation_prompt(
-                    chunk,
-                    len(chunks),
-                    book_title,
-                    minor_safety_retry=minor_mode,
-                    relationship_guide=relationship_guide,
-                )
+                prompt = None
+                if ollama_draft_enabled(args):
+                    try:
+                        draft_translations = ollama_draft_translations(chunk, args=args, book_title=book_title)
+                        prompt = build_polish_prompt(
+                            chunk,
+                            draft_translations,
+                            len(chunks),
+                            book_title,
+                            minor_safety_retry=minor_mode,
+                            relationship_guide=relationship_guide,
+                        )
+                        beat_heartbeat(heartbeat, stage="ollama_draft_ready", label=f"번역 {chunk.index}/{len(chunks)}", section_prefix=prefix)
+                    except Exception as exc:  # noqa: BLE001 - fall back to direct translation if the local draft step fails
+                        beat_heartbeat(
+                            heartbeat,
+                            stage="ollama_draft_failed",
+                            label=f"번역 {chunk.index}/{len(chunks)}",
+                            section_prefix=prefix,
+                            detail=str(exc)[:300],
+                        )
+                if prompt is None:
+                    prompt = build_translation_prompt(
+                        chunk,
+                        len(chunks),
+                        book_title,
+                        minor_safety_retry=minor_mode,
+                        relationship_guide=relationship_guide,
+                    )
                 write_text(work_dir / "prompts" / f"{prefix}_prompt.txt", prompt)
                 label = f"번역 {chunk.index}/{len(chunks)}"
                 last_error: Exception | None = None
@@ -3162,6 +3429,34 @@ def main() -> int:
             write_text(error_path, f"{datetime.now().isoformat(timespec='seconds')} {exc}\n")
             dialogue_pass2_result = {"status": "failed", "error": str(exc), "error_path": str(error_path)}
             beat_heartbeat(heartbeat, stage="final_dialogue_review_pass2_failed", detail=str(exc)[:300])
+    terminology_review_result: dict[str, object] | None = None
+    if not args.skip_final_tone_review:
+        try:
+            guide_path = relationship_guide_path(work_dir)
+            guide_text = guide_path.read_text(encoding="utf-8") if guide_path.exists() else ""
+            glossary = parse_terminology_glossary(guide_text)
+            findings = check_terminology_consistency(blocks, translations, glossary) if glossary else []
+            report = write_terminology_consistency_report(
+                out_dir=work_dir / "final_terminology_reviews",
+                glossary=glossary,
+                findings=findings,
+            )
+            terminology_review_result = {
+                "status": report["status"],
+                "glossary_terms": len(glossary),
+                "finding_count": len(findings),
+                "report": str(work_dir / "final_terminology_reviews" / "terminology_consistency_report.md"),
+            }
+            beat_heartbeat(
+                heartbeat,
+                stage="final_terminology_review_complete",
+                detail=f"status={report['status']} findings={len(findings)}",
+            )
+        except Exception as exc:  # noqa: BLE001 - retain EPUB and make the failed review traceable.
+            error_path = work_dir / "final_terminology_review_error.txt"
+            write_text(error_path, f"{datetime.now().isoformat(timespec='seconds')} {exc}\n")
+            terminology_review_result = {"status": "failed", "error": str(exc), "error_path": str(error_path)}
+            beat_heartbeat(heartbeat, stage="final_terminology_review_failed", detail=str(exc)[:300])
     beat_heartbeat(heartbeat, stage="complete", detail=str(output_epub))
     print(
         json.dumps(
@@ -3173,6 +3468,7 @@ def main() -> int:
                 "chunks": len(chunks),
                 "final_tone_review": tone_review_result,
                 "final_dialogue_review_pass2": dialogue_pass2_result,
+                "final_terminology_review": terminology_review_result,
             },
             ensure_ascii=False,
             indent=2,

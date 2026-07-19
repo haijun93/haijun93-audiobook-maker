@@ -130,6 +130,7 @@ def validate_translation_settings(settings: dict[str, Any]) -> dict[str, Any]:
         "visible": bool(settings.get("visible")),
         "overwrite": bool(settings.get("overwrite")),
         "recursive": bool(settings.get("recursive")),
+        "priority_substrings": str(settings.get("priority_substrings") or "").strip(),
     }
 
 
@@ -550,6 +551,8 @@ class JobManager:
             command.append("--recursive")
         if settings.get("overwrite"):
             command.append("--overwrite")
+        if settings.get("priority_substrings"):
+            command.extend(["--priority-substrings", str(settings["priority_substrings"])])
         return command
 
     def _worker_loop(self) -> None:

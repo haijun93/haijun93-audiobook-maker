@@ -203,6 +203,7 @@ def create_app(
                 "visible": bool_value(payload.get("visible")),
                 "recursive": bool_value(payload.get("recursive")),
                 "overwrite": bool_value(payload.get("overwrite")),
+                "priority_substrings": payload.get("priority_substrings"),
             }
         else:
             settings = {

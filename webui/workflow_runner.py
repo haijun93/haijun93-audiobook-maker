@@ -298,6 +298,7 @@ def source_files(
     operation: str,
     recursive: bool,
     output_root: Path,
+    priority_substrings: tuple[str, ...] = (),
 ) -> list[Path]:
     extensions = TRANSLATION_EXTENSIONS if operation == "batch_translation" else AUDIO_EXTENSIONS
     iterator = source_dir.rglob("*") if recursive else source_dir.iterdir()
@@ -323,8 +324,15 @@ def source_files(
         existing_books = get_existing_korean_books(korean_root)
         if existing_books:
             files = [f for f in files if f.name not in existing_books]
-    
-    return sorted(files, key=lambda item: item.name.casefold())[:1000]
+
+    lowered_priority = tuple(term.lower() for term in priority_substrings if term)
+
+    def sort_key(item: Path) -> tuple[int, str]:
+        name_lower = item.name.lower()
+        is_priority = any(term in name_lower for term in lowered_priority)
+        return (0 if is_priority else 1, item.name.casefold())
+
+    return sorted(files, key=sort_key)[:1000]
 
 
 def write_manifest(
@@ -365,11 +373,15 @@ def run_single_translation(args: argparse.Namespace) -> int:
 def run_batch(args: argparse.Namespace) -> int:
     source_dir = args.source_dir.resolve()
     output_root = args.output_dir.resolve()
+    priority_substrings = tuple(
+        term.strip() for term in (getattr(args, "priority_substrings", None) or "").split(",") if term.strip()
+    )
     files = source_files(
         source_dir,
         operation=args.task,
         recursive=args.recursive,
         output_root=output_root,
+        priority_substrings=priority_substrings,
     )
     if not files:
         raise RuntimeError("No supported source files were found in the selected folder")
@@ -496,6 +508,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--visible", action="store_true")
     parser.add_argument("--recursive", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--priority-substrings",
+        default=None,
+        help="쉼표로 구분된 문자열 목록. 배치 대상 파일명에 이 중 하나라도 포함되면 먼저 처리합니다.",
+    )
     args = parser.parse_args()
     if args.task == "translation" and args.input_file is None:
         parser.error("--input-file is required for translation")

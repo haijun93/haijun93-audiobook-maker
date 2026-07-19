@@ -560,6 +560,64 @@ def test_duplicate_response_ids_are_rejected() -> None:
         parse_translation_response(response, ["B00001"])
 
 
+def test_terminology_glossary_parses_multiline_section() -> None:
+    guide = """[인물관계 요약]
+- test
+
+[말투 규칙]
+- test
+
+[주의할 호칭과 일관성]
+- test
+
+[고유명사 표기]
+- Henry -> 헨리
+- Sarah -> 사라
+"""
+    glossary = translator.parse_terminology_glossary(guide)
+    assert glossary == {"Henry": "헨리", "Sarah": "사라"}
+
+
+def test_terminology_consistency_flags_inconsistent_rendering() -> None:
+    glossary = {"Henry": "헨리"}
+    blocks = [
+        translator.SourceBlock(id="B00001", text="Henry looked at Sarah and smiled."),
+        translator.SourceBlock(id="B00002", text="Henry walked away quietly."),
+    ]
+    consistent = {"B00001": "헨리는 사라를 보며 미소 지었다.", "B00002": "헨리는 조용히 걸어갔다."}
+    inconsistent = {"B00001": "헨리는 사라를 보며 미소 지었다.", "B00002": "핸리는 조용히 걸어갔다."}
+
+    assert translator.check_terminology_consistency(blocks, consistent, glossary) == []
+
+    findings = translator.check_terminology_consistency(blocks, inconsistent, glossary)
+    assert len(findings) == 1
+    assert findings[0].block_id == "B00002"
+    assert findings[0].name == "Henry"
+
+
+def test_ollama_draft_and_polish_prompt_embed_the_draft(monkeypatch) -> None:
+    chunk = translator.TranslationChunk(
+        index=1,
+        block_ids=["B00001"],
+        text="<<<B00001>>>\nHello there.\n<<<END_B00001>>>",
+        context_before="",
+        context_after="",
+    )
+    monkeypatch.setattr(
+        translator,
+        "call_ollama_generate",
+        lambda prompt, **kwargs: "<<<B00001>>>\n안녕하세요\n<<<END_B00001>>>",
+    )
+    args = SimpleNamespace(draft_provider="ollama", ollama_model="gemma4:26b", ollama_host=None)
+    drafts = translator.ollama_draft_translations(chunk, args=args, book_title="Test Book")
+    assert drafts == {"B00001": "안녕하세요"}
+
+    prompt = translator.build_polish_prompt(chunk, drafts, 1, "Test Book")
+    assert "[초벌 번역]" in prompt
+    assert "안녕하세요" in prompt
+    assert "Hello there." in prompt
+
+
 def test_readrobe_watermark_is_removed_during_epub_build() -> None:
     assert strip_source_watermarks("Visit readrobe.com for more") == "Visit for more"
     assert strip_source_watermarks("READROBE.COM") == ""
