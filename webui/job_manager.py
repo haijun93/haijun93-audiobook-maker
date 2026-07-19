@@ -131,6 +131,7 @@ def validate_translation_settings(settings: dict[str, Any]) -> dict[str, Any]:
         "overwrite": bool(settings.get("overwrite")),
         "recursive": bool(settings.get("recursive")),
         "priority_substrings": str(settings.get("priority_substrings") or "").strip(),
+        "disable_web_fallback": bool(settings.get("disable_web_fallback")),
     }
 
 
@@ -553,6 +554,8 @@ class JobManager:
             command.append("--overwrite")
         if settings.get("priority_substrings"):
             command.extend(["--priority-substrings", str(settings["priority_substrings"])])
+        if settings.get("disable_web_fallback"):
+            command.append("--disable-overnight-web-fallback")
         return command
 
     def _worker_loop(self) -> None:

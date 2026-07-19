@@ -204,6 +204,7 @@ def create_app(
                 "recursive": bool_value(payload.get("recursive")),
                 "overwrite": bool_value(payload.get("overwrite")),
                 "priority_substrings": payload.get("priority_substrings"),
+                "disable_web_fallback": bool_value(payload.get("disable_web_fallback")),
             }
         else:
             settings = {

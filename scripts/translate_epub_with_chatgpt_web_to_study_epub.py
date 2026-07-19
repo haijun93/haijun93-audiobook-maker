@@ -2501,6 +2501,7 @@ def translate_missing_chunks_reusing_conversations(
                 prefix = f"chunk_{chunk.index:04d}"
                 minor_mode = chunk_has_minor_context(chunk)
                 prompt = None
+                used_ollama_draft = False
                 if ollama_draft_enabled(args):
                     try:
                         draft_translations = ollama_draft_translations(chunk, args=args, book_title=book_title)
@@ -2512,6 +2513,7 @@ def translate_missing_chunks_reusing_conversations(
                             minor_safety_retry=minor_mode,
                             relationship_guide=relationship_guide,
                         )
+                        used_ollama_draft = True
                         beat_heartbeat(heartbeat, stage="ollama_draft_ready", label=f"번역 {chunk.index}/{len(chunks)}", section_prefix=prefix)
                     except Exception as exc:  # noqa: BLE001 - fall back to direct translation if the local draft step fails
                         beat_heartbeat(
@@ -2590,6 +2592,7 @@ def translate_missing_chunks_reusing_conversations(
                                 "block_ids": chunk.block_ids,
                                 "quality": quality,
                                 "translations": translations,
+                                "used_ollama_draft": used_ollama_draft,
                             },
                         )
                         pace_web_requests(
