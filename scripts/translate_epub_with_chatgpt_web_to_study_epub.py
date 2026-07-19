@@ -3341,8 +3341,8 @@ def build_epub(
             )
 
 
-def acquire_translation_lock(work_dir: Path):
-    lock_path = work_dir / ".translation.lock"
+def acquire_translation_lock(work_dir: Path, *, lock_name: str = ".translation.lock"):
+    lock_path = work_dir / lock_name
     lock_handle = lock_path.open("w", encoding="utf-8")
     try:
         if fcntl is not None:
@@ -3372,7 +3372,12 @@ def main() -> int:
         raise SystemExit(f"입력 EPUB를 찾지 못했습니다: {input_epub}")
     work_dir = resolve_work_dir(args)
     work_dir.mkdir(parents=True, exist_ok=True)
-    translation_lock = acquire_translation_lock(work_dir)
+    # --draft-only writes only to ollama_drafts/ and never touches translations/responses/prompts,
+    # so it uses its own lock file. This lets the independent draft-lookahead queue keep drafting
+    # a book (writing chunk-by-chunk into ollama_drafts/) at the same time the main polish process
+    # for that same book is reading whatever's already cached there - they'd otherwise contend for
+    # the same .translation.lock and one would fail outright instead of just missing a few drafts.
+    translation_lock = acquire_translation_lock(work_dir, lock_name=".draft.lock" if args.draft_only else ".translation.lock")
     args.web_provider = resolve_web_provider(args, work_dir)
     persist_web_provider(work_dir, args.web_provider)
     heartbeat = ProgressHeartbeat(args.heartbeat_file) if args.heartbeat_file else None
