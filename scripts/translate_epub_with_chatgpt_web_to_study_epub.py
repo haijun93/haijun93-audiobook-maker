@@ -83,9 +83,11 @@ GEMINI_MARKER_OPEN_TEMPLATE = "[[[BEGIN:{block_id}]]]"
 GEMINI_MARKER_CLOSE_TEMPLATE = "[[[END:{block_id}]]]"
 WEB_PROVIDERS = ("chatgpt", "gemini", "claude")
 OVERNIGHT_FALLBACK_PROVIDER = "claude"
+REFUSAL_FALLBACK_PROVIDER = "chatgpt"
 OVERNIGHT_FALLBACK_START_HOUR = 18
 OVERNIGHT_FALLBACK_END_HOUR = 9
 GEMINI_DOWN_RECHECK_SEC = 900
+CLAUDE_REFUSAL_AVOID_SEC = 6 * 3600
 PROVIDER_FALLBACK_STATE_FILE = "provider_fallback_state.json"
 
 
@@ -217,6 +219,11 @@ class OvernightProviderSwitch(Exception):
     them, an active gemini session in the 18:00-09:00 window (or anytime on Sat/Sun) switches
     to Claude web for the remaining chunks. The next session started by translate_missing_chunks
     tries Gemini again first, so translation resumes on Gemini automatically once it recovers.
+
+    If Claude itself then fails to actually produce a translation for this book's content
+    (an explicit refusal, or a quality check catching an identical-to-source non-translation),
+    that's treated as a stable content decision rather than an outage: it isn't retried with
+    prompt variations, it switches straight to ChatGPT web instead for the rest of the book.
     """
 
     def __init__(self, reason: str):
@@ -286,15 +293,48 @@ def _read_provider_fallback_state(state_dir: Path) -> dict:
         return {}
 
 
-def mark_gemini_temporarily_down(state_dir: Path) -> None:
-    state = {
-        "gemini_down_until": (
-            datetime.now(timezone.utc) + timedelta(seconds=GEMINI_DOWN_RECHECK_SEC)
-        ).isoformat(),
-    }
+def _write_provider_fallback_state(state_dir: Path, updates: dict) -> None:
+    state = _read_provider_fallback_state(state_dir)
+    state.update(updates)
     path = _provider_fallback_state_path(state_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+
+def mark_gemini_temporarily_down(state_dir: Path) -> None:
+    _write_provider_fallback_state(
+        state_dir,
+        {
+            "gemini_down_until": (
+                datetime.now(timezone.utc) + timedelta(seconds=GEMINI_DOWN_RECHECK_SEC)
+            ).isoformat(),
+        },
+    )
+
+
+def mark_claude_refused(state_dir: Path) -> None:
+    """Record that Claude declined a translation (a stable content/copyright judgment call,
+    not a transient outage), so subsequent sessions skip straight past Claude to ChatGPT
+    instead of repeating the same refusal.
+    """
+    _write_provider_fallback_state(
+        state_dir,
+        {
+            "claude_avoid_until": (
+                datetime.now(timezone.utc) + timedelta(seconds=CLAUDE_REFUSAL_AVOID_SEC)
+            ).isoformat(),
+        },
+    )
+
+
+def _state_deadline_active(state: dict, key: str) -> bool:
+    deadline = state.get(key)
+    if not deadline:
+        return False
+    try:
+        return datetime.now(timezone.utc) < datetime.fromisoformat(deadline)
+    except ValueError:
+        return False
 
 
 def resolve_session_provider(args: argparse.Namespace, work_dir: Path) -> str:
@@ -302,20 +342,18 @@ def resolve_session_provider(args: argparse.Namespace, work_dir: Path) -> str:
 
     Only Gemini gets the overnight/weekend auto-fallback: outside the fallback window, when
     the configured provider isn't Gemini, or when Claude has no usable session, this always
-    returns the configured provider unchanged.
+    returns the configured provider unchanged. When Gemini is down and Claude has already
+    refused this book's content once, ChatGPT is used instead of retrying Claude.
     """
     base = active_web_provider(args)
     if not overnight_fallback_active(args, base):
         return base
     state = _read_provider_fallback_state(provider_fallback_state_dir(args, work_dir))
-    down_until = state.get("gemini_down_until")
-    if down_until:
-        try:
-            if datetime.now(timezone.utc) < datetime.fromisoformat(down_until):
-                return OVERNIGHT_FALLBACK_PROVIDER
-        except ValueError:
-            pass
-    return "gemini"
+    if not _state_deadline_active(state, "gemini_down_until"):
+        return "gemini"
+    if _state_deadline_active(state, "claude_avoid_until"):
+        return REFUSAL_FALLBACK_PROVIDER
+    return OVERNIGHT_FALLBACK_PROVIDER
 
 
 def args_with_provider(args: argparse.Namespace, provider: str) -> argparse.Namespace:
@@ -1765,6 +1803,9 @@ def request_web_translation(
             beat_heartbeat(heartbeat, stage="translation_attempt_error", label=label, section_prefix=prefix, attempt=attempt, detail=str(exc)[:300])
             if is_web_provider_pause_error(exc) or web_provider_error_kind(str(exc)) == "prompt_too_long":
                 raise
+            if provider == "claude" and work_dir is not None and should_subchunk_retry_error(exc):
+                mark_claude_refused(provider_fallback_state_dir(args, work_dir))
+                raise OvernightProviderSwitch("claude_refused") from exc
             error_kind, _action = classify_translation_web_error(exc)
             consecutive_temporary_errors = consecutive_temporary_errors + 1 if error_kind == "temporary_service_error" else 0
             if (
@@ -2423,6 +2464,17 @@ def translate_missing_chunks_reusing_conversations(
                         )
                         if is_web_provider_pause_error(exc):
                             raise
+                        if active_web_provider(args) == "claude" and should_subchunk_retry_error(exc):
+                            mark_claude_refused(provider_fallback_state_dir(args, work_dir))
+                            beat_heartbeat(
+                                heartbeat,
+                                stage="translation_claude_refusal_switch",
+                                label=label,
+                                section_prefix=prefix,
+                                attempt=attempt,
+                                detail=f"kind={error_kind}; Claude 웹이 번역을 완료하지 못함; ChatGPT 웹으로 전환",
+                            )
+                            raise OvernightProviderSwitch("claude_refused") from exc
                         if error_kind == "prompt_too_long" or (
                             active_web_provider(args) == "gemini"
                             and error_kind in {
