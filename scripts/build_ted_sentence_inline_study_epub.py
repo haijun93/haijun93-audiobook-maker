@@ -65,7 +65,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--work-dir", type=Path, default=DEFAULT_WORK_DIR)
-    parser.add_argument("--model", default="gemma4:26b")
+    parser.add_argument("--model", default="qwen2.5:14b")
     parser.add_argument("--ollama-url", default="http://127.0.0.1:11434/api/generate")
     parser.add_argument("--max-chars", type=int, default=7000)
     parser.add_argument("--timeout", type=int, default=1200)
