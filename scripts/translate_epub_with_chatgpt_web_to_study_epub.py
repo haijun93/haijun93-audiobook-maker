@@ -8,7 +8,6 @@ import os
 import re
 import sys
 import time
-import urllib.request
 import uuid
 import zipfile
 from dataclasses import dataclass, field
@@ -145,17 +144,6 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--draft-provider",
-        choices=("ollama", "none"),
-        default="ollama",
-        help=(
-            "번역 전 로컬 Ollama 모델로 초벌 번역을 만들고, 웹 provider는 그 초벌 번역을 다듬어 "
-            "완성합니다. 'none'이면 기존처럼 웹 provider가 처음부터 번역합니다."
-        ),
-    )
-    parser.add_argument("--ollama-model", default=DEFAULT_OLLAMA_DRAFT_MODEL)
-    parser.add_argument("--ollama-host", default=None, help=f"기본값: {DEFAULT_OLLAMA_API_URL}")
-    parser.add_argument(
         "--web-max-attempts",
         "--chatgpt-web-max-attempts",
         dest="web_max_attempts",
@@ -177,24 +165,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--heartbeat-file", type=Path)
     parser.add_argument("--translate-only", action="store_true")
     parser.add_argument("--build-only", action="store_true")
-    parser.add_argument(
-        "--draft-only",
-        action="store_true",
-        help=(
-            "Ollama 초벌 번역만 실행하고 종료합니다(Gemini/ChatGPT 호출 없음). "
-            "배치 작업이 다음 책의 초벌 번역을 현재 책 처리 중에 미리 준비해 두는 용도."
-        ),
-    )
-    parser.add_argument(
-        "--precomputed-drafts-only",
-        action="store_true",
-        help=(
-            "이 프로세스 자신은 Ollama 초벌 번역을 새로 생성하지 않고, 이미 캐시된 초벌 번역만 "
-            "읽어서 사용합니다. 배치 작업의 독립 초벌번역 큐가 같은 work-dir을 이미 채우고 있을 때, "
-            "두 프로세스가 동시에 같은 책을 초벌 번역하며 Ollama 단일 슬롯을 두고 경합하는 것을 "
-            "막기 위한 옵션입니다."
-        ),
-    )
     parser.add_argument(
         "--skip-final-tone-review",
         action="store_true",
@@ -1371,174 +1341,6 @@ SEGMENTS:
 """
 
 
-OLLAMA_API_URL_ENV = "OLLAMA_API_URL"
-DEFAULT_OLLAMA_API_URL = "http://localhost:11434"
-DEFAULT_OLLAMA_DRAFT_MODEL = "exaone3.5:7.8b"
-DEFAULT_OLLAMA_TIMEOUT_SEC = 240
-
-
-def ollama_api_url(args: argparse.Namespace) -> str:
-    configured = getattr(args, "ollama_host", None)
-    if configured:
-        return str(configured).rstrip("/")
-    return os.getenv(OLLAMA_API_URL_ENV, DEFAULT_OLLAMA_API_URL).rstrip("/")
-
-
-def ollama_draft_enabled(args: argparse.Namespace) -> bool:
-    return str(getattr(args, "draft_provider", "ollama") or "ollama").lower() == "ollama"
-
-
-def ollama_server_available(args: argparse.Namespace) -> bool:
-    try:
-        request = urllib.request.Request(f"{ollama_api_url(args)}/api/tags")
-        with urllib.request.urlopen(request, timeout=5) as response:
-            return response.status == 200
-    except Exception:
-        return False
-
-
-def build_ollama_draft_prompt(chunk: TranslationChunk, book_title: str) -> str:
-    return f"""EPUB `{book_title}`의 일부를 한국어로 초벌 번역합니다.
-
-규칙:
-1. 아래 각 SEGMENT의 영어 원문을 빠짐없이 한국어로 번역합니다. 요약, 생략, 해설을 하지 않습니다.
-2. 문체를 다듬는 것보다 의미, 인과관계, 대사 내용을 정확하게 옮기는 것을 우선합니다. 다음 단계에서 문체를 다듬을 것이므로 초벌 번역은 다소 투박해도 됩니다.
-3. 출력은 반드시 입력과 같은 ID 마커 형식만 사용하고, 각 ID는 정확히 한 번씩 출력합니다. 영어 원문은 출력하지 마세요.
-4. 고유명사와 인명은 자연스럽게 음역합니다.
-
-출력 형식 예:
-<<<B00001>>>
-한국어 초벌 번역문
-<<<END_B00001>>>
-
-SEGMENTS:
-{chunk.text}
-"""
-
-
-def call_ollama_generate(prompt: str, *, args: argparse.Namespace, timeout_sec: int = DEFAULT_OLLAMA_TIMEOUT_SEC) -> str:
-    model = str(getattr(args, "ollama_model", None) or DEFAULT_OLLAMA_DRAFT_MODEL)
-    payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
-    request = urllib.request.Request(
-        f"{ollama_api_url(args)}/api/generate",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_sec) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except Exception as exc:
-        raise RuntimeError(f"Ollama 초벌 번역 요청에 실패했습니다: {exc}") from exc
-    text = str(body.get("response") or "")
-    if not text.strip():
-        raise RuntimeError("Ollama 초벌 번역 응답이 비어 있습니다.")
-    return text
-
-
-def ollama_draft_translations(chunk: TranslationChunk, *, args: argparse.Namespace, book_title: str) -> dict[str, str]:
-    prompt = build_ollama_draft_prompt(chunk, book_title)
-    response = call_ollama_generate(prompt, args=args)
-    drafts = parse_translation_response(response, chunk.block_ids)
-    fill_passthrough_translations(drafts, chunk)
-    return drafts
-
-
-def ollama_draft_cache_path(work_dir: Path, chunk_index: int) -> Path:
-    return work_dir / "ollama_drafts" / f"chunk_{chunk_index:04d}.json"
-
-
-def load_ollama_draft(work_dir: Path, chunk_index: int) -> dict[str, str] | None:
-    path = ollama_draft_cache_path(work_dir, chunk_index)
-    if not path.exists():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        translations = payload.get("translations")
-        return translations if isinstance(translations, dict) else None
-    except Exception:
-        return None
-
-
-def ensure_ollama_drafts(
-    *,
-    work_dir: Path,
-    chunks: list[TranslationChunk],
-    args: argparse.Namespace,
-    book_title: str,
-    heartbeat: ProgressHeartbeat | None,
-) -> None:
-    """Run the local Ollama draft pass straight through every chunk of the book, one after
-    another, before the web provider (Gemini/ChatGPT) starts at all.
-
-    Decoupled from the polish step on purpose: the web provider's pacing/retry delays used to
-    block drafting of the next chunk (drafts were generated inline, one at a time, right
-    before each web call). Running the whole book's draft pass up front means Ollama keeps
-    working at its own local pace the entire time, and the web polish step that follows just
-    reads whichever chunks already have a cached draft - it never waits on Ollama itself.
-    A chunk that fails to draft (Ollama down, bad response, etc.) is simply skipped so the
-    pass keeps moving through the rest of the book; that chunk's polish step later falls back
-    to translating directly from English instead of refining a draft.
-    """
-    if not ollama_draft_enabled(args):
-        return
-    for chunk in chunks:
-        translation_cache = chunk_translation_path(work_dir, chunk.index)
-        if cached_chunk_is_complete(translation_cache, chunk.block_ids, chunk):
-            continue
-        draft_cache = ollama_draft_cache_path(work_dir, chunk.index)
-        if draft_cache.exists():
-            continue
-        prefix = f"chunk_{chunk.index:04d}"
-        label = f"초벌 번역 {chunk.index}/{len(chunks)}"
-        try:
-            drafts = ollama_draft_translations(chunk, args=args, book_title=book_title)
-            write_json(draft_cache, {"chunk_index": chunk.index, "translations": drafts})
-            beat_heartbeat(heartbeat, stage="ollama_draft_ready", label=label, section_prefix=prefix)
-        except Exception as exc:  # noqa: BLE001 - keep drafting the rest of the book regardless
-            beat_heartbeat(heartbeat, stage="ollama_draft_failed", label=label, section_prefix=prefix, detail=str(exc)[:300])
-
-
-def build_polish_prompt(
-    chunk: TranslationChunk,
-    draft_translations: dict[str, str],
-    chunk_count: int,
-    book_title: str,
-    *,
-    safety_retry: bool = False,
-    minor_safety_retry: bool = False,
-    relationship_guide: str = "",
-) -> str:
-    base_prompt = build_translation_prompt(
-        chunk,
-        chunk_count,
-        book_title,
-        safety_retry=safety_retry,
-        minor_safety_retry=minor_safety_retry,
-        relationship_guide=relationship_guide,
-    )
-    source_by_id = chunk_source_texts(chunk)
-    draft_segments = []
-    for block_id in chunk.block_ids:
-        draft_segments.append(
-            f"<<<{block_id}>>>\n[원문]\n{source_by_id.get(block_id, '')}\n"
-            f"[초벌 번역]\n{draft_translations.get(block_id, '')}\n<<<END_{block_id}>>>"
-        )
-    draft_section = "\n\n".join(draft_segments)
-    polish_instructions = """
-추가 작업 안내:
-- 아래 SEGMENTS는 [원문]과 로컬 모델이 만든 [초벌 번역]을 함께 제공합니다.
-- 초벌 번역을 그대로 베끼지 말고, 자연스러운 문학적 한국어 문체로 다듬어 완성하세요.
-- 초벌 번역에 오역, 누락, 어색한 표현이 있으면 원문을 기준으로 바로잡습니다.
-- 위에 안내된 인물관계/말투 가이드와 중요 규칙을 최우선으로 적용합니다.
-- 출력은 초벌 번역이 아니라, 다듬어 완성한 최종 한국어 번역문이어야 합니다.
-"""
-    return base_prompt.replace(
-        f"SEGMENTS:\n{chunk.text}",
-        f"{polish_instructions}\nSEGMENTS ([원문]+[초벌 번역]):\n{draft_section}",
-    )
-
-
 def validate_chunk_translations(
     chunk: TranslationChunk,
     translations: dict[str, str],
@@ -2584,28 +2386,13 @@ def translate_missing_chunks_reusing_conversations(
 
                 prefix = f"chunk_{chunk.index:04d}"
                 minor_mode = chunk_has_minor_context(chunk)
-                prompt = None
-                used_ollama_draft = False
-                if ollama_draft_enabled(args):
-                    draft_translations = load_ollama_draft(work_dir, chunk.index)
-                    if draft_translations is not None:
-                        prompt = build_polish_prompt(
-                            chunk,
-                            draft_translations,
-                            len(chunks),
-                            book_title,
-                            minor_safety_retry=minor_mode,
-                            relationship_guide=relationship_guide,
-                        )
-                        used_ollama_draft = True
-                if prompt is None:
-                    prompt = build_translation_prompt(
-                        chunk,
-                        len(chunks),
-                        book_title,
-                        minor_safety_retry=minor_mode,
-                        relationship_guide=relationship_guide,
-                    )
+                prompt = build_translation_prompt(
+                    chunk,
+                    len(chunks),
+                    book_title,
+                    minor_safety_retry=minor_mode,
+                    relationship_guide=relationship_guide,
+                )
                 write_text(work_dir / "prompts" / f"{prefix}_prompt.txt", prompt)
                 label = f"번역 {chunk.index}/{len(chunks)}"
                 last_error: Exception | None = None
@@ -2667,7 +2454,6 @@ def translate_missing_chunks_reusing_conversations(
                                 "block_ids": chunk.block_ids,
                                 "quality": quality,
                                 "translations": translations,
-                                "used_ollama_draft": used_ollama_draft,
                             },
                         )
                         pace_web_requests(
@@ -3352,8 +3138,8 @@ def build_epub(
             )
 
 
-def acquire_translation_lock(work_dir: Path, *, lock_name: str = ".translation.lock"):
-    lock_path = work_dir / lock_name
+def acquire_translation_lock(work_dir: Path):
+    lock_path = work_dir / ".translation.lock"
     lock_handle = lock_path.open("w", encoding="utf-8")
     try:
         if fcntl is not None:
@@ -3383,12 +3169,7 @@ def main() -> int:
         raise SystemExit(f"입력 EPUB를 찾지 못했습니다: {input_epub}")
     work_dir = resolve_work_dir(args)
     work_dir.mkdir(parents=True, exist_ok=True)
-    # --draft-only writes only to ollama_drafts/ and never touches translations/responses/prompts,
-    # so it uses its own lock file. This lets the independent draft-lookahead queue keep drafting
-    # a book (writing chunk-by-chunk into ollama_drafts/) at the same time the main polish process
-    # for that same book is reading whatever's already cached there - they'd otherwise contend for
-    # the same .translation.lock and one would fail outright instead of just missing a few drafts.
-    translation_lock = acquire_translation_lock(work_dir, lock_name=".draft.lock" if args.draft_only else ".translation.lock")
+    translation_lock = acquire_translation_lock(work_dir)
     args.web_provider = resolve_web_provider(args, work_dir)
     persist_web_provider(work_dir, args.web_provider)
     heartbeat = ProgressHeartbeat(args.heartbeat_file) if args.heartbeat_file else None
@@ -3433,27 +3214,7 @@ def main() -> int:
     )
     beat_heartbeat(heartbeat, stage="extracted", detail=f"blocks={len(blocks)} chunks={len(chunks)}")
 
-    if args.draft_only:
-        ensure_ollama_drafts(
-            work_dir=work_dir,
-            chunks=chunks,
-            args=args,
-            book_title=book_title,
-            heartbeat=heartbeat,
-        )
-        print(json.dumps({"work_dir": str(work_dir), "chunks": len(chunks), "draft_only": True}, ensure_ascii=False))
-        translation_lock.close()
-        return 0
-
     if not args.build_only:
-        if not getattr(args, "precomputed_drafts_only", False):
-            ensure_ollama_drafts(
-                work_dir=work_dir,
-                chunks=chunks,
-                args=args,
-                book_title=book_title,
-                heartbeat=heartbeat,
-            )
         translate_missing_chunks(
             args=args,
             work_dir=work_dir,

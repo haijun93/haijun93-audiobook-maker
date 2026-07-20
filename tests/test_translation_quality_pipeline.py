@@ -595,29 +595,6 @@ def test_terminology_consistency_flags_inconsistent_rendering() -> None:
     assert findings[0].name == "Henry"
 
 
-def test_ollama_draft_and_polish_prompt_embed_the_draft(monkeypatch) -> None:
-    chunk = translator.TranslationChunk(
-        index=1,
-        block_ids=["B00001"],
-        text="<<<B00001>>>\nHello there.\n<<<END_B00001>>>",
-        context_before="",
-        context_after="",
-    )
-    monkeypatch.setattr(
-        translator,
-        "call_ollama_generate",
-        lambda prompt, **kwargs: "<<<B00001>>>\n안녕하세요\n<<<END_B00001>>>",
-    )
-    args = SimpleNamespace(draft_provider="ollama", ollama_model="gemma4:26b", ollama_host=None)
-    drafts = translator.ollama_draft_translations(chunk, args=args, book_title="Test Book")
-    assert drafts == {"B00001": "안녕하세요"}
-
-    prompt = translator.build_polish_prompt(chunk, drafts, 1, "Test Book")
-    assert "[초벌 번역]" in prompt
-    assert "안녕하세요" in prompt
-    assert "Hello there." in prompt
-
-
 def test_readrobe_watermark_is_removed_during_epub_build() -> None:
     assert strip_source_watermarks("Visit readrobe.com for more") == "Visit for more"
     assert strip_source_watermarks("READROBE.COM") == ""
