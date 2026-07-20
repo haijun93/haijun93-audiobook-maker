@@ -12,6 +12,11 @@ KOREAN_RE = re.compile(r"[가-힣]")
 LATIN_RE = re.compile(r"[A-Za-z]")
 NUMBER_RE = re.compile(r"(?<![A-Za-z])\d+(?:[.,:]\d+)*(?![A-Za-z])")
 SEGMENT_RE = re.compile(r"<<<([^>]+)>>[>]\s*(.*?)\s*<<<END_\1>>>", re.DOTALL)
+# Internal chunk-marker syntax (current <<<Bxxxxx>>> convention, and the older [[[BEGIN:...]]]
+# convention some cached translations were produced with) should never survive into a finished
+# translation. Seeing it means a chunk failed to split back into its per-block pieces and several
+# blocks' text got concatenated into one - a real, visible defect a reader would spot immediately.
+MARKER_LEAK_RE = re.compile(r"<<<(?:B\d{4,}|END_B\d{4,})>>>|\[\[\[(?:BEGIN|END)\b")
 REFUSAL_MARKERS = (
     "content can't be shown for safety reasons",
     "content can’t be shown for safety reasons",
@@ -179,6 +184,16 @@ def assess_translations(
         if not target:
             add(block_id, "severe", "missing_translation", "번역이 비어 있습니다.")
             continue
+
+        leaked_marker = MARKER_LEAK_RE.search(target)
+        if leaked_marker:
+            add(
+                block_id,
+                "severe",
+                "leaked_marker_syntax",
+                f"내부 처리용 청크 마커가 번역 결과에 그대로 남아 있습니다(여러 블록이 하나로 뒤섞였을 가능성): {leaked_marker.group(0)[:40]}",
+            )
+
         if is_separator_text(source):
             continue
 

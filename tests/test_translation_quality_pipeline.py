@@ -116,6 +116,20 @@ def test_title_case_heuristic_does_not_shield_real_untranslated_dialogue() -> No
     assert result.findings[0].code == "untranslated_identity"
 
 
+@pytest.mark.parametrize(
+    "leaked",
+    [
+        "그녀가 한숨을 쉬었다. [[[END:B01600]]] [[[BEGIN:B01600]]] 그의 눈에는 여전히 불신이 서려 있었다.",
+        "그녀가 한숨을 쉬었다. <<<B01600>>> 그의 눈에는 여전히 불신이 서려 있었다. <<<END_B01600>>>",
+    ],
+)
+def test_leaked_chunk_marker_syntax_is_flagged_as_severe(leaked: str) -> None:
+    result = assess_translations({"B1": "She sighed. The disbelief was still there in his eyes."}, {"B1": leaked})
+
+    assert result.severe_count == 1
+    assert result.findings[0].code == "leaked_marker_syntax"
+
+
 def test_repeated_long_translation_is_detected() -> None:
     sources = {
         "B1": "The first source paragraph contains a distinct event and enough words to count as prose.",
