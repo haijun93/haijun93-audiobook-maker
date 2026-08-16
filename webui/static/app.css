@@ -517,6 +517,79 @@ textarea { resize: vertical; line-height: 1.55; }
   white-space: nowrap;
 }
 
+/* 4-Stat Batch Summary Grid */
+.batch-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 650px) {
+  .batch-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.batch-summary-card {
+  background: #0f172a;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.batch-summary-card:hover {
+  background: #1e293b;
+  border-color: #475569;
+}
+
+.summary-card-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.summary-card-val {
+  font-size: 18px;
+  font-weight: 800;
+  color: #f8fafc;
+  font-family: var(--mono);
+}
+
+.summary-card-val.text-active {
+  color: #38bdf8;
+}
+
+.summary-card-val.text-completed {
+  color: #34d399;
+}
+
+.summary-card-val.text-remaining {
+  color: #fbbf24;
+}
+
+.batch-summary-card.active-card {
+  border-top: 2px solid #38bdf8;
+}
+
+.batch-summary-card.completed-card {
+  border-top: 2px solid #34d399;
+}
+
+.batch-summary-card.remaining-card {
+  border-top: 2px solid #fbbf24;
+}
+
 /* Active Tasks Container */
 .active-tasks-container {
   display: flex;

@@ -423,9 +423,20 @@ def create_app(
             except Exception:
                 pass
                 
+        total_count = len(config.get("tasks", []))
+        comp_count = len(completed_timeline)
+        act_count = len(active_tasks)
+        rem_count = max(0, total_count - comp_count)
+
         return jsonify({
             "timestamp": health.get("timestamp", datetime.now(timezone.utc).isoformat()),
             "next_audit_seconds": next_audit_sec,
+            "summary": {
+                "total": total_count,
+                "active": act_count,
+                "completed": comp_count,
+                "remaining": rem_count,
+            },
             "accounts": account_health,
             "active_tasks": active_tasks,
             "completed_tasks": completed_tasks,

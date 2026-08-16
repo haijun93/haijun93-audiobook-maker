@@ -325,13 +325,34 @@
         </div>
       </div>
 
-      <!-- Active Translation Tasks -->
+      <!-- Active Translation Tasks & 4-Stat Summary -->
       <div class="report-section-block">
         <div class="block-title">
           <span class="block-icon">⚡</span>
           <span>실시간 도서 번역 진행 현황</span>
           <span class="active-count-badge" id="active-tasks-count">0권 진행 중</span>
         </div>
+
+        <!-- 4-Stat Metric Summary Cards Grid -->
+        <div class="batch-summary-grid" id="batch-summary-grid">
+          <div class="batch-summary-card">
+            <span class="summary-card-label">📚 총 작업대상</span>
+            <span class="summary-card-val" id="batch-stat-total">--</span>
+          </div>
+          <div class="batch-summary-card active-card">
+            <span class="summary-card-label">⚡ 작업 중</span>
+            <span class="summary-card-val text-active" id="batch-stat-active">--</span>
+          </div>
+          <div class="batch-summary-card completed-card">
+            <span class="summary-card-label">🏆 완료</span>
+            <span class="summary-card-val text-completed" id="batch-stat-completed">--</span>
+          </div>
+          <div class="batch-summary-card remaining-card">
+            <span class="summary-card-label">⏳ 남은 개수</span>
+            <span class="summary-card-val text-remaining" id="batch-stat-remaining">--</span>
+          </div>
+        </div>
+
         <div class="active-tasks-container" id="active-tasks-container">
           <div class="empty-state-small">진행 중인 도서 번역 작업을 불러오는 중...</div>
         </div>

@@ -1073,7 +1073,24 @@ async function refreshBatchReport() {
       }).join("");
     }
 
-    // 3. Active Tasks Container
+    // 3. Batch Summary Metrics (총 작업대상, 작업 중, 완료, 남은 개수)
+    const summary = data.summary || {};
+    const totalCount = summary.total != null ? summary.total : (data.completed_timeline?.length || 0) + (data.active_tasks?.length || 0);
+    const activeCount = summary.active != null ? summary.active : (data.active_tasks?.length || 0);
+    const completedCount = summary.completed != null ? summary.completed : (data.completed_timeline?.length || 0);
+    const remainingCount = summary.remaining != null ? summary.remaining : Math.max(0, totalCount - completedCount);
+
+    const statTotalEl = $("#batch-stat-total");
+    const statActiveEl = $("#batch-stat-active");
+    const statCompEl = $("#batch-stat-completed");
+    const statRemEl = $("#batch-stat-remaining");
+
+    if (statTotalEl) statTotalEl.textContent = `${totalCount}권`;
+    if (statActiveEl) statActiveEl.textContent = `${activeCount}권`;
+    if (statCompEl) statCompEl.textContent = `${completedCount}권`;
+    if (statRemEl) statRemEl.textContent = `${remainingCount}권`;
+
+    // 4. Active Tasks Container
     const tasksContainer = $("#active-tasks-container");
     const countBadge = $("#active-tasks-count");
     const activeTasks = (data.active_tasks || []).slice().sort((a, b) => getAccountSortOrder(a) - getAccountSortOrder(b));
