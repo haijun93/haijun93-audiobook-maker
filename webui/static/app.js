@@ -415,6 +415,18 @@ const RUNTIME_STAGE_LABELS = {
   chatgpt_request_pacing: { ko: "ChatGPT 안전 요청 간격 조절", en: "Pacing ChatGPT requests" },
   section_attempt_start: { ko: "음성 합성 요청", en: "Requesting speech" },
   combine_audio: { ko: "오디오 결합 중", en: "Combining audio" },
+  validate_cache: { ko: "🛠️ [후처리] 번역 캐시 무결성 검증", en: "Validating translation cache" },
+  build_epub: { ko: "🛠️ [후처리] [k-e] 한영 대역본 EPUB 패키징", en: "Building [k-e] EPUB" },
+  build_study_epub: { ko: "🛠️ [후처리] [study] 학습노트본 EPUB 생성", en: "Building [study] EPUB" },
+  final_tone_review: { ko: "🛠️ [후처리] 문체/어미 일관성 검수", en: "Reviewing tone consistency" },
+  final_dialogue_review_pass2: { ko: "🛠️ [후처리] 대화체/존비칭 2차 검수", en: "Reviewing dialogue consistency" },
+  final_terminology_review: { ko: "🛠️ [후처리] 고유명사/용어집 일치성 검수", en: "Reviewing terminology" },
+  final_presentation_review: { ko: "🛠️ [후처리] EPUB 뷰어 렌더링 검수", en: "Reviewing presentation" },
+  final_quality_audit: { ko: "🛠️ [후처리] 완역 품질 게이트 검증", en: "Auditing final quality" },
+  post_commands: { ko: "🛠️ [후처리] [k] 및 [e-s] 4대 에디션 조립/추출", en: "Generating [k] and [e-s] editions" },
+  finalize: { ko: "🛠️ [후처리] 4대 에디션 서재 최종 배포", en: "Deploying 4 editions to library" },
+  finalize_wait: { ko: "🛠️ [후처리] 서재 배포 대기", en: "Waiting for library deployment" },
+  organize_library: { ko: "🛠️ [후처리] 서재 정리 및 아카이빙", en: "Organizing library" },
   complete: { ko: "완료", en: "Complete" },
   done: { ko: "완료", en: "Complete" },
 };
@@ -584,13 +596,19 @@ function renderRuntime() {
         <span>${escapeHtml(diagnosisAction)}</span>
       </div>` : "";
     const accBadge = getAccountBadgeInfo(item);
+    const isPostProc = item.phase === "post_processing" || (item.stage && (item.stage.startsWith("final_") || item.stage.startsWith("build_") || item.stage === "validate_cache" || item.stage === "post_commands" || item.stage === "finalize"));
+    const phaseBadge = isPostProc
+      ? `<span class="postprocess-stage-tag" style="font-size: 10px; padding: 2px 6px;">🛠️ 로컬 후처리 검수</span>`
+      : `<span style="font-size: 10px; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 6px; border-radius: 4px;">⚡ 웹 LLM 번역</span>`;
+
     return `
-      <article class="runtime-item health-${health}" data-runtime-id="${escapeHtml(item.id)}">
+      <article class="runtime-item health-${health} ${isPostProc ? "postproc-item" : ""}" data-runtime-id="${escapeHtml(item.id)}">
         <div class="runtime-item-header">
           <span class="status-dot ${status}" aria-hidden="true"></span>
           <div class="runtime-item-title">
-            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px; flex-wrap: wrap;">
               <span class="account-tag-badge ${accBadge.cls}" style="font-size: 10px; padding: 2px 6px;">👤 ${escapeHtml(accBadge.short)}</span>
+              ${phaseBadge}
               <strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong>
             </div>
             <span>${escapeHtml(meta)}</span>

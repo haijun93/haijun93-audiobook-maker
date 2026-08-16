@@ -21,6 +21,11 @@ MONITORED_SCRIPTS = {
     "run_soseol2_chatgpt_k_e_batch.py": "epub_translation_batch",
     "translate_epub_with_chatgpt_web_to_study_epub.py": "epub_translation",
     "workflow_runner.py": "workflow_runner",
+    "make_korean_only_epubs.py": "korean_only_epub_generation",
+    "make_english_study_epubs.py": "english_study_epub_generation",
+    "final_epub_quality_audit.py": "final_quality_audit",
+    "final_epub_dialogue_consistency_review.py": "dialogue_consistency_review",
+    "final_epub_tone_review.py": "tone_review",
 }
 ACTIVE_RUNTIME_STATES = {"running", "recovering", "paused", "stalled", "reconnecting"}
 PROCESS_MISSING_GRACE_SECONDS = 15
@@ -298,6 +303,33 @@ class RuntimeMonitor:
         elif "AudiobookStudio" in profile_dir or "main" in cmd_str or "gemini" in provider.lower():
             account_id = "main"
 
+        stage = str(heartbeat.get("stage") or diagnostics.get("current_stage") or "starting")
+        POST_PROCESSING_STAGES = {
+            "validate_cache",
+            "build_epub",
+            "build_study_epub",
+            "final_tone_review",
+            "final_dialogue_review_pass2",
+            "final_terminology_review",
+            "final_presentation_review",
+            "final_quality_audit",
+            "finalize",
+            "post_commands",
+            "finalize_wait",
+            "organize_library",
+            "deploy",
+            "korean_only_epub_generation",
+            "english_study_epub_generation",
+            "final_quality_audit",
+            "dialogue_consistency_review",
+            "tone_review",
+        }
+        is_postproc = (
+            stage in POST_PROCESSING_STAGES
+            or workflow in ("korean_only_epub_generation", "english_study_epub_generation", "final_quality_audit", "dialogue_consistency_review", "tone_review")
+            or (completed is not None and total is not None and completed >= total and total > 0 and stage not in ("complete", "done"))
+        )
+
         return {
             "id": workflow_identity(work_dir),
             "account_id": account_id,
@@ -309,11 +341,12 @@ class RuntimeMonitor:
             "process_state": process.state,
             "elapsed": process.elapsed,
             "workflow": workflow,
+            "phase": "post_processing" if is_postproc else "translation",
             "title": display_title(diagnostics, process.command, work_dir),
             "provider": provider,
             "status": status,
             "health": health_state,
-            "stage": str(heartbeat.get("stage") or diagnostics.get("current_stage") or "starting"),
+            "stage": stage,
             "stage_label": str(heartbeat.get("label") or progress_data.get("current") or ""),
             "detail": str(heartbeat.get("detail") or progress_data.get("detail") or "")[:500],
             "progress": {
