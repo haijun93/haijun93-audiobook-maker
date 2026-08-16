@@ -210,6 +210,18 @@ class ContinuousTranslationScheduler:
         payload = load_json_object(self.state_path)
         if payload.get("version") != STATE_VERSION:
             payload = {}
+        accounts_raw = payload.get("accounts")
+        accounts_dict = (
+            {a["id"]: a for a in accounts_raw if isinstance(a, dict) and "id" in a}
+            if isinstance(accounts_raw, list)
+            else (accounts_raw if isinstance(accounts_raw, dict) else {})
+        )
+        tasks_raw = payload.get("tasks")
+        tasks_dict = (
+            {t["id"]: t for t in tasks_raw if isinstance(t, dict) and "id" in t}
+            if isinstance(tasks_raw, list)
+            else (tasks_raw if isinstance(tasks_raw, dict) else {})
+        )
         return {
             "version": STATE_VERSION,
             "created_at": payload.get("created_at") or utc_now(self.wall_clock()),
@@ -220,8 +232,8 @@ class ContinuousTranslationScheduler:
                 if isinstance(payload.get("operations_audit"), dict)
                 else {}
             ),
-            "accounts": payload.get("accounts") if isinstance(payload.get("accounts"), dict) else {},
-            "tasks": payload.get("tasks") if isinstance(payload.get("tasks"), dict) else {},
+            "accounts": accounts_dict,
+            "tasks": tasks_dict,
         }
 
     def _account_specs(self) -> list[dict[str, Any]]:
@@ -1001,6 +1013,7 @@ class ContinuousTranslationScheduler:
                 task_by_batch_only[str(command[option_index + 1])] = task
         occupancy: dict[str, dict[str, Any]] = {}
         child_pids = {child["process"].pid for child in self.children.values()}
+        assigned_pids: set[int] = set(child_pids)
         active_wrapper_task_ids: set[str] = set()
         now = self.wall_clock()
 
@@ -1022,10 +1035,11 @@ class ContinuousTranslationScheduler:
                 if isinstance(preferred_accounts, list) and preferred_accounts
                 else ""
             )
-            account_id = str(task_state.get("account_id") or preferred_account)
+            account_id = str(preferred_account or task_state.get("account_id") or "")
             if not account_id or self._account_by_id(account_id) is None:
                 continue
             active_wrapper_task_ids.add(task_id)
+            assigned_pids.add(record.pid)
             occupancy.setdefault(
                 account_id,
                 {
@@ -1066,12 +1080,13 @@ class ContinuousTranslationScheduler:
                 if isinstance(preferred_accounts, list) and preferred_accounts
                 else ""
             )
-            account_id = str(task_state.get("account_id") or preferred_account)
+            account_id = str(preferred_account or task_state.get("account_id") or "")
             if not account_id or self._account_by_id(account_id) is None:
                 continue
             current = occupancy.get(account_id)
             if current is not None and current.get("task_id") != task_id:
                 continue
+            assigned_pids.add(record.pid)
             occupancy[account_id] = {
                 "status": "external",
                 "pid": record.pid,
@@ -1094,7 +1109,13 @@ class ContinuousTranslationScheduler:
         for task in self._task_specs():
             task_id = str(task["id"])
             task_state = self.state["tasks"][task_id]
-            account_id = str(task_state.get("account_id") or "")
+            preferred_accounts = task.get("preferred_accounts")
+            preferred_account = (
+                str(preferred_accounts[0])
+                if isinstance(preferred_accounts, list) and preferred_accounts
+                else ""
+            )
+            account_id = str(preferred_account or task_state.get("account_id") or "")
             pid = int(task_state.get("pid") or 0)
             if (
                 task_state.get("status") not in {"running", "external", "reconnecting"}
@@ -1103,8 +1124,11 @@ class ContinuousTranslationScheduler:
                 or account_id in occupancy
                 or self._account_by_id(account_id) is None
                 or not process_is_alive(pid)
+                or (pid > 0 and pid in assigned_pids)
             ):
                 continue
+            if pid > 0:
+                assigned_pids.add(pid)
             occupancy[account_id] = {
                 "status": "external",
                 "pid": pid,
@@ -1121,8 +1145,11 @@ class ContinuousTranslationScheduler:
                 or account_id in occupancy
                 or account_state.get("status") not in {"running", "external", "reconnecting"}
                 or not process_is_alive(pid)
+                or (pid > 0 and pid in assigned_pids)
             ):
                 continue
+            if pid > 0:
+                assigned_pids.add(pid)
             task_id = str(account_state.get("task_id") or "") or None
             task = self._task_by_id(task_id) if task_id else None
             occupancy[account_id] = {
@@ -1138,7 +1165,8 @@ class ContinuousTranslationScheduler:
                 continue
             profile_dir = expanded_path(account["profile_dir"], base_dir=self.base_dir)
             owner_pid = profile_owner_pid(profile_dir, str(account["provider"]))
-            if owner_pid is not None:
+            if owner_pid is not None and owner_pid not in assigned_pids:
+                assigned_pids.add(owner_pid)
                 record = record_by_pid.get(owner_pid)
                 work_dir = command_option(record.command, "work-dir") if record else None
                 task = task_by_work_dir.get(str(Path(work_dir).expanduser().resolve())) if work_dir else None

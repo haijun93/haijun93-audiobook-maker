@@ -5669,6 +5669,46 @@ def fetch_gemini_web_audio_bytes_from_blob_url(page, blob_url: str) -> bytes:
     return extract_gemini_web_audio_bytes_from_blob_data_url(str(result.get("dataUrl") or ""))
 
 
+WEB_ACCOUNT_PROFILE_BASES: dict[str, Path] = {
+    "main": Path.home() / "Library" / "Application Support" / "AudiobookStudio" / "browser_profiles",
+    "account2": Path.home() / "Library" / "Application Support" / "AudiobookStudio-account2" / "browser_profiles",
+    "account3": Path.home() / "Library" / "Application Support" / "AudiobookStudio-account3" / "browser_profiles",
+    "chatgpt": Path.home() / "Library" / "Application Support" / "AudiobookStudio-chatgpt" / "browser_profiles",
+}
+WEB_ACCOUNT_BOOTSTRAP_COOKIE_FILES: dict[str, Path] = {
+    "main": Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 1" / "Cookies",
+    "account2": Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 2" / "Cookies",
+    "account3": Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 18" / "Cookies",
+    "chatgpt": Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 1" / "Cookies",
+}
+WEB_ACCOUNT_LABELS = tuple(WEB_ACCOUNT_PROFILE_BASES)
+WEB_PROFILE_LOCK_FILE = ".audiobook_web_profile.lock"
+DEFAULT_WEB_BROWSER_LAUNCH_TIMEOUT_SECONDS = 120
+
+
+def infer_web_account_label(base: Path | str | None = None) -> str:
+    sched_acc = os.environ.get("AUDIOBOOK_SCHEDULER_ACCOUNT", "").strip()
+    if sched_acc in WEB_ACCOUNT_PROFILE_BASES:
+        return sched_acc
+
+    argv_str = " ".join(sys.argv)
+    if "account3" in argv_str or "AudiobookStudio-account3" in argv_str:
+        return "account3"
+    if "account2" in argv_str or "AudiobookStudio-account2" in argv_str:
+        return "account2"
+    if "chatgpt" in argv_str or "AudiobookStudio-chatgpt" in argv_str:
+        return "chatgpt"
+
+    base_str = str(base or os.environ.get("AUDIOBOOK_WEB_PROFILE_DIR", ""))
+    if "AudiobookStudio-account3" in base_str or "account3" in base_str:
+        return "account3"
+    if "AudiobookStudio-account2" in base_str or "account2" in base_str:
+        return "account2"
+    if "AudiobookStudio-chatgpt" in base_str or "chatgpt" in base_str:
+        return "chatgpt"
+    return "main"
+
+
 def prepare_gemini_web_page(
     page,
     *,
@@ -5722,9 +5762,7 @@ def prepare_gemini_web_page(
     # -------------------------------------------------------------
     if guest_mode_detected or "accounts.google.com" in str(getattr(page, "url", "")):
         try:
-            override = os.environ.get("AUDIOBOOK_WEB_PROFILE_DIR")
-            base = Path(override).expanduser() if override else WEB_ACCOUNT_PROFILE_BASES["main"]
-            account_label = infer_web_account_label(base)
+            account_label = infer_web_account_label()
             cookie_path = WEB_ACCOUNT_BOOTSTRAP_COOKIE_FILES.get(account_label)
             if cookie_path and cookie_path.is_file():
                 browser_cookie3, _, _ = load_gemini_web_modules()
@@ -5741,6 +5779,15 @@ def prepare_gemini_web_page(
                     guest_mode_detected = any(
                         guest_login_button.nth(i).is_visible() for i in range(guest_login_button.count())
                     )
+                    if not guest_mode_detected and "accounts.google.com" not in str(getattr(page, "url", "")):
+                        beat_heartbeat(
+                            heartbeat,
+                            stage="session_self_healed",
+                            label=label,
+                            section_prefix=section_prefix,
+                            attempt=attempt,
+                            detail=f"account={account_label} cookies_injected={len(fresh_cookies)}",
+                        )
         except Exception:
             pass
 
@@ -5749,38 +5796,6 @@ def prepare_gemini_web_page(
             "Gemini 웹이 비로그인(게스트) 상태입니다. 로그인 세션을 확인하세요."
         )
     install_gemini_web_tts_hook(page)
-
-
-# "main"/"account2"/"account3" 세 제미나이 계정(각각 haijun93@gmail.com, haijun2be@gmail.com, ngaytot9@gmail.com)과
-# "chatgpt" 계정(haijun93@gmail.com 고정)이 쓰는 영구 프로필 베이스 디렉터리. web_app.py의
-# --web-account가 여기서 실제 경로를 끌어와 AUDIOBOOK_WEB_PROFILE_DIR을 자동으로 설정한다 -
-# 실행할 때마다 사람이 직접 경로 문자열을 타이핑하다 계정을 헷갈리는 실수를 원천적으로 없앤다.
-WEB_ACCOUNT_PROFILE_BASES: dict[str, Path] = {
-    "main": Path.home() / "Library" / "Application Support" / "AudiobookStudio" / "browser_profiles",
-    "account2": Path.home() / "Library" / "Application Support" / "AudiobookStudio-account2" / "browser_profiles",
-    "account3": Path.home() / "Library" / "Application Support" / "AudiobookStudio-account3" / "browser_profiles",
-    "chatgpt": Path.home() / "Library" / "Application Support" / "AudiobookStudio-chatgpt" / "browser_profiles",
-}
-WEB_ACCOUNT_BOOTSTRAP_COOKIE_FILES: dict[str, Path] = {
-    "main": Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 1" / "Cookies",
-    "account2": Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 2" / "Cookies",
-    "account3": Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 18" / "Cookies",
-    "chatgpt": Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 1" / "Cookies",
-}
-WEB_ACCOUNT_LABELS = tuple(WEB_ACCOUNT_PROFILE_BASES)
-WEB_PROFILE_LOCK_FILE = ".audiobook_web_profile.lock"
-DEFAULT_WEB_BROWSER_LAUNCH_TIMEOUT_SECONDS = 120
-
-
-def infer_web_account_label(base: Path) -> str:
-    base_str = str(base)
-    if "AudiobookStudio-account3" in base_str:
-        return "account3"
-    if "AudiobookStudio-account2" in base_str:
-        return "account2"
-    if "AudiobookStudio-chatgpt" in base_str:
-        return "chatgpt"
-    return "main"
 
 
 def web_provider_profile_dir(provider: str) -> Path:
