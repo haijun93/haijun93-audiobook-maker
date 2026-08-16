@@ -70,6 +70,7 @@ from audiobook_maker import (  # noqa: E402
     send_gemini_web_prompt,
     chatgpt_web_send_is_ready,
     chatgpt_web_action_buttons_ready,
+    dismiss_chatgpt_web_modal_dialogs,
     wait_for_chatgpt_web_response,
     wait_for_gemini_web_response,
 )
@@ -2690,6 +2691,8 @@ def wait_for_new_legacy_web_response(
         if previous_message_id and message_id == previous_message_id:
             normalized = ""
         empty_polls = empty_polls + 1 if not normalized else 0
+        if empty_polls in (2, 5, 10):
+            dismiss_chatgpt_web_modal_dialogs(page)
         beat_heartbeat(
             heartbeat,
             stage="wait_for_response",

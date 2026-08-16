@@ -5088,6 +5088,61 @@ def verify_chatgpt_web_session(
     return health
 
 
+def dismiss_chatgpt_web_modal_dialogs(page) -> bool:
+    """ChatGPT 웹 화면에 나타나는 안내창/모달/약관/튜토리얼/새기능/메모리/Plus 알림 팝업을 자동 감지하여 닫는다."""
+    dismissed = False
+    dismiss_button_selectors = (
+        'button[aria-label="닫기"]',
+        'button[aria-label="Close"]',
+        'button[aria-label="Dismiss"]',
+        'button[aria-label="Cancel"]',
+        'button[data-testid="close-button"]',
+        'button[data-testid="modal-close-button"]',
+        '[role="dialog"] button:has-text("확인")',
+        '[role="dialog"] button:has-text("알겠습니다")',
+        '[role="dialog"] button:has-text("계속")',
+        '[role="dialog"] button:has-text("Got it")',
+        '[role="dialog"] button:has-text("Done")',
+        '[role="dialog"] button:has-text("Dismiss")',
+        '[role="dialog"] button:has-text("Continue")',
+        '[role="dialog"] button:has-text("Stay logged out")',
+        '[role="dialog"] button:has-text("다음에")',
+        '[role="dialog"] button:has-text("Later")',
+        '[role="dialog"] button:has-text("닫기")',
+        '[role="dialog"] button:has-text("Close")',
+        '[role="alertdialog"] button:has-text("확인")',
+        '[role="alertdialog"] button:has-text("닫기")',
+        '[role="alertdialog"] button:has-text("Got it")',
+        'div[data-state="open"] button:has-text("확인")',
+        'div[data-state="open"] button:has-text("Got it")',
+        'div[data-state="open"] button:has-text("닫기")',
+        'div[data-state="open"] button:has-text("Close")',
+    )
+    for selector in dismiss_button_selectors:
+        try:
+            buttons = page.locator(selector)
+            count = min(buttons.count(), 3)
+            for i in range(count):
+                btn = buttons.nth(i)
+                if btn.is_visible() and btn.is_enabled():
+                    btn.click(timeout=800)
+                    dismissed = True
+                    page.wait_for_timeout(200)
+                    break
+        except Exception:
+            continue
+
+    try:
+        dialogs = page.locator('[role="dialog"], [aria-modal="true"], div[data-state="open"]')
+        if any(dialogs.nth(i).is_visible() for i in range(min(dialogs.count(), 2))):
+            page.keyboard.press("Escape")
+            dismissed = True
+    except Exception:
+        pass
+
+    return dismissed
+
+
 def prepare_chatgpt_web_page(
     page,
     *,
@@ -5111,6 +5166,7 @@ def prepare_chatgpt_web_page(
     except timeout_error_cls as exc:
         navigation_error = exc
     page.wait_for_timeout(1500)
+    dismiss_chatgpt_web_modal_dialogs(page)
     beat_heartbeat(
         heartbeat,
         stage="chatgpt_page_loaded",
@@ -5137,6 +5193,7 @@ def prepare_chatgpt_web_page(
         section_prefix=section_prefix,
         attempt=attempt,
     )
+    dismiss_chatgpt_web_modal_dialogs(page)
     prompt_box = page.locator(CHATGPT_WEB_PROMPT_INPUT_SELECTOR).first
     prompt_timeout_ms = 30000 if navigation_error is not None else 120000
     prompt_deadline = time.monotonic() + prompt_timeout_ms / 1000
@@ -5145,6 +5202,7 @@ def prepare_chatgpt_web_page(
             prompt_box.wait_for(timeout=min(10000, prompt_timeout_ms))
             break
         except timeout_error_cls:
+            dismiss_chatgpt_web_modal_dialogs(page)
             remaining = max(0, int(prompt_deadline - time.monotonic()))
             beat_heartbeat(
                 heartbeat,
@@ -5207,6 +5265,7 @@ def send_chatgpt_web_prompt(
     attempt: int | None = None,
 ) -> None:
     try:
+        dismiss_chatgpt_web_modal_dialogs(page)
         wait_for_chatgpt_web_request_slot(
             page,
             heartbeat=heartbeat,
@@ -5214,6 +5273,7 @@ def send_chatgpt_web_prompt(
             section_prefix=section_prefix,
             attempt=attempt,
         )
+        dismiss_chatgpt_web_modal_dialogs(page)
         box = page.locator(CHATGPT_WEB_PROMPT_INPUT_SELECTOR).first
         # 번역 프롬프트는 지침+인물관계 가이드+본문 청크를 합쳐 1만자를 넘기기도 한다.
         # Playwright의 기본 30초 타임아웃이 이 contenteditable(ProseMirror) 편집기에
@@ -5222,8 +5282,13 @@ def send_chatgpt_web_prompt(
         # 호출의 인자(프롬프트 원문)를 그대로 에코하는데, 그 프롬프트 안에 "거절"이라는
         # 단어가 들어있어서(모델에게 거절하지 말라고 지시하는 문장) content_refusal로
         # 오분류되기까지 했다 - 진짜 원인은 단순히 시간이 더 필요했던 것뿐이다.
-        box.fill(prompt, timeout=90_000)
+        try:
+            box.fill(prompt, timeout=90_000)
+        except Exception:
+            dismiss_chatgpt_web_modal_dialogs(page)
+            box.fill(prompt, timeout=90_000)
         sent = False
+        dismiss_chatgpt_web_modal_dialogs(page)
         for selector in CHATGPT_WEB_SEND_BUTTON_SELECTORS:
             try:
                 button = page.locator(selector).first
@@ -5354,6 +5419,8 @@ def wait_for_chatgpt_web_response(
         message_id, text = read_last_chatgpt_web_response(page)
         normalized = normalize_chatgpt_web_copy(text)
         empty_polls = empty_polls + 1 if not normalized else 0
+        if empty_polls in (2, 5, 10):
+            dismiss_chatgpt_web_modal_dialogs(page)
         beat_heartbeat(
             heartbeat,
             stage="wait_for_response",
@@ -6151,14 +6218,20 @@ def launch_persistent_web_context(
             seconds=launch_timeout_seconds,
         ):
             with web_browser_launch_deadline(launch_timeout_seconds):
+                launch_kwargs: dict[str, Any] = {
+                    "headless": False,
+                    "args": chatgpt_web_launch_args(visible=visible),
+                    "ignore_default_args": list(WEB_CHROME_IGNORED_PLAYWRIGHT_DEFAULT_ARGS),
+                    "viewport": viewport,
+                    "timeout": launch_timeout_seconds * 1000,
+                }
+                if chrome_path:
+                    launch_kwargs["executable_path"] = str(Path(chrome_path).expanduser())
+                else:
+                    launch_kwargs["channel"] = "chrome"
                 context = playwright.chromium.launch_persistent_context(
                     str(profile_dir),
-                    headless=False,
-                    executable_path=str(Path(chrome_path).expanduser()),
-                    args=chatgpt_web_launch_args(visible=visible),
-                    ignore_default_args=list(WEB_CHROME_IGNORED_PLAYWRIGHT_DEFAULT_ARGS),
-                    viewport=viewport,
-                    timeout=launch_timeout_seconds * 1000,
+                    **launch_kwargs,
                 )
     except Exception as exc:
         terminate_web_profile_browser_processes(profile_dir)
