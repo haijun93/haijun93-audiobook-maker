@@ -1137,32 +1137,39 @@ async function refreshBatchReport() {
       }
     }
 
-    // 4. Completed Timeline (시간대별 번역 완료 작품 및 처리 계정)
+    // 5. Completed Timeline (시간대별 번역 완료 작품 및 처리 계정 - 최근 3일)
     const timelineContainer = $("#completed-timeline-container");
     const compCountBadge = $("#completed-timeline-count");
     const timeline = data.completed_timeline || [];
     if (compCountBadge) {
-      compCountBadge.textContent = `${timeline.length}권 완료`;
+      compCountBadge.textContent = `${timeline.length}권 완료 (최근 3일)`;
     }
 
     if (timelineContainer) {
       if (timeline.length === 0) {
-        timelineContainer.innerHTML = `<div class="empty-list-text">아직 완료된 도서가 없습니다.</div>`;
+        timelineContainer.innerHTML = `<div class="empty-list-text">최근 3일간 번역 완료된 도서가 없습니다.</div>`;
       } else {
         timelineContainer.innerHTML = timeline.map((t) => {
-          let timeText = "--:--";
+          let dateStr = "";
+          let timeStr = "--:--";
           if (t.completed_at) {
             try {
               const d = new Date(t.completed_at);
-              timeText = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+              const m = d.getMonth() + 1;
+              const day = d.getDate();
+              const hrs = String(d.getHours()).padStart(2, "0");
+              const mins = String(d.getMinutes()).padStart(2, "0");
+              dateStr = `${m}/${day}`;
+              timeStr = `${hrs}:${mins}`;
             } catch (e) {}
           }
           const accClass = `acc-${t.account_id || "main"}`;
+          const formattedDateTime = dateStr ? `${dateStr} ${timeStr}` : timeStr;
 
           return `
             <div class="timeline-card">
               <div class="timeline-left">
-                <span class="timeline-time-badge">🕒 ${timeText}</span>
+                <span class="timeline-time-badge">🕒 ${escapeHtml(formattedDateTime)}</span>
                 <span class="timeline-book-title">${escapeHtml(t.title)}</span>
               </div>
               <div class="timeline-right">

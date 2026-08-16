@@ -348,13 +348,16 @@ def create_app(
             elif status in ("running", "external", "active") or hb.get("label"):
                 active_tasks.append(task_info)
 
-        # 5. Completed Timeline with Accounts
+        # 5. Completed Timeline with Accounts (Within last 3 days)
         ACCOUNT_LABELS = {
             "main": "계정 1 (haijun93)",
             "account2": "계정 2 (haijun2be)",
             "account3": "계정 3 (ngaytot9)",
             "chatgpt": "ChatGPT (haijun93)",
         }
+
+        now = time.time()
+        three_days_ago_ts = now - (3 * 86400)
 
         completed_timeline = []
         for tspec in config.get("tasks", []):
@@ -375,6 +378,16 @@ def create_app(
             if is_complete:
                 exec_account = task_account_map.get(tid) or tstate.get("account_id") or (tspec.get("preferred_accounts") or ["main"])[0]
                 comp_time = epub_mtimes.get(tid) or tstate.get("completed_at") or tstate.get("started_at")
+                
+                # Check 3-day cutoff
+                comp_ts = None
+                if comp_time:
+                    try:
+                        comp_ts = datetime.fromisoformat(str(comp_time)).timestamp()
+                    except Exception:
+                        pass
+                if comp_ts is not None and comp_ts < three_days_ago_ts:
+                    continue  # Filter: keep only the last 3 days
                 
                 # Calculate exact translation duration from workflow events
                 duration_text = ""
@@ -411,8 +424,6 @@ def create_app(
         completed_timeline.sort(key=lambda x: str(x.get("completed_at") or ""), reverse=True)
 
         account_health = health.get("account_health", {})
-        
-        now = time.time()
         last_audit_time = latest_audit.get("started_at")
         next_audit_sec = 1800
         if last_audit_time:
