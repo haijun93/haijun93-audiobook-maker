@@ -1090,19 +1090,21 @@ async function refreshBatchReport() {
     if (statCompEl) statCompEl.textContent = `${completedCount}권`;
     if (statRemEl) statRemEl.textContent = `${remainingCount}권`;
 
-    // 4. Active Tasks Container
+    // 4. Real-time Tasks (Web Translation vs Local Post-Processing)
+    const translationTasks = (data.translation_tasks || (data.active_tasks || []).filter(t => t.phase !== "post_processing")).slice().sort((a, b) => getAccountSortOrder(a) - getAccountSortOrder(b));
+    const postprocessTasks = (data.postprocess_tasks || (data.active_tasks || []).filter(t => t.phase === "post_processing")).slice().sort((a, b) => getAccountSortOrder(a) - getAccountSortOrder(b));
+
     const tasksContainer = $("#active-tasks-container");
     const countBadge = $("#active-tasks-count");
-    const activeTasks = (data.active_tasks || []).slice().sort((a, b) => getAccountSortOrder(a) - getAccountSortOrder(b));
     if (countBadge) {
-      countBadge.textContent = `${activeTasks.length}권 진행 중`;
+      countBadge.textContent = `${translationTasks.length}권 번역 중`;
     }
 
     if (tasksContainer) {
-      if (activeTasks.length === 0) {
-        tasksContainer.innerHTML = `<div class="empty-state-small">현재 활성화된 도서 번역 작업이 없습니다.</div>`;
+      if (translationTasks.length === 0) {
+        tasksContainer.innerHTML = `<div class="empty-state-small">현재 활성화된 본문 번역 작업이 없습니다.</div>`;
       } else {
-        tasksContainer.innerHTML = activeTasks.map((t) => {
+        tasksContainer.innerHTML = translationTasks.map((t) => {
           const pct = t.progress_percent || 0;
           const labelText = t.label || `진행률 ${pct}%`;
           const speedText = t.speed_cph ? `${t.speed_cph} chunks/h` : "--";
@@ -1130,6 +1132,42 @@ async function refreshBatchReport() {
                   <span>⚡ ${speedText}</span>
                   ${etaText ? `<span>⏱️ ${etaText}</span>` : ""}
                 </div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    // 4-2. Post-Processing Tasks Container
+    const postContainer = $("#postprocess-tasks-container");
+    const postCountBadge = $("#postprocess-tasks-count");
+    if (postCountBadge) {
+      postCountBadge.textContent = `${postprocessTasks.length}권 검수/조립 중`;
+    }
+
+    if (postContainer) {
+      if (postprocessTasks.length === 0) {
+        postContainer.innerHTML = `<div class="empty-state-small">현재 대기/진행 중인 후처리 작업이 없습니다.</div>`;
+      } else {
+        postContainer.innerHTML = postprocessTasks.map((t) => {
+          const accBadge = getAccountBadgeInfo(t);
+          const stageKorean = t.stage_korean || t.label || t.stage || "후처리 진행 중";
+          const detailText = t.detail || t.last_error || "로컬 고속 검수 및 4대 에디션 자동 패키징/배포 진행 중";
+
+          return `
+            <div class="postprocess-task-card">
+              <div class="task-card-row-top">
+                <div class="task-card-title">
+                  <span class="account-tag-badge ${accBadge.cls}" style="font-size: 10px; padding: 2px 6px;">👤 ${escapeHtml(accBadge.short)}</span>
+                  <span>📖</span>
+                  <span style="font-weight: 700;">${escapeHtml(t.title)}</span>
+                </div>
+                <span class="postprocess-stage-tag">🛠️ ${escapeHtml(stageKorean)}</span>
+              </div>
+              <div class="task-card-row-bottom" style="font-size: 11px; color: #94a3b8;">
+                <span>${escapeHtml(detailText)}</span>
+                <span style="font-size: 10px; color: #a78bfa; font-weight: 600;">(로컬 CPU 전산 처리 💻)</span>
               </div>
             </div>
           `;

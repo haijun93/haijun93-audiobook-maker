@@ -590,11 +590,72 @@ textarea { resize: vertical; line-height: 1.55; }
   border-top: 2px solid #fbbf24;
 }
 
+/* Active & Post-Processing Sub-blocks */
+.active-sub-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sub-block-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #cbd5e1;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sub-block-icon {
+  font-size: 13px;
+}
+
+.postprocess-count-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.15);
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
 /* Active Tasks Container */
-.active-tasks-container {
+.active-tasks-container,
+.postprocess-tasks-container {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.postprocess-task-card {
+  background: #0f172a;
+  border: 1px solid rgba(167, 139, 250, 0.25);
+  border-left: 3px solid #a78bfa;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.postprocess-task-card:hover {
+  border-color: #a78bfa;
+  background: #1e1b4b;
+}
+
+.postprocess-stage-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(139, 92, 246, 0.4);
 }
 
 .task-progress-card {

@@ -326,6 +326,45 @@ def create_app(
                     
             pct = round((completed / total * 100), 1) if total > 0 else 0.0
             
+            stage = str(hb.get("stage") or "")
+            POST_PROCESSING_STAGES = {
+                "validate_cache",
+                "build_epub",
+                "build_study_epub",
+                "final_tone_review",
+                "final_dialogue_review_pass2",
+                "final_terminology_review",
+                "final_presentation_review",
+                "final_quality_audit",
+                "finalize",
+                "post_commands",
+                "finalize_wait",
+                "organize_library",
+                "deploy",
+            }
+            STAGE_KOREAN_LABELS = {
+                "validate_cache": "번역 캐시 무결성 검증",
+                "build_epub": "[k-e] 한영 대역본 EPUB 패키징",
+                "build_study_epub": "[study] 학습노트본 EPUB 생성",
+                "final_tone_review": "문체/어미 일관성 검수",
+                "final_dialogue_review_pass2": "등장인물 대화체/존비칭 2차 검수",
+                "final_terminology_review": "고유명사/용어집 일치성 검수",
+                "final_presentation_review": "EPUB 뷰어 렌더링 검수",
+                "final_quality_audit": "최종 완역 품질 게이트 검증",
+                "post_commands": "[k] 및 [e-s] 4대 에디션 조립/추출",
+                "finalize": "4대 에디션 조립 및 서재 배포",
+                "finalize_wait": "서재 배포 대기",
+            }
+
+            is_postproc = (
+                stage in POST_PROCESSING_STAGES
+                or status in ("finalize_wait", "post_processing", "finalizing")
+                or (completed >= total and total > 0 and stage not in ("complete", "done"))
+                or "검수" in label
+                or "패키징" in label
+                or "생성" in label
+            )
+
             task_info = {
                 "id": tid,
                 "title": tspec.get("title", tid),
@@ -334,7 +373,9 @@ def create_app(
                 "completed": completed,
                 "total": total,
                 "progress_percent": pct,
-                "stage": hb.get("stage", ""),
+                "stage": stage,
+                "stage_korean": STAGE_KOREAN_LABELS.get(stage, label or stage or "후처리 진행 중"),
+                "phase": "post_processing" if is_postproc else "translation",
                 "label": label,
                 "detail": hb.get("detail", ""),
                 "speed_cph": hb.get("chunks_per_hour", 0.0),
@@ -343,10 +384,13 @@ def create_app(
                 "started_at": tstate.get("started_at"),
             }
             
-            if status in ("completed", "done") or hb.get("stage") == "complete" or tid in epub_mtimes:
+            if status in ("completed", "done") or stage == "complete" or tid in epub_mtimes:
                 completed_tasks.append(task_info)
-            elif status in ("running", "external", "active") or hb.get("label"):
+            elif status in ("running", "external", "active", "finalize_wait") or hb.get("label"):
                 active_tasks.append(task_info)
+
+        translation_tasks = [t for t in active_tasks if t.get("phase") == "translation"]
+        postprocess_tasks = [t for t in active_tasks if t.get("phase") == "post_processing"]
 
         # 5. Completed Timeline with Accounts (Within last 3 days)
         ACCOUNT_LABELS = {
@@ -450,6 +494,8 @@ def create_app(
             },
             "accounts": account_health,
             "active_tasks": active_tasks,
+            "translation_tasks": translation_tasks,
+            "postprocess_tasks": postprocess_tasks,
             "completed_tasks": completed_tasks,
             "completed_timeline": completed_timeline,
             "latest_audit": latest_audit,

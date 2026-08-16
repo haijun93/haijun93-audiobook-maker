@@ -353,8 +353,28 @@
           </div>
         </div>
 
-        <div class="active-tasks-container" id="active-tasks-container">
-          <div class="empty-state-small">진행 중인 도서 번역 작업을 불러오는 중...</div>
+        <!-- 1. Real-time Web Translation Section -->
+        <div class="active-sub-block">
+          <div class="sub-block-title">
+            <span class="sub-block-icon">⚡</span>
+            <span>실시간 본문 번역 진행 현황 (웹 LLM)</span>
+            <span class="active-count-badge" id="active-tasks-count">0권 진행 중</span>
+          </div>
+          <div class="active-tasks-container" id="active-tasks-container">
+            <div class="empty-state-small">진행 중인 본문 번역 작업을 불러오는 중...</div>
+          </div>
+        </div>
+
+        <!-- 2. Real-time Post-Processing & Quality Review Section -->
+        <div class="active-sub-block postprocess-sub-block" style="margin-top: 14px;">
+          <div class="sub-block-title">
+            <span class="sub-block-icon">🛠️</span>
+            <span>실시간 후처리 & 4대 에디션 조립 현황 (로컬 검수 및 배포)</span>
+            <span class="postprocess-count-badge" id="postprocess-tasks-count">0권 검수/조립 중</span>
+          </div>
+          <div class="postprocess-tasks-container" id="postprocess-tasks-container">
+            <div class="empty-state-small">현재 대기/진행 중인 후처리 작업이 없습니다.</div>
+          </div>
         </div>
       </div>
 
