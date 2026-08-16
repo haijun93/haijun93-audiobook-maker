@@ -5814,12 +5814,23 @@ def prepare_gemini_web_page(
     # 사라짐) 쓰지 않는다. 이 확인이 없으면 세션이 끊긴 채로 계속 요청을 보내면서도 정상
     # 진행 중이라고 착각한다.
     try:
-        guest_login_button = page.get_by_text(
-            GEMINI_WEB_GUEST_MODE_LOGIN_BUTTON_TEXT, exact=True
-        )
-        guest_mode_detected = any(
-            guest_login_button.nth(i).is_visible() for i in range(guest_login_button.count())
-        )
+        user_avatar = page.locator(
+            'header a[href*="myaccount.google.com"], header a[aria-label*="Google 계정"], header a[aria-label*="Google Account"], header img[alt*="프로필"], header img[alt*="Profile"]'
+        ).first
+        avatar_visible = user_avatar.count() > 0 and user_avatar.is_visible()
+
+        header_login = page.locator(
+            'header a[href*="accounts.google.com"], header button:has-text("로그인"), a.sign-in-button, button[data-test-id="login-button"]'
+        ).first
+        header_login_visible = header_login.count() > 0 and header_login.is_visible()
+
+        if avatar_visible:
+            guest_mode_detected = False
+        elif header_login_visible:
+            guest_mode_detected = True
+        else:
+            # Fallback: Check if prompt input is ready and editable
+            guest_mode_detected = input_locator is None
     except Exception:
         guest_mode_detected = False
 
