@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Queue 10 VK Dark Romance Masterpieces exclusively for Gemini Account 1 (main)."""
+"""Queue 10 VK Dark Romance Masterpieces exclusively for Gemini Account 1 (main) with destination `#Top 10 dark romance`."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / ".work" / "continuous_scheduler" / "config.json"
 STATUS_PATH = ROOT / ".work" / "continuous_scheduler" / "status.json"
 SOURCE_DIR = Path("/Users/hyeokjunkong/Desktop/소설2/new books from vk")
+DEST_CATEGORY = "#Top 10 dark romance"
 
 VK_DARK_BOOKS = [
     ("Pepper Winters", "Tears of Tess", "Tears of Tess - Pepper Winters", "🥇"),
@@ -34,7 +35,6 @@ def slugify(text: str) -> str:
 def main() -> int:
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     existing_tasks = config.get("tasks", [])
-    existing_ids = {t["id"] for t in existing_tasks}
 
     status_data = {}
     if STATUS_PATH.exists():
@@ -44,22 +44,29 @@ def main() -> int:
             status_data = {}
 
     status_tasks = status_data.get("tasks", [])
-    status_task_ids = {t["id"] for t in status_tasks if isinstance(t, dict)}
+    status_tasks_by_id = {t["id"]: t for t in status_tasks if isinstance(t, dict)}
 
-    new_task_specs = []
-    base_priority = -200 # Highest priority, strictly before any other pending task
+    base_priority = -200
 
+    # Build updated task dictionary
+    task_specs = {}
     for idx, (author, title, stem, rank) in enumerate(VK_DARK_BOOKS, 1):
         task_id = f"vk-dark-{idx:02d}-{slugify(title)}"
         work_dir = Path(f"/Users/hyeokjunkong/Desktop/소설2/_chatgpt_translate_work/vk_dark__{slugify(stem)}")
         
-        # Completion paths in 4 editions
-        completion_paths = [
-            f"/Users/hyeokjunkong/Desktop/소설2/[k-e]/[k-e] {stem}.epub",
-            f"/Users/hyeokjunkong/Desktop/소설2/[k]/[k] {stem}.epub",
-            f"/Users/hyeokjunkong/Desktop/소설2/[study]/[study] {stem}.epub",
-            f"/Users/hyeokjunkong/Desktop/소설2/[e-s]/[e-s] {stem}.epub",
+        # Sources in root output dirs
+        src_ke = f"/Users/hyeokjunkong/Desktop/소설2/[k-e]/[k-e] {stem}.epub"
+        src_k = f"/Users/hyeokjunkong/Desktop/소설2/[k]/[k] {stem}.epub"
+        
+        # Target destinations in #Top 10 dark romance
+        dest_ke = f"/Users/hyeokjunkong/Desktop/소설2/[k-e]/{DEST_CATEGORY}/[k-e] {stem}.epub"
+        dest_k = f"/Users/hyeokjunkong/Desktop/소설2/[k]/{DEST_CATEGORY}/[k] {stem}.epub"
+        
+        deployments = [
+            {"source": src_ke, "destination": dest_ke},
+            {"source": src_k, "destination": dest_k},
         ]
+        completion_paths = [dest_ke, dest_k]
 
         task_spec = {
             "id": task_id,
@@ -86,52 +93,67 @@ def main() -> int:
                 "--inter-request-delay-sec",
                 "8"
             ],
+            "deploy": deployments,
             "completion_paths": completion_paths,
         }
+        task_specs[task_id] = task_spec
 
-        # Check if already in config
-        if task_id in existing_ids:
-            # Update existing
-            for i, t in enumerate(existing_tasks):
-                if t["id"] == task_id:
-                    existing_tasks[i] = task_spec
-                    break
-        else:
-            new_task_specs.append(task_spec)
+    # Reassemble tasks list: our 10 tasks at the very front
+    new_tasks = []
+    seen_ids = set()
+    for task_id in sorted(task_specs.keys()):
+        new_tasks.append(task_specs[task_id])
+        seen_ids.add(task_id)
 
-        # Status tracking
-        if task_id not in status_task_ids:
-            status_tasks.append({
-                "id": task_id,
-                "title": task_spec["title"],
-                "providers": ["gemini"],
-                "preferred_accounts": ["main"],
-                "work_dir": str(work_dir),
-                "status": "pending",
-                "attempts": 0,
-                "stall_restarts": 0,
-                "priority": task_spec["priority"],
-                "order": len(status_tasks) + 1,
-                "primary_complete": False,
-                "account_id": None,
-                "pid": None,
-                "started_at": None,
-                "last_seen_at": None,
-                "next_attempt_at": None,
-                "error": None,
-                "terminating_stale": False,
-            })
+    for t in existing_tasks:
+        if t["id"] not in seen_ids:
+            new_tasks.append(t)
+            seen_ids.add(t["id"])
 
-    config["tasks"] = new_task_specs + existing_tasks
+    config["tasks"] = new_tasks
     CONFIG_PATH.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    # Update status.json
     if status_data:
-        status_data["tasks"] = status_tasks
+        updated_status_tasks = []
+        status_seen = set()
+        for idx, task_id in enumerate(sorted(task_specs.keys()), 1):
+            spec = task_specs[task_id]
+            st = status_tasks_by_id.get(task_id, {})
+            st.update({
+                "id": task_id,
+                "title": spec["title"],
+                "providers": ["gemini"],
+                "preferred_accounts": ["main"],
+                "work_dir": spec["work_dir"],
+                "status": st.get("status") if st.get("status") in {"running", "completed"} else "pending",
+                "attempts": st.get("attempts", 0),
+                "stall_restarts": st.get("stall_restarts", 0),
+                "priority": spec["priority"],
+                "order": idx,
+                "primary_complete": st.get("primary_complete", False),
+                "account_id": st.get("account_id"),
+                "pid": st.get("pid"),
+                "started_at": st.get("started_at"),
+                "last_seen_at": st.get("last_seen_at"),
+                "next_attempt_at": st.get("next_attempt_at"),
+                "error": st.get("error"),
+                "terminating_stale": st.get("terminating_stale", False),
+            })
+            updated_status_tasks.append(st)
+            status_seen.add(task_id)
+
+        for t in status_tasks:
+            if isinstance(t, dict) and t.get("id") not in status_seen:
+                updated_status_tasks.append(t)
+                status_seen.add(t.get("id"))
+
+        status_data["tasks"] = updated_status_tasks
         STATUS_PATH.write_text(json.dumps(status_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"Successfully queued 10 VK Dark Romance books exclusively for Gemini Account 1 (main)!")
+    print(f"Successfully configured 10 VK Dark Romance books to auto-deploy into '{DEST_CATEGORY}'!")
     for idx, (author, title, stem, rank) in enumerate(VK_DARK_BOOKS, 1):
-        print(f"  {rank} [Priority {base_priority + idx}] {title} by {author} -> Gemini Account 1")
+        print(f"  {rank} {title} -> {DEST_CATEGORY}/[k-e], [k]")
 
     return 0
 
