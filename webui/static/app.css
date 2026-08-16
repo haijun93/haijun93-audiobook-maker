@@ -432,7 +432,7 @@ textarea { resize: vertical; line-height: 1.55; }
 .account-health-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+  gap: 8px;
 }
 
 @media (max-width: 600px) {
@@ -441,62 +441,77 @@ textarea { resize: vertical; line-height: 1.55; }
   }
 }
 
-.account-card {
+.account-health-card {
   background: #0f172a;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 6px;
+  padding: 7px 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  transition: all 0.2s ease;
+  gap: 2px;
+  transition: all 0.15s ease;
 }
 
-.account-card:hover {
+.account-health-card:hover {
   border-color: #475569;
   background: #131c31;
 }
 
-.account-card.healthy {
+.account-health-card.status-ok {
   border-left: 3px solid #10b981;
 }
 
-.account-card.attention {
+.account-health-card.status-warn {
   border-left: 3px solid #f59e0b;
 }
 
-.account-card-top {
+.account-health-card.status-err {
+  border-left: 3px solid #f43f5e;
+}
+
+.acc-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 6px;
 }
 
-.account-name {
-  font-size: 12px;
+.acc-name {
+  font-size: 11px;
   font-weight: 700;
   color: #f8fafc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.account-status-badge {
+.acc-status-tag {
   font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
+  font-weight: 600;
+  padding: 1px 5px;
   border-radius: 4px;
+  white-space: nowrap;
 }
 
-.account-status-badge.badge-ok {
+.acc-status-tag.ok {
   background: rgba(16, 185, 129, 0.2);
   color: #34d399;
 }
 
-.account-status-badge.badge-warn {
+.acc-status-tag.warn {
   background: rgba(245, 158, 11, 0.2);
   color: #fbbf24;
 }
 
-.account-card-msg {
-  font-size: 11px;
-  color: var(--muted);
+.acc-status-tag.err {
+  background: rgba(244, 63, 94, 0.2);
+  color: #fda4af;
+}
+
+.acc-card-msg {
+  font-size: 10px;
+  color: #94a3b8;
+  line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

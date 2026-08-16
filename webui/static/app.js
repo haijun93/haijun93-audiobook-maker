@@ -1057,8 +1057,9 @@ async function refreshBatchReport() {
         const statusClass = isOk ? "status-ok" : isWarn ? "status-warn" : "status-err";
         const tagClass = isOk ? "ok" : isWarn ? "warn" : "err";
         const statusText = isOk ? "정상 🟢" : isWarn ? "로그인 필요 🟡" : "오류 🔴";
-        const label = acc.label || key;
-        const msg = acc.message || (isOk ? "로그인 세션 활성" : "세션 재연결 대기");
+        const accInfo = getAccountBadgeInfo({ id: key });
+        const label = accInfo.full || acc.label || key;
+        const msg = acc.message || (isOk ? "실시간 번역 작업 정상 수행 중" : "세션 재연결 대기");
 
         return `
           <div class="account-health-card ${statusClass}">
