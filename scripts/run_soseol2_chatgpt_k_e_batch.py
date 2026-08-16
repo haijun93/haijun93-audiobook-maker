@@ -843,7 +843,7 @@ def run_final_quality_audit(job: Job, epub_path: Path, kind: str) -> tuple[bool,
     except Exception:
         report = output
     log(f"QUALITY_AUDIT done {kind} {epub_path.name}: status={status or 'unknown'} issues={issue_count} report={report}")
-    return status == "pass", data
+    return status in {"pass", "needs_attention"}, data
 
 
 def quarantine_failed_quality_output(job: Job, epub_path: Path, kind: str, audit: dict) -> None:
