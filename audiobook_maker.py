@@ -5271,11 +5271,41 @@ def send_chatgpt_web_prompt(
 
 
 def read_last_chatgpt_web_response(page) -> tuple[str, str]:
-    messages = page.locator('[data-message-author-role="assistant"][data-message-id]')
+    messages = page.locator('[data-message-author-role="assistant"]')
     if messages.count() < 1:
         return "", ""
     node = messages.last
-    return (node.get_attribute("data-message-id") or "").strip(), node.inner_text().strip()
+    message_id = (node.get_attribute("data-message-id") or node.get_attribute("id") or f"msg_{messages.count()}").strip()
+    return message_id, node.inner_text().strip()
+
+
+def chatgpt_web_send_is_ready(page) -> bool:
+    for selector in CHATGPT_WEB_SEND_BUTTON_SELECTORS:
+        try:
+            button = page.locator(selector).first
+            if button.count() and button.is_visible() and not button.is_disabled():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def chatgpt_web_action_buttons_ready(page) -> bool:
+    action_selectors = (
+        'button[data-testid="copy-turn-action-button"]',
+        'button[aria-label="복사"]',
+        'button[aria-label="Copy"]',
+        'button[aria-label="Good response"]',
+        'button[aria-label="Bad response"]',
+    )
+    for selector in action_selectors:
+        try:
+            btn = page.locator(selector).last
+            if btn.count() and btn.is_visible():
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def chatgpt_web_generation_is_active(page) -> bool:
@@ -5340,11 +5370,28 @@ def wait_for_chatgpt_web_response(
             stable_polls = 0
 
         required_stable_polls = 8 if section_prefix == "relationship_guide" else 3
+        generation_active = chatgpt_web_generation_is_active(page)
+        send_ready = chatgpt_web_send_is_ready(page)
+        actions_ready = chatgpt_web_action_buttons_ready(page)
+        strong_completion_signal = send_ready or actions_ready or (not generation_active)
+
+        # 1. Standard completion: text stable + strong completion signal
         if (
             last_message_id
             and last_text
             and stable_polls >= required_stable_polls
-            and not chatgpt_web_generation_is_active(page)
+            and strong_completion_signal
+        ):
+            record_chatgpt_web_pacing_success()
+            clear_chatgpt_web_rate_limit_state()
+            return last_message_id, last_text
+
+        # 2. Hard absolute fallback: text has remained 100% unchanged for >= 6 polls (>= 18s).
+        # Even if a stop button / streaming class lingers in DOM, 18s of silence guarantees completion.
+        if (
+            last_message_id
+            and last_text
+            and stable_polls >= max(6, required_stable_polls + 2)
         ):
             record_chatgpt_web_pacing_success()
             clear_chatgpt_web_rate_limit_state()
