@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import sys
 import time
 from pathlib import Path
@@ -151,6 +152,16 @@ def wait_for_status(manager: JobManager, job_id: str, expected: set[str], timeou
     raise AssertionError(f"job did not reach {expected}: {manager.public_job(job_id)}")
 
 
+class StubRuntimeMonitor:
+    def snapshot(self):
+        return {
+            "snapshot_at": "2026-08-15T11:00:00+00:00",
+            "refresh_after_ms": 1000,
+            "summary": {"active": 1, "healthy": 1, "recovering": 0, "attention": 0},
+            "workflows": [{"id": "runtime-test", "title": "Dark Notes", "status": "running"}],
+        }
+
+
 def test_safe_file_stem_removes_paths_and_punctuation() -> None:
     assert safe_file_stem("../../나의 책 (final)!.epub") == "나의_책_final"
 
@@ -232,6 +243,38 @@ def test_job_commands_forward_gemini_web_settings(tmp_path: Path) -> None:
         manager.close()
 
 
+def test_folder_batch_command_forwards_reverse_flag(tmp_path: Path) -> None:
+    # Running a second account/instance against the same source folder in reverse order
+    # (last-to-first) is how two parallel translation instances avoid picking the same
+    # book - this locks in that create_folder_job()/_build_workflow_command() actually
+    # forward the "reverse" setting as --reverse.
+    manager = make_manager(tmp_path, start_worker=False)
+    try:
+        source = tmp_path / "vk"
+        source.mkdir()
+        (source / "Book.epub").write_bytes(b"book")
+
+        job = manager.create_folder_job(
+            operation="batch_translation",
+            source_dir=str(source),
+            output_dir=None,
+            settings=translation_settings(reverse=True),
+        )
+        command = manager.build_command(manager._read_job(job["id"]))
+        assert "--reverse" in command
+
+        forward_job = manager.create_folder_job(
+            operation="batch_translation",
+            source_dir=str(source),
+            output_dir=None,
+            settings=translation_settings(reverse=False),
+        )
+        forward_command = manager.build_command(manager._read_job(forward_job["id"]))
+        assert "--reverse" not in forward_command
+    finally:
+        manager.close()
+
+
 def test_job_manager_completes_and_exposes_log_and_output(tmp_path: Path) -> None:
     manager = make_manager(tmp_path)
     try:
@@ -301,6 +344,81 @@ def test_job_manager_runs_folder_workflows(
         manager.close()
 
 
+FAKE_WORKFLOW_RUNNER_PARTIAL_THEN_FAIL = r"""
+import argparse
+import json
+import sys
+from pathlib import Path
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--task", required=True)
+parser.add_argument("--source-dir")
+parser.add_argument("--output-dir", required=True)
+parser.add_argument("--artifact-manifest-file", required=True)
+parser.add_argument("--heartbeat-file", required=True)
+parser.add_argument("--translation-output", default="both")
+args, _ = parser.parse_known_args()
+
+root = Path(args.output_dir).resolve()
+artifacts = []
+for folder, prefix, kind in (("[k-e]", "[k-e]", "bilingual_epub"), ("[k]", "[k]", "korean_epub")):
+    path = root / folder / f"{prefix} Batch Book.epub"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(kind.encode())
+    artifacts.append({"path": str(path.relative_to(root)), "kind": kind})
+
+Path(args.heartbeat_file).write_text(
+    json.dumps({"stage": "book_attempt_failed", "label": "1 / 2"}), encoding="utf-8"
+)
+Path(args.artifact_manifest_file).write_text(
+    json.dumps({"root": str(root), "artifacts": artifacts, "failures": ["Second Book.epub"]}),
+    encoding="utf-8",
+)
+print("fake workflow: one book done, then a later book failed", flush=True)
+sys.exit(1)
+"""
+
+
+def test_job_manager_organizes_partial_results_from_a_failed_batch(tmp_path: Path) -> None:
+    # A folder batch commonly ends up "failed" overall because one book (out of many) hit an
+    # unrecoverable error, even though every book before it translated successfully. Before this
+    # fix, the library-organize step only ran when the whole job returned 0, so those already
+    # -finished books sat in the output staging folder indefinitely instead of landing in the
+    # library - the user had to notice and move them by hand after every partial-failure batch.
+    runner = tmp_path / "fake_runner.py"
+    runner.write_text(FAKE_RUNNER, encoding="utf-8")
+    workflow_runner = tmp_path / "fake_workflow_runner_partial_then_fail.py"
+    workflow_runner.write_text(FAKE_WORKFLOW_RUNNER_PARTIAL_THEN_FAIL, encoding="utf-8")
+    korean_root = tmp_path / "library" / "[k]"
+    bilingual_root = tmp_path / "library" / "[k-e]"
+    manager = JobManager(
+        tmp_path / "data",
+        runner_script=runner,
+        workflow_runner_script=workflow_runner,
+        python_executable=sys.executable,
+        korean_root=korean_root,
+        bilingual_root=bilingual_root,
+        finished_root=tmp_path / "library" / "finished",
+    )
+    try:
+        source = tmp_path / "books"
+        source.mkdir()
+        (source / "Book.epub").write_bytes(b"book")
+        job = manager.create_folder_job(
+            operation="batch_translation",
+            source_dir=str(source),
+            output_dir=str(tmp_path / "results"),
+            settings=translation_settings(),
+        )
+        failed = wait_for_status(manager, job["id"], {"failed"})
+
+        assert failed["status"] == "failed"
+        assert any(korean_root.rglob("*.epub"))
+        assert any(bilingual_root.rglob("*.epub"))
+    finally:
+        manager.close()
+
+
 def test_job_manager_can_cancel_running_process(tmp_path: Path) -> None:
     manager = make_manager(tmp_path)
     try:
@@ -314,6 +432,82 @@ def test_job_manager_can_cancel_running_process(tmp_path: Path) -> None:
         cancelled = wait_for_status(manager, job["id"], {"cancelled"})
         assert cancelled["download_ready"] is False
     finally:
+        manager.close()
+
+
+def test_watchdog_restarts_stale_job_once_from_checkpoint(tmp_path: Path) -> None:
+    manager = make_manager(tmp_path)
+    try:
+        job = manager.create_job(
+            source_name="watchdog.txt",
+            source_stream=io.BytesIO(b"SLOW_JOB"),
+            settings=settings(),
+        )
+        wait_for_status(manager, job["id"], {"running"})
+        deadline = time.monotonic() + 2
+        while job["id"] not in manager._processes and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        stored = manager._read_job(job["id"])
+        heartbeat_path = manager._job_dir(job["id"]) / str(stored["heartbeat_relpath"])
+        while not heartbeat_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert heartbeat_path.is_file()
+        input_path = manager._job_dir(job["id"]) / str(stored["input_relpath"])
+        input_path.write_text("FAST_AFTER_RECOVERY", encoding="utf-8")
+        stored["started_at"] = "2026-01-01T00:00:00+00:00"
+        manager._write_job(stored)
+        old_time = time.time() - 1900
+        os.utime(heartbeat_path, (old_time, old_time))
+
+        manager._watchdog_once()
+        completed = wait_for_status(manager, job["id"], {"completed"})
+        persisted = manager._read_job(job["id"])
+
+        assert completed["message"] == "Audiobook ready"
+        assert persisted["watchdog_restarts"] == 1
+        assert persisted["last_diagnosis"]["kind"] == "heartbeat_stale"
+    finally:
+        manager.close()
+
+
+def test_watchdog_opens_circuit_after_repeated_stall(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    manager = make_manager(tmp_path, start_worker=False)
+    try:
+        job = manager.create_job(
+            source_name="repeated-stall.txt",
+            source_stream=io.BytesIO(b"source"),
+            settings=settings(),
+        )
+        stored = manager._read_job(job["id"])
+        stored["status"] = "running"
+        stored["pid"] = 4545
+        stored["started_at"] = "2026-01-01T00:00:00+00:00"
+        stored["watchdog_restarts"] = 1
+        manager._write_job(stored)
+        heartbeat_path = manager._job_dir(job["id"]) / str(stored["heartbeat_relpath"])
+        heartbeat_path.write_text('{"stage": "wait_for_response"}', encoding="utf-8")
+        old_time = time.time() - 1900
+        os.utime(heartbeat_path, (old_time, old_time))
+        manager._processes[job["id"]] = FakeProcess()  # type: ignore[assignment]
+        monkeypatch.setattr(manager, "_terminate_process", lambda _process, grace_seconds=2: None)
+
+        manager._watchdog_once()
+        stalled = manager._read_job(job["id"])
+
+        assert stalled["status"] == "cancelling"
+        assert stalled["watchdog_action"] == "fail"
+        assert stalled["recovery"]["automatic_retry"] is False
+        assert stalled["recovery"]["circuit_open"] is True
+    finally:
+        manager._processes.clear()
         manager.close()
 
 
@@ -332,6 +526,86 @@ def test_queued_job_is_recovered_after_restart(tmp_path: Path) -> None:
         assert completed["message"] == "Audiobook ready"
     finally:
         second.close()
+
+
+def test_live_job_is_monitored_without_duplicate_requeue(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = make_manager(tmp_path, start_worker=False)
+    job = first.create_job(
+        source_name="already-running.txt",
+        source_stream=io.BytesIO("실행 중".encode()),
+        settings=settings(),
+    )
+    stored = first._read_job(job["id"])
+    stored["status"] = "running"
+    stored["pid"] = 4242
+    first._write_job(stored)
+    first.close()
+    monkeypatch.setattr("webui.job_manager.job_process_is_alive", lambda _pid, _job_dir: True)
+
+    second = make_manager(tmp_path, start_worker=False)
+    try:
+        recovered = second.public_job(job["id"])
+        assert recovered["status"] == "recovering"
+        assert second._queue.empty()
+    finally:
+        second.close()
+
+
+def test_recovered_job_can_be_cancelled_without_original_popen(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = make_manager(tmp_path, start_worker=False)
+    job = first.create_job(
+        source_name="detached.txt",
+        source_stream=io.BytesIO("분리 작업".encode()),
+        settings=settings(),
+    )
+    stored = first._read_job(job["id"])
+    stored["status"] = "running"
+    stored["pid"] = 4343
+    first._write_job(stored)
+    first.close()
+    monkeypatch.setattr("webui.job_manager.job_process_is_alive", lambda _pid, _job_dir: True)
+
+    second = make_manager(tmp_path, start_worker=False)
+    monkeypatch.setattr(second, "_terminate_pid_group", lambda _pid, grace_seconds=8: None)
+    try:
+        cancelled = second.stop_job(job["id"], reason="test")
+        assert cancelled["status"] == "cancelled"
+    finally:
+        second.close()
+
+
+def test_stale_heartbeat_exposes_process_health_diagnosis(tmp_path: Path) -> None:
+    manager = make_manager(tmp_path, start_worker=False)
+    try:
+        job = manager.create_job(
+            source_name="stale.txt",
+            source_stream=io.BytesIO("정지 진단".encode()),
+            settings=settings(),
+        )
+        stored = manager._read_job(job["id"])
+        stored["status"] = "running"
+        stored["pid"] = 4444
+        stored["started_at"] = "2026-01-01T00:00:00+00:00"
+        manager._write_job(stored)
+        heartbeat_path = manager._job_dir(job["id"]) / str(stored["heartbeat_relpath"])
+        heartbeat_path.write_text(
+            f'{{"timestamp": {time.time() - 1900}, "stage": "wait_for_response"}}',
+            encoding="utf-8",
+        )
+
+        public = manager.public_job(job["id"])
+
+        assert public["heartbeat_stale"] is True
+        assert public["diagnosis"]["kind"] == "heartbeat_stale"
+        assert public["heartbeat_age_seconds"] >= 1800
+    finally:
+        manager.close()
 
 
 def test_web_api_runs_job_and_downloads_result(tmp_path: Path) -> None:
@@ -391,6 +665,58 @@ def test_web_api_translates_upload_and_downloads_each_edition(tmp_path: Path) ->
         assert client.get(f"/api/jobs/{job_id}/artifacts/0").data == b"bilingual-epub"
         assert client.get(f"/api/jobs/{job_id}/artifacts/1").data == b"korean-epub"
         assert client.get(f"/api/jobs/{job_id}/artifacts/2").status_code == 404
+    finally:
+        manager.close()
+
+
+def test_web_api_translation_defaults_to_disabling_chatgpt_web_fallback(tmp_path: Path) -> None:
+    # /api/jobs/batch always forwards disable_web_fallback, but this single-file route used to
+    # drop it entirely regardless of what the caller sent, silently defaulting every job created
+    # here to "ChatGPT fallback allowed" (job_manager treats a missing key as False) - a real
+    # incident: an individual translation job actually used ChatGPT web mid-run while the user's
+    # standing instruction is that ChatGPT usage stays suspended until they say otherwise.
+    manager = make_manager(tmp_path)
+    app = create_app(manager=manager)
+    app.config["TESTING"] = True
+    client = app.test_client()
+    try:
+        response = client.post(
+            "/api/jobs/translation",
+            data={
+                **translation_settings(),
+                "file": (io.BytesIO(b"epub"), "Sample.epub"),
+            },
+            content_type="multipart/form-data",
+        )
+        assert response.status_code == 201
+        job_id = response.get_json()["job"]["id"]
+
+        job = manager.public_job(job_id)
+        assert job["settings"]["disable_web_fallback"] is True
+    finally:
+        manager.close()
+
+
+def test_web_api_translation_honors_explicit_disable_web_fallback_false(tmp_path: Path) -> None:
+    manager = make_manager(tmp_path)
+    app = create_app(manager=manager)
+    app.config["TESTING"] = True
+    client = app.test_client()
+    try:
+        response = client.post(
+            "/api/jobs/translation",
+            data={
+                **translation_settings(),
+                "disable_web_fallback": "false",
+                "file": (io.BytesIO(b"epub"), "Sample.epub"),
+            },
+            content_type="multipart/form-data",
+        )
+        assert response.status_code == 201
+        job_id = response.get_json()["job"]["id"]
+
+        job = manager.public_job(job_id)
+        assert job["settings"]["disable_web_fallback"] is False
     finally:
         manager.close()
 
@@ -491,5 +817,25 @@ def test_web_api_rejects_invalid_log_offset(tmp_path: Path) -> None:
         response = app.test_client().get(f"/api/jobs/{'a' * 32}/log?offset=NaN")
         assert response.status_code == 400
         assert response.get_json()["error"] == "Log offset must be an integer"
+    finally:
+        manager.close()
+
+
+def test_web_api_exposes_runtime_snapshot_and_event_stream(tmp_path: Path) -> None:
+    manager = make_manager(tmp_path, start_worker=False)
+    app = create_app(manager=manager, runtime_monitor=StubRuntimeMonitor())
+    app.config["TESTING"] = True
+    client = app.test_client()
+    try:
+        response = client.get("/api/runtime")
+        assert response.status_code == 200
+        assert response.get_json()["workflows"][0]["title"] == "Dark Notes"
+
+        stream = client.get("/api/runtime/stream", buffered=False)
+        first_event = next(stream.response).decode("utf-8")
+        stream.close()
+        assert "event: runtime" in first_event
+        assert '"runtime-test"' in first_event
+        assert stream.headers["X-Accel-Buffering"] == "no"
     finally:
         manager.close()

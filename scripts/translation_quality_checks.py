@@ -45,10 +45,24 @@ REFUSAL_MARKERS = (
     "content_refusal",
     "minor_context_refusal",
 )
+# Gemini sometimes declines a chunk with a copyright objection ("저작권이 있는 출판 도서의
+# 본문을 직접 전량 번역하거나 행 단위로 대조하여 제공해 드리기는 어렵습니다") instead of a
+# generic safety refusal. Wording varies per chunk, so this checks proximity of "저작권" to a
+# refusal verb rather than an exact phrase - mirrors COPYRIGHT_REFUSAL_RE in
+# translate_epub_with_chatgpt_web_to_study_epub.py, which stops this from being accepted live;
+# this is the retroactive backstop in case one is ever found already sitting in a cached
+# translation (e.g. one produced before that live check existed).
+COPYRIGHT_REFUSAL_RE = re.compile(
+    r"저작권[^.!?\n]{0,80}(어렵습니다|어려울 것 같습니다|도울 수 없|도와드릴 수 없|도와드리기 어렵|거절)"
+    r"|(어렵습니다|어려울 것 같습니다|도울 수 없|도와드릴 수 없|도와드리기 어렵|거절)[^.!?\n]{0,80}저작권"
+)
 FRONTMATTER_METADATA_RE = re.compile(
     r"^(?:"
     r"a\s+(?:jove|berkley|penguin)\s+book\b|"
-    r"published\s+by\b|an\s+imprint\s+of\b|copyright\b|excerpt\s+from\b.*\bcopyright\b|"
+    # "Published by X" and "Published in the United States by X" / "Published
+    # simultaneously in Canada by Y" both open real publisher-imprint lines; bound
+    # the gap so this doesn't drift into matching unrelated narrative sentences.
+    r"published\b(?:\s+\S+){0,6}\s+by\b|an\s+imprint\s+of\b|copyright\b|excerpt\s+from\b.*\bcopyright\b|"
     r".+\s+©\s+\d{4}\s+by\b|"
     r".+\b(?:colophon|trademark)s?\b|library\s+of\s+congress\b|"
     r"(?:names?|title|description|identifiers?|subjects?|classification):\s|"
@@ -61,17 +75,74 @@ FRONTMATTER_METADATA_RE = re.compile(
     r")",
     re.IGNORECASE,
 )
+# Library-of-Congress CIP title-statement lines ("Before I go to sleep : a novel /
+# S.J. Watson. — 1st ed.") cite the book's own title and author verbatim between a
+# " : " and a " / ", punctuation no narrative sentence combines - a reliable signal
+# that whichever parts stay in English (per the title/name-preservation prompt rule)
+# aren't an untranslated failure.
+CIP_TITLE_STATEMENT_RE = re.compile(r"\s:\s.{1,80}\s/\s")
 # Bare company/social domains without a scheme or "www." prefix (e.g. publisher social
 # links like "linkedin.com/company/..." dropped into front matter) should be left alone
 # just like the https://-prefixed URLs the prose check already exempts below.
 BARE_DOMAIN_RE = re.compile(r"\b[a-z0-9][a-z0-9-]{1,62}\.(?:com|net|org|io|co|edu|gov)\b", re.IGNORECASE)
 # Publisher mailing addresses ("122 Fifth Avenue New York, NY 10011", "1745 Broadway,
-# New York, New York 10019") are proper nouns/numbers with no real sentence to translate.
+# New York, New York 10019", "50 Victoria Embankment London EC4Y 0DZ") are proper
+# nouns/numbers with no real sentence to translate. Covers both US-style zips and UK
+# postcodes, and both US and UK street-type words, since UK publisher imprints (Hodder &
+# Stoughton, Head of Zeus, etc.) use their own street vocabulary and postcode format.
 ADDRESS_RE = re.compile(
     r"\b\d{1,6}\s+(?:[A-Z][a-zA-Z']*\s+){0,3}"
-    r"(?:Avenue|Ave\.?|Street|St\.?|Broadway|Boulevard|Blvd\.?|Road|Rd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Place|Pl\.?|Suite|Floor)\b"
-    r".{0,40}\b\d{5}(?:-\d{4})?\b",
+    r"(?:Avenue|Ave\.?|Street|St\.?|Broadway|Boulevard|Blvd\.?|Road|Rd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Place|Pl\.?|"
+    r"Suite|Floor|Embankment|Square|Crescent|Terrace|Close|Gardens?|Mews|Row|Court|Walk|Hill|Green|Park)\b"
+    r".{0,40}\b(?:\d{5}(?:-\d{4})?|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b",
+    # Case-insensitive: publisher colophons often spell out the street-type word in
+    # all caps ("1935 Brookdale RD, Naperville, IL 60563-2773"), not just "Rd"/"Rd.".
+    re.IGNORECASE,
 )
+# A UK/EU publisher address is often split across several consecutive front-matter
+# blocks, one line each ("EU representative: Macmillan Publishers Ireland Ltd, 1st
+# Floor,", "The Liffey Trust Centre, 117-126 Sheriff Street Upper,", "Dublin 1 D01
+# YC43") - so a single fragment won't have a street number, street-type word, *and*
+# postcode together the way ADDRESS_RE expects. Any line that both ends with a trailing
+# comma (a real narrative sentence/paragraph block never does) and mentions a building/
+# street-type word near a number is almost certainly one line of such a multi-block
+# address, not prose that failed to translate.
+ADDRESS_CONTINUATION_RE = re.compile(
+    r"\d{1,3}(?:st|nd|rd|th)?\b.{0,30}\b(?:Floor|Suite|Centre|Center|Trust|House|Building|"
+    r"Avenue|Ave\.?|Street|St\.?|Broadway|Boulevard|Blvd\.?|Road|Rd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Place|Pl\.?|"
+    r"Embankment|Square|Crescent|Terrace|Close|Gardens?|Mews|Row|Court|Walk|Hill|Green|Park)\b",
+    re.IGNORECASE,
+)
+
+
+def is_address_continuation_line(text: str) -> bool:
+    return text.endswith(",") and bool(ADDRESS_CONTINUATION_RE.search(text))
+
+
+def is_proper_noun_word(word: str) -> bool:
+    return word[0].isupper() or word.lower() in TITLE_SUBTITLE_MINOR_WORDS
+
+
+def is_name_like_segment(segment: str) -> bool:
+    words = re.findall(r"[A-Za-z][A-Za-z'.-]*", segment)
+    if not words or len(words) > 5:
+        return False
+    return sum(1 for word in words if is_proper_noun_word(word)) / len(words) >= 0.8
+
+
+# Acknowledgements / dedication pages often list dozens of backers or supporters as a
+# bare comma-separated run of names ("T B, The Human, RinoZ, Mike Dirks, ...,"), with
+# no sentence punctuation at all. Real narrative prose never looks like this, so a long
+# run of short, mostly-capitalized comma segments is a name list to leave untranslated,
+# not a sentence the model failed to translate.
+def is_proper_noun_list(text: str) -> bool:
+    if re.search(r"[.!?]", text):
+        return False
+    segments = [part.strip() for part in text.split(",") if part.strip()]
+    if len(segments) < 5:
+        return False
+    name_like = sum(1 for segment in segments if is_name_like_segment(segment))
+    return name_like / len(segments) >= 0.85
 # A short quoted-or-bare "Title: Subtitle" line (in-story document titles, "also by"
 # bibliography entries) has no sentence punctuation to translate and should keep its
 # official English title per the translation prompt's title-preservation rule.
@@ -93,14 +164,53 @@ def is_bare_title_subtitle_line(text: str) -> bool:
     return capitalized / len(words) >= 0.9
 
 
+def is_cip_title_statement_line(text: str) -> bool:
+    stripped = text.strip()
+    return bool(stripped) and len(stripped) <= 160 and bool(CIP_TITLE_STATEMENT_RE.search(stripped))
+
+
+# Chapter epigraphs often cite a song as "<Title> – <Artist>" (en/em dash, or a plain
+# ASCII hyphen, no "by" and no quotes), e.g. Rina Kent's "The Wolf in Your Darkest Room
+# – Matthew Mayfield" or "Everybody Wants To Rule The World - 3TEETH". Like the
+# colon-separated title/subtitle case above, both sides are proper nouns with no
+# sentence to translate, so a title-cased phrase on each side of a bare dash should
+# also be left as-is rather than flagged as untranslated prose.
+def _word_capitalization_ratio(segment: str) -> float:
+    words = re.findall(r"[A-Za-z][A-Za-z'’.-]*", segment)
+    if not words:
+        return 0.0
+    capitalized = sum(1 for word in words if word[0].isupper() or word.lower() in TITLE_SUBTITLE_MINOR_WORDS)
+    return capitalized / len(words)
+
+
+def is_song_or_quote_attribution_line(text: str) -> bool:
+    stripped = text.strip().strip("\"“”'")
+    if not stripped or len(stripped) > 140:
+        return False
+    if re.search(r"[.!?]", stripped):
+        return False
+    match = re.fullmatch(r"(.{2,90})\s[-–—]\s(.{2,60})", stripped)
+    if not match:
+        return False
+    title_part, attribution_part = match.groups()
+    return (
+        _word_capitalization_ratio(title_part) >= 0.8
+        and _word_capitalization_ratio(attribution_part) >= 0.8
+    )
+
+
 def find_refusal_marker(text: str) -> str:
     lowered = text.lower()
-    return next((marker for marker in REFUSAL_MARKERS if marker in lowered), "")
+    marker = next((marker for marker in REFUSAL_MARKERS if marker in lowered), "")
+    if marker:
+        return marker
+    match = COPYRIGHT_REFUSAL_RE.search(text)
+    return match.group(0) if match else ""
 
 
 def count_refusal_markers(text: str) -> int:
     lowered = text.lower()
-    return sum(lowered.count(marker) for marker in REFUSAL_MARKERS)
+    return sum(lowered.count(marker) for marker in REFUSAL_MARKERS) + len(COPYRIGHT_REFUSAL_RE.findall(text))
 
 
 @dataclass
@@ -136,6 +246,47 @@ def is_separator_text(text: str) -> bool:
     return bool(re.fullmatch(r"[\*\-–—_~·•\s]{1,120}", compact_text(text)))
 
 
+# Speculative-fiction dialogue sometimes quotes an invented in-world language verbatim
+# (e.g. Dune's Fremen/Chakobsa lines like "Cignoro hrobosa sukares hin mange..."). Such
+# lines are meant to stay exactly as written in every language edition - there is
+# nothing to translate - but they are plausible-looking Latin-alphabet text long enough
+# to otherwise pass the prose gate below, so a correct (unchanged) translation trips the
+# untranslated_identity check. Real English prose of any length almost always contains
+# several common function words; constructed/foreign language text essentially never
+# does, so a very low hit-rate against a broad common-word list is a reliable signal.
+ENGLISH_FUNCTION_WORDS = frozenset(
+    "the a an of to in on at is are was were be been being and but or not that this "
+    "these those he she it they we you i my your his her their our with for from as "
+    "by if than then so no yes do does did have has had will would can could should "
+    "must when where who what why how there here out up down about into over under "
+    "just very more most some any all each other".split()
+)
+
+
+def is_constructed_or_foreign_language_line(text: str) -> bool:
+    words = re.findall(r"[A-Za-z']+", text)
+    if len(words) < 5:
+        return False
+    hits = sum(1 for word in words if word.lower() in ENGLISH_FUNCTION_WORDS)
+    return (hits / len(words)) < 0.12
+
+
+# This pipeline only translates English-original books into Korean; a book whose
+# original-language text is French/Spanish/German/etc. (or a non-Latin script) would
+# just have every block flagged as "untranslated" by a well-behaved translation that
+# correctly left proper nouns alone, burning through all book-level retries for a
+# reason retrying can never fix. Same signal as is_constructed_or_foreign_language_line
+# above, applied to a whole-book sample instead of one line: real English prose of any
+# length has a high hit-rate against a broad common-function-word list; other
+# Latin-alphabet languages and non-Latin scripts do not.
+def is_english_word_sample(sample: str, *, min_words: int = 40, min_hit_rate: float = 0.08) -> bool:
+    words = re.findall(r"[A-Za-z']+", sample)
+    if len(words) < min_words:
+        return False
+    hits = sum(1 for word in words if word.lower() in ENGLISH_FUNCTION_WORDS)
+    return (hits / len(words)) >= min_hit_rate
+
+
 def is_prose_source(text: str) -> bool:
     text = compact_text(text)
     if FRONTMATTER_METADATA_RE.search(text):
@@ -144,9 +295,17 @@ def is_prose_source(text: str) -> bool:
         return False
     if re.search(r"(?:https?://|www\.|\bISBN\b|@\w+[.]\w+)", text, flags=re.IGNORECASE):
         return False
-    if BARE_DOMAIN_RE.search(text) or ADDRESS_RE.search(text):
+    if BARE_DOMAIN_RE.search(text) or ADDRESS_RE.search(text) or is_address_continuation_line(text):
+        return False
+    if is_proper_noun_list(text):
         return False
     if is_bare_title_subtitle_line(text):
+        return False
+    if is_cip_title_statement_line(text):
+        return False
+    if is_song_or_quote_attribution_line(text):
+        return False
+    if is_constructed_or_foreign_language_line(text):
         return False
     return len(text) >= 35 and len(LATIN_RE.findall(text)) >= 20 and not is_separator_text(text)
 

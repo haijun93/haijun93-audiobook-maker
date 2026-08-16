@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -26,6 +27,7 @@ from translate_epub_with_chatgpt_web_to_study_epub import (  # noqa: E402
     build_chunks,
     build_translation_prompt,
     chunk_has_minor_context,
+    clean_text,
     load_translation_cache,
     parse_translation_response,
     resolve_web_provider,
@@ -72,6 +74,7 @@ def test_song_credit_can_intentionally_remain_in_english() -> None:
         "All rights reserved. No part of this publication may be reproduced, stored in a retrieval system, or transmitted in any form or by any means, electronic, mechanical, photocopying, recording, or otherwise, without the prior permission of both the copyright owner and the above publisher of this book.",
         "A catalogue record for this book is available from the British Library.",
         "Chapter Illustrations: Shutterstock",
+        "Published in the United States by Spiegel & Grau, an imprint of Random House, a division of Penguin Random House LLC, New York.",
     ],
 )
 def test_frontmatter_metadata_may_preserve_official_english(source: str) -> None:
@@ -83,9 +86,31 @@ def test_frontmatter_metadata_may_preserve_official_english(source: str) -> None
 @pytest.mark.parametrize(
     "source",
     [
+        "Before I go to sleep : a novel / S.J. Watson. — 1st ed.",
+        "The Great Gatsby : a novel / F. Scott Fitzgerald. — 1st Scribner trade pbk. ed.",
+    ],
+)
+def test_cip_title_statement_line_may_remain_untranslated(source: str) -> None:
+    result = assess_translations({"B1": source}, {"B1": source})
+
+    assert result.severe_count == 0
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
         "Barnes & Noble, Inc. 122 Fifth Avenue New York, NY 10011",
         "1745 Broadway, New York, New York 10019",
         "linkedin.com/company/penguin-random-house-uk",
+        "Hodder & Stoughton Limited Carmelite House 50 Victoria Embankment London EC4Y 0DZ",
+        "EU representative: Macmillan Publishers Ireland Ltd, 1st Floor,",
+        "The Liffey Trust Centre, 117–126 Sheriff Street Upper,",
+        "1935 Brookdale RD, Naperville, IL 60563-2773",
+        (
+            "T B, The Human, RinoZ, Mike Dirks, Macronomicon, Nah, Drew Gilmour, Zorathis, "
+            "Jesse Tyner, Attonranden, Whale, Simone Berntsen, Jack Barrett, Timothy D Theis, "
+            "Jamie Wahls, Derek Allen, Eric Lee, James Van, Austin Gibbs,"
+        ),
     ],
 )
 def test_publisher_address_and_bare_domain_may_remain_untranslated(source: str) -> None:
@@ -102,6 +127,46 @@ def test_publisher_address_and_bare_domain_may_remain_untranslated(source: str) 
     ],
 )
 def test_bare_title_subtitle_line_may_remain_untranslated(source: str) -> None:
+    result = assess_translations({"B1": source}, {"B1": source})
+
+    assert result.severe_count == 0
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "The Wolf in Your Darkest Room – Matthew Mayfield",
+        "Killing in the Name — Rage Against the Machine",
+        "Everybody Wants To Rule The World - 3TEETH",
+    ],
+)
+def test_song_or_quote_attribution_line_may_remain_untranslated(source: str) -> None:
+    result = assess_translations({"B1": source}, {"B1": source})
+
+    assert result.severe_count == 0
+
+
+def test_clean_text_strips_xml_illegal_control_characters() -> None:
+    # A stray BEL (\x07) from a bad PDF/EPUB source extraction previously survived into
+    # the generated XHTML and broke ElementTree parsing with "not well-formed (invalid
+    # token)", even though html.escape() ran on the text - html.escape() only rewrites
+    # &/</>/quotes, it doesn't touch raw control bytes that XML 1.0 forbids outright.
+    dirty = "Democracy’s Discontent “\x07An important book about the meaning of life”"
+
+    cleaned = clean_text(dirty)
+
+    assert "\x07" not in cleaned
+    assert cleaned == "Democracy’s Discontent “An important book about the meaning of life”"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '"Cignoro hrobosa sukares hin mange la pchagavas doi me kamavas na beslas lele pal hrobas!"',
+        "Soo-soo Sook! Soo-soo Sook!",
+    ],
+)
+def test_constructed_or_foreign_language_dialogue_may_remain_untranslated(source: str) -> None:
     result = assess_translations({"B1": source}, {"B1": source})
 
     assert result.severe_count == 0
@@ -158,6 +223,32 @@ def test_actual_service_refusal_is_detected() -> None:
     assert any(finding.code == "refusal_residue" for finding in result.findings)
 
 
+def test_copyright_refusal_in_korean_is_detected_despite_wording_variation() -> None:
+    # Found live in raw Gemini response logs: the exact phrasing varies per chunk (unlike the
+    # fixed English refusal strings above), so this must be phrase-proximity based, not an exact
+    # substring match.
+    refusals = [
+        "저작권이 있는 출판 도서의 본문을 직접 전량 번역하거나 행 단위로 대조하여 제공해 드리기는 어렵습니다.",
+        "저작권 침해 우려로 요청 거절 판단\n\n이 요청은 도울 수 없을 것 같습니다.",
+    ]
+    for refusal in refusals:
+        result = assess_translations({"B1": "Translate this paragraph."}, {"B1": refusal})
+        assert count_refusal_markers(refusal) >= 1, refusal
+        assert any(finding.code == "refusal_residue" for finding in result.findings), refusal
+
+
+def test_legitimate_copyright_page_translation_is_not_mistaken_for_refusal() -> None:
+    # Real copyright/legal boilerplate pages mention "저작권" constantly and must keep
+    # translating normally - only the first-person "I can't help with this" framing is a refusal.
+    legit = (
+        "이 전자책은 저작권이 있는 자료이며, 구매 시 합의된 이용 약관에 따라 허용되거나 관련 저작권법에서 "
+        "엄격히 허용하는 경우를 제외하고는 출판사의 서면 허가 없이 복사, 복제, 전송, 배포, 대여, 라이선스 "
+        "제공, 공개 공연 또는 어떠한 방식으로든 사용해서는 안 됩니다."
+    )
+
+    assert count_refusal_markers(legit) == 0
+
+
 def test_segment_extraction_and_chunk_context() -> None:
     blocks = [SourceBlock(id=f"B{i:05d}", text=f"Source sentence number {i} with surrounding context.") for i in range(1, 8)]
     chunks = build_chunks(blocks, max_chars=200)
@@ -180,6 +271,36 @@ def test_relationship_sample_covers_late_book_dialogue() -> None:
 
     assert "B00499" in sample
     assert "Late Character" in sample
+
+
+def test_chatgpt_relationship_guide_uses_no_web_request(tmp_path: Path, monkeypatch) -> None:
+    blocks = [
+        SourceBlock(
+            id=f"B{index:05d}",
+            text=f'Alex and Morgan discuss their changing relationship in scene {index}. "Stay here," Alex said.',
+        )
+        for index in range(1, 20)
+    ]
+
+    def unexpected_request(**_kwargs):
+        raise AssertionError("ChatGPT relationship guide must not consume a web request")
+
+    monkeypatch.setattr(translator, "request_web_translation", unexpected_request)
+    guide = translator.ensure_relationship_guide(
+        context=None,
+        timeout_error_cls=TimeoutError,
+        args=SimpleNamespace(web_provider="chatgpt"),
+        work_dir=tmp_path,
+        book_title="Test Book",
+        creator="Test Author",
+        blocks=blocks,
+        heartbeat=None,
+    )
+
+    assert "[인물관계 요약]" in guide
+    assert "[말투 규칙]" in guide
+    metadata = json.loads((tmp_path / "relationship_guide.json").read_text(encoding="utf-8"))
+    assert metadata["generation_policy"] == "chatgpt-request-efficiency"
 
 
 def test_batch_termination_stops_active_translation_process_group() -> None:
@@ -315,6 +436,91 @@ def test_legacy_provider_account_limit_returns_to_batch_without_long_inner_sleep
         )
 
     assert slept == []
+
+
+def test_paid_chatgpt_account_does_not_enable_local_message_budget() -> None:
+    args = SimpleNamespace(chatgpt_account_tier="paid")
+
+    assert translator.chatgpt_free_tier_limit_enabled(args) is False
+
+
+def test_free_chatgpt_message_budget_is_reserved_atomically(tmp_path: Path) -> None:
+    args = SimpleNamespace(
+        chatgpt_account_tier="free",
+        chatgpt_free_tier_message_limit=2,
+        chatgpt_free_tier_window_hours=3.0,
+    )
+
+    translator.reserve_chatgpt_message_send(args, tmp_path)
+    translator.reserve_chatgpt_message_send(args, tmp_path)
+
+    with pytest.raises(translator.WebServiceLimitError, match=r"configured message budget reached \(2/2"):
+        translator.reserve_chatgpt_message_send(args, tmp_path)
+    assert translator.chatgpt_web_usage_count(tmp_path, 3.0) == 2
+
+
+def test_chatgpt_send_is_counted_even_when_response_times_out(monkeypatch, tmp_path: Path) -> None:
+    class FakePage:
+        url = "https://chatgpt.com/c/test"
+
+        def close(self) -> None:
+            return None
+
+    class FakeContext:
+        def new_page(self):
+            return FakePage()
+
+    sends: list[str] = []
+    monkeypatch.setattr(translator, "prepare_chatgpt_web_page", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        translator,
+        "send_chatgpt_web_prompt",
+        lambda _page, prompt, **_kwargs: sends.append(prompt),
+    )
+    monkeypatch.setattr(
+        translator,
+        "wait_for_chatgpt_web_response",
+        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("response timeout")),
+    )
+    monkeypatch.setattr(translator.time, "sleep", lambda _seconds: None)
+    args = SimpleNamespace(
+        web_provider="chatgpt",
+        chatgpt_web_max_attempts=1,
+        request_timeout_sec=30,
+        chatgpt_account_tier="free",
+        chatgpt_free_tier_message_limit=2,
+        chatgpt_free_tier_window_hours=3.0,
+    )
+
+    with pytest.raises(TimeoutError, match="response timeout"):
+        translator.request_web_translation(
+            context=FakeContext(),
+            timeout_error_cls=TimeoutError,
+            args=args,
+            prompt="translate",
+            heartbeat=None,
+            label="test",
+            prefix="chunk_0001",
+            work_dir=tmp_path,
+        )
+
+    assert sends == ["translate"]
+    assert translator.chatgpt_web_usage_count(tmp_path, 3.0) == 1
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_kind"),
+    [
+        ("ChatGPT error_kind=session_expired retry_action=refresh_session_then_retry", "session_expired"),
+        ("ChatGPT error_kind=account_unavailable retry_action=pause_for_account_recovery", "account_unavailable"),
+        ("ChatGPT error_kind=profile_in_use retry_action=wait_for_profile", "profile_in_use"),
+    ],
+)
+def test_structured_chatgpt_errors_are_batch_pause_errors(message: str, expected_kind: str) -> None:
+    error = RuntimeError(message)
+
+    assert translator.web_provider_error_kind(message) == expected_kind
+    assert translator.is_web_provider_pause_error(error) is True
 
 
 def test_new_translation_work_defaults_to_gemini_and_honors_existing_pin(tmp_path: Path) -> None:

@@ -189,6 +189,10 @@ def convert_css(data: bytes) -> bytes:
     text = data.decode("utf-8", "replace")
     text = re.sub(r"\n?span\.en\s*\{[^}]*\}\s*", "\n", text, flags=re.S)
     text = re.sub(r"\n?p\.pair\s*\{[^}]*\}\s*", "\n", text, flags=re.S)
+    # 토익 학습 노트(span.study-note)는 k-e 대조 학습본 전용 기능이라 한글 단독본에서는
+    # 스타일 자체가 필요 없다 - 노트 span은 convert_xhtml()이 이미 본문에서 제거하므로,
+    # 여기서는 이제 쓰이지 않는 CSS 규칙만 정리한다.
+    text = re.sub(r"\n?span\.study-note\s*\{[^}]*\}\s*", "\n", text, flags=re.S)
     text = text.replace("Kindle EPUB", "한국어판")
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.encode("utf-8")

@@ -22,7 +22,16 @@ from safe_xml import safe_fromstring
 TEXT_SUFFIXES = (".xhtml", ".html", ".htm")
 QUOTE_RE = re.compile(r"[“\"]([^“”\"]{2,260})[”\"]|[‘']([^‘’']{2,180})[’']")
 POLITE_END_RE = re.compile(r"(요|(?<!아)니다|니까|세요|십시오|어요|아요|해요|예요|이에요|군요|네요)[.!?…]*$")
-CASUAL_END_RE = re.compile(r"(어|아|해|야|지|네|군|거야|잖아|겠어|했어|한다|했다|다)[.!?…]*$")
+# The bare "야" alternative below is ambiguous: it also surfaces as the tail of the
+# "-아야/-어야" connective ("들어봐야", "가야" meaning "must/only if ..."), which looks
+# identical to the casual copula/exclamatory ending once trailing punctuation is
+# stripped. When a line is cut off with an ellipsis right after "야" ("제 말을
+# 들어봐야….") it is almost always this connective interrupted mid-clause (the speaker
+# never got to finish "...야 한다/해/지"), not a complete casual sentence - a finished
+# casual "-야" sentence normally ends with "." or nothing, not a trailing ellipsis
+# glued directly onto the copula. So a bare "야" immediately followed by an ellipsis or
+# 2+ dots is excluded from the casual match and left unclassified instead.
+CASUAL_END_RE = re.compile(r"(어|아|해|야(?!\s*(?:\.{2,}|…))|지|네|군|거야|잖아|겠어|했어|한다|했다|다)[.!?…]*$")
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…])\s+")
 TITLE_RE = re.compile(r"(선생님|교수님|박사님|사장님|원장님|형사님|변호사님|의사 선생님)")
 INTIMATE_RE = re.compile(r"(자기야|예쁜|내 거|네가|넌|너는|너를|너한테|널|너랑|우리 둘|사랑)")

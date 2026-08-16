@@ -1,5 +1,9 @@
 import base64
+import json
+import signal
 import subprocess
+import sys
+import time
 import unittest
 import zipfile
 import fitz
@@ -288,6 +292,19 @@ class SectionSplitTests(unittest.TestCase):
         response = (
             "This content can’t be shown for safety reasons "
             "Learn more about our intended model behavior in our Model Spec."
+        )
+
+        self.assertTrue(audiobook_maker.is_chatgpt_web_refusal_response(response))
+
+    def test_policy_refusal_detector_accepts_korean_localized_safety_reasons_message(self) -> None:
+        # Found live: the browser launches with --lang=ko, so ChatGPT's web UI shows this same
+        # safety banner in Korean instead of English. Only the English wording was in
+        # CHATGPT_WEB_REFUSAL_MARKERS, so this landed in chunk_0001_response.txt unrecognized as
+        # a refusal - it just kept retrying the same way forever without ever switching to the
+        # literary-context retry prompt built for exactly this situation.
+        response = (
+            "안전상의 이유로 이 콘텐츠를 표시할 수 없습니다 "
+            "의도된 모델 동작에 대한 자세한 내용은 모델 사양에서 확인하세요."
         )
 
         self.assertTrue(audiobook_maker.is_chatgpt_web_refusal_response(response))
@@ -581,6 +598,393 @@ class ChatGPTWebNormalizationTests(unittest.TestCase):
             ),
         )
 
+    def test_chatgpt_rate_limit_cooldown_is_persisted_per_profile(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict("os.environ", {"AUDIOBOOK_WEB_PROFILE_DIR": temp_dir}):
+                state = audiobook_maker.record_chatgpt_web_rate_limit(
+                    "요청을 너무 빠르게 보내고 있습니다.",
+                    cooldown_sec=1200,
+                    now=1000,
+                )
+                audiobook_maker.mark_chatgpt_web_rate_limit_recovery_attempted()
+                loaded = audiobook_maker.load_chatgpt_web_rate_limit_state()
+
+        self.assertEqual(state["blocked_until"], 2200)
+        self.assertEqual(loaded["blocked_until"], 2200)
+        self.assertTrue(loaded["recovery_attempted"])
+        self.assertEqual(loaded["kind"], "conversation_rate_limit")
+
+    def test_chatgpt_request_pacing_persists_a_five_minute_send_interval(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "AUDIOBOOK_WEB_PROFILE_DIR": temp_dir,
+                    "AUDIOBOOK_CHATGPT_MIN_REQUEST_INTERVAL_SEC": "300",
+                },
+            ):
+                first_reserved, first_wait, _state = (
+                    audiobook_maker.reserve_chatgpt_web_request_slot(now=1000)
+                )
+                second_reserved, second_wait, _state = (
+                    audiobook_maker.reserve_chatgpt_web_request_slot(now=1100)
+                )
+                third_reserved, third_wait, loaded = (
+                    audiobook_maker.reserve_chatgpt_web_request_slot(now=1300)
+                )
+
+        self.assertTrue(first_reserved)
+        self.assertEqual(first_wait, 0)
+        self.assertFalse(second_reserved)
+        self.assertEqual(second_wait, 200)
+        self.assertTrue(third_reserved)
+        self.assertEqual(third_wait, 0)
+        self.assertEqual(loaded["last_send_at"], 1300)
+
+    def test_chatgpt_rate_limit_enables_adaptive_pacing_after_cooldown(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "AUDIOBOOK_WEB_PROFILE_DIR": temp_dir,
+                    "AUDIOBOOK_CHATGPT_MIN_REQUEST_INTERVAL_SEC": "300",
+                    "AUDIOBOOK_CHATGPT_PENALTY_REQUEST_INTERVAL_SEC": "450",
+                    "AUDIOBOOK_CHATGPT_PACING_ESCALATION_SEC": "150",
+                },
+            ):
+                audiobook_maker.record_chatgpt_web_rate_limit(
+                    "요청을 너무 빠르게 보내고 있습니다.",
+                    cooldown_sec=1200,
+                    now=1000,
+                )
+                during_cooldown = audiobook_maker.reserve_chatgpt_web_request_slot(now=1500)
+                after_cooldown = audiobook_maker.reserve_chatgpt_web_request_slot(now=2200)
+                too_soon = audiobook_maker.reserve_chatgpt_web_request_slot(now=2300)
+
+        self.assertFalse(during_cooldown[0])
+        self.assertEqual(during_cooldown[1], 700)
+        self.assertTrue(after_cooldown[0])
+        self.assertFalse(too_soon[0])
+        self.assertEqual(too_soon[1], 350)
+        self.assertEqual(after_cooldown[2]["last_interval_seconds"], 450)
+
+    def test_repeated_chatgpt_rate_limit_escalates_the_pacing_interval(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "AUDIOBOOK_WEB_PROFILE_DIR": temp_dir,
+                    "AUDIOBOOK_CHATGPT_PENALTY_REQUEST_INTERVAL_SEC": "450",
+                    "AUDIOBOOK_CHATGPT_PACING_ESCALATION_SEC": "150",
+                    # 이 테스트는 에스컬레이션 산식(penalty + escalation*(n-1))만 검증하는
+                    # 것이므로, 운영 기본 상한(CHATGPT_WEB_PACING_MAX_INTERVAL_SEC)이 바뀌어도
+                    # 영향받지 않도록 상한을 직접 명시한다.
+                    "AUDIOBOOK_CHATGPT_MAX_REQUEST_INTERVAL_SEC": "900",
+                },
+            ):
+                audiobook_maker.record_chatgpt_web_pacing_incident(
+                    detected_at=1000,
+                    blocked_until=2200,
+                )
+                state = audiobook_maker.record_chatgpt_web_pacing_incident(
+                    detected_at=1600,
+                    blocked_until=2800,
+                )
+                interval, incidents, _penalty_until = (
+                    audiobook_maker.chatgpt_web_pacing_interval(state, now=2000)
+                )
+
+        self.assertEqual(len(incidents), 2)
+        self.assertEqual(interval, 600)
+
+    def test_chatgpt_pacing_ignores_incidents_from_another_workflow_scope(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "AUDIOBOOK_WEB_PROFILE_DIR": temp_dir,
+                    "AUDIOBOOK_CHATGPT_PACING_SCOPE": "general_translation",
+                    "AUDIOBOOK_CHATGPT_MIN_REQUEST_INTERVAL_SEC": "300",
+                },
+            ):
+                audiobook_maker.record_chatgpt_web_pacing_incident(
+                    detected_at=1000,
+                    blocked_until=1000,
+                    scope="legacy_backfill",
+                )
+                state = audiobook_maker.load_chatgpt_web_pacing_state()
+                interval, incidents, _penalty_until = (
+                    audiobook_maker.chatgpt_web_pacing_interval(state, now=1100)
+                )
+
+        self.assertEqual(incidents, [])
+        self.assertEqual(interval, 300)
+
+    def test_reobserved_chatgpt_modal_stays_one_rate_limit_episode(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict("os.environ", {"AUDIOBOOK_WEB_PROFILE_DIR": temp_dir}):
+                audiobook_maker.record_chatgpt_web_rate_limit(
+                    "요청을 너무 빠르게 보내고 있습니다.",
+                    cooldown_sec=1200,
+                    now=1000,
+                )
+                state = audiobook_maker.record_chatgpt_web_rate_limit(
+                    "요청을 너무 빠르게 보내고 있습니다.",
+                    cooldown_sec=1200,
+                    now=2100,
+                )
+                pacing = audiobook_maker.load_chatgpt_web_pacing_state()
+                _interval, incidents, _penalty_until = (
+                    audiobook_maker.chatgpt_web_pacing_interval(pacing, now=2100)
+                )
+
+        self.assertEqual(state["episode_started_at"], 1000)
+        self.assertEqual(state["blocked_until"], 2280)
+        self.assertEqual(state["observation_count"], 2)
+        self.assertEqual(len(incidents), 1)
+
+    def test_expired_chatgpt_rate_limit_is_not_active(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict("os.environ", {"AUDIOBOOK_WEB_PROFILE_DIR": temp_dir}):
+                audiobook_maker.record_chatgpt_web_rate_limit(
+                    "요청을 너무 빠르게 보내고 있습니다.",
+                    cooldown_sec=1200,
+                    now=1000,
+                )
+                active = audiobook_maker.active_chatgpt_web_rate_limit_state(now=1500)
+                expired = audiobook_maker.active_chatgpt_web_rate_limit_state(now=2200)
+
+        self.assertTrue(active)
+        self.assertEqual(expired, {})
+
+    def test_chatgpt_pacing_returns_to_base_after_three_successes(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "AUDIOBOOK_WEB_PROFILE_DIR": temp_dir,
+                    "AUDIOBOOK_CHATGPT_PACING_SCOPE": "general_translation",
+                    "AUDIOBOOK_CHATGPT_MIN_REQUEST_INTERVAL_SEC": "300",
+                    "AUDIOBOOK_CHATGPT_PENALTY_REQUEST_INTERVAL_SEC": "450",
+                },
+            ):
+                audiobook_maker.record_chatgpt_web_pacing_incident(
+                    detected_at=1000,
+                    blocked_until=1000,
+                )
+                audiobook_maker.record_chatgpt_web_pacing_success(completed_at=1100)
+                audiobook_maker.record_chatgpt_web_pacing_success(completed_at=1200)
+                state = audiobook_maker.record_chatgpt_web_pacing_success(completed_at=1300)
+                interval, _incidents, penalty_until = (
+                    audiobook_maker.chatgpt_web_pacing_interval(state, now=1300)
+                )
+
+        self.assertEqual(interval, 300)
+        self.assertEqual(penalty_until, 1300)
+        self.assertEqual(state["last_pacing_recovery_scope"], "general_translation")
+
+    def test_chatgpt_page_waits_for_prompt_without_unbounded_notice_scan(self) -> None:
+        class PromptLocator:
+            @property
+            def first(self) -> "PromptLocator":
+                return self
+
+            def wait_for(self, **_kwargs: object) -> None:
+                return None
+
+        class FakePage:
+            url = "https://chatgpt.com/"
+
+            def on(self, _event: str, _handler: object) -> None:
+                return None
+
+            def goto(self, *_args: object, **_kwargs: object) -> None:
+                return None
+
+            def wait_for_timeout(self, _milliseconds: float) -> None:
+                return None
+
+            def locator(self, selector: str) -> PromptLocator:
+                if selector != audiobook_maker.CHATGPT_WEB_PROMPT_INPUT_SELECTOR:
+                    raise AssertionError(selector)
+                return PromptLocator()
+
+        page = FakePage()
+        with patch("audiobook_maker.wait_for_recorded_chatgpt_web_rate_limit"):
+            with patch("audiobook_maker.verify_chatgpt_web_session"):
+                with patch("audiobook_maker.handle_chatgpt_web_page_notices") as notices:
+                    audiobook_maker.prepare_chatgpt_web_page(
+                        page,
+                        timeout_error_cls=TimeoutError,
+                    )
+
+        notices.assert_not_called()
+
+    def test_chatgpt_session_verification_accepts_expected_plus_account(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "AUDIOBOOK_WEB_PROFILE_DIR": temp_dir,
+                    "AUDIOBOOK_CHATGPT_EXPECTED_ACCOUNT": "haijun93@gmail.com",
+                    "AUDIOBOOK_CHATGPT_EXPECTED_TIER": "plus",
+                },
+            ):
+                with patch(
+                    "audiobook_maker.inspect_chatgpt_web_session",
+                    return_value={
+                        "ok": True,
+                        "status": 200,
+                        "authenticated": True,
+                        "email": "haijun93@gmail.com",
+                        "tier": "plus",
+                    },
+                ):
+                    health = audiobook_maker.verify_chatgpt_web_session(object())
+
+            persisted = json.loads(
+                (Path(temp_dir) / "chatgpt" / ".chatgpt_session_health.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(health["status"], "verified")
+        self.assertEqual(persisted["tier"], "plus")
+
+    def test_chatgpt_session_verification_rejects_free_profile_for_plus_account(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    "AUDIOBOOK_WEB_PROFILE_DIR": temp_dir,
+                    "AUDIOBOOK_CHATGPT_EXPECTED_TIER": "plus",
+                },
+            ):
+                with patch(
+                    "audiobook_maker.inspect_chatgpt_web_session",
+                    return_value={
+                        "ok": True,
+                        "status": 200,
+                        "authenticated": True,
+                        "email": "haijun93@gmail.com",
+                        "tier": "free",
+                    },
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "error_kind=account_mismatch"):
+                        audiobook_maker.verify_chatgpt_web_session(object())
+
+    def test_chatgpt_session_verification_rejects_expired_session_immediately(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict("os.environ", {"AUDIOBOOK_WEB_PROFILE_DIR": temp_dir}):
+                with patch(
+                    "audiobook_maker.inspect_chatgpt_web_session",
+                    return_value={"ok": True, "status": 200, "authenticated": False},
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "error_kind=session_expired"):
+                        audiobook_maker.verify_chatgpt_web_session(object())
+
+    def test_unavailable_chatgpt_prompt_does_not_reopen_expired_rate_limit(self) -> None:
+        class FakePage:
+            url = "https://chatgpt.com/"
+            _chatgpt_dialog_messages: list[str] = []
+
+        with patch(
+            "audiobook_maker.load_chatgpt_web_rate_limit_state",
+            return_value={"detected_at": time.time(), "message": "요청을 너무 빠르게"},
+        ):
+            with patch("audiobook_maker.record_chatgpt_web_rate_limit") as record_limit:
+                with self.assertRaisesRegex(RuntimeError, "error_kind=prompt_interaction_failed"):
+                    audiobook_maker.raise_for_unavailable_chatgpt_prompt(FakePage())
+
+        record_limit.assert_not_called()
+
+    def test_chatgpt_prompt_fill_failure_during_active_limit_opens_cooldown(self) -> None:
+        class PromptLocator:
+            @property
+            def first(self) -> "PromptLocator":
+                return self
+
+            def fill(self, _prompt: str, **_kwargs: object) -> None:
+                raise TimeoutError("prompt fill blocked")
+
+        class FakePage:
+            url = "https://chatgpt.com/"
+
+            def locator(self, selector: str) -> PromptLocator:
+                if selector != audiobook_maker.CHATGPT_WEB_PROMPT_INPUT_SELECTOR:
+                    raise AssertionError(selector)
+                return PromptLocator()
+
+        with patch(
+            "audiobook_maker.active_chatgpt_web_rate_limit_state",
+            return_value={"message": "요청을 너무 빠르게"},
+        ):
+            with patch("audiobook_maker.wait_for_chatgpt_web_request_slot"):
+                with patch("audiobook_maker.record_chatgpt_web_rate_limit") as record_limit:
+                    with self.assertRaisesRegex(RuntimeError, "error_kind=rate_limit"):
+                        audiobook_maker.send_chatgpt_web_prompt(
+                            FakePage(),
+                            "prompt",
+                            timeout_error_cls=TimeoutError,
+                        )
+
+        record_limit.assert_called_once_with("요청을 너무 빠르게")
+
+    def test_chatgpt_prompt_prefers_visible_send_button_over_enter(self) -> None:
+        actions: list[str] = []
+
+        class PromptLocator:
+            @property
+            def first(self) -> "PromptLocator":
+                return self
+
+            def fill(self, prompt: str, **_kwargs: object) -> None:
+                actions.append(f"fill:{prompt}")
+
+        class ButtonLocator:
+            @property
+            def first(self) -> "ButtonLocator":
+                return self
+
+            def count(self) -> int:
+                return 1
+
+            def is_visible(self) -> bool:
+                return True
+
+            def is_enabled(self) -> bool:
+                return True
+
+            def click(self, **_kwargs: object) -> None:
+                actions.append("button")
+
+        class Keyboard:
+            def press(self, key: str) -> None:
+                actions.append(f"keyboard:{key}")
+
+        class FakePage:
+            url = "https://chatgpt.com/c/test"
+            keyboard = Keyboard()
+
+            def locator(self, selector: str):
+                if selector == audiobook_maker.CHATGPT_WEB_PROMPT_INPUT_SELECTOR:
+                    return PromptLocator()
+                if selector == 'button[data-testid="send-button"]':
+                    return ButtonLocator()
+                raise AssertionError(selector)
+
+            def wait_for_url(self, *_args: object, **_kwargs: object) -> None:
+                return None
+
+        with patch("audiobook_maker.wait_for_chatgpt_web_request_slot"):
+            audiobook_maker.send_chatgpt_web_prompt(
+                FakePage(),
+                "prompt",
+                timeout_error_cls=TimeoutError,
+            )
+
+        self.assertEqual(actions, ["fill:prompt", "button"])
+
     def test_classify_chatgpt_web_notice_text_detects_login_required_notice(self) -> None:
         notice = audiobook_maker.classify_chatgpt_web_notice_text(
             "세션이 만료되었습니다. 다시 로그인해 주세요."
@@ -607,13 +1011,78 @@ class ChatGPTWebNormalizationTests(unittest.TestCase):
 
         self.assertEqual(notice.kind, "login_required")
 
+    def test_chatgpt_generation_active_detects_stop_button(self) -> None:
+        class FakeLocator:
+            def __init__(self, visible: bool) -> None:
+                self.visible = visible
+
+            @property
+            def first(self):
+                return self
+
+            def count(self) -> int:
+                return 1 if self.visible else 0
+
+            def is_visible(self) -> bool:
+                return self.visible
+
+        class FakePage:
+            def locator(self, selector: str) -> FakeLocator:
+                return FakeLocator(selector == 'button[data-testid="stop-button"]')
+
+        self.assertTrue(audiobook_maker.chatgpt_web_generation_is_active(FakePage()))
+
+    def test_chatgpt_study_note_chunk_allows_slow_response_start(self) -> None:
+        self.assertTrue(audiobook_maker.chatgpt_web_request_allows_slow_start("notes_chunk_0029"))
+        self.assertTrue(audiobook_maker.chatgpt_web_request_allows_slow_start("chunk_0029"))
+        self.assertTrue(audiobook_maker.chatgpt_web_request_allows_slow_start("relationship_guide"))
+        self.assertFalse(audiobook_maker.chatgpt_web_request_allows_slow_start("title_translation"))
+
+    def test_progress_heartbeat_observer_failure_does_not_break_work(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "heartbeat.json"
+
+            def fail_observer(_payload: dict[str, object]) -> None:
+                raise RuntimeError("diagnostics unavailable")
+
+            heartbeat = audiobook_maker.ProgressHeartbeat(path, observer=fail_observer)
+            heartbeat.beat(stage="wait_for_response", detail="still working")
+
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["stage"], "wait_for_response")
+
+    def test_chatgpt_service_limit_is_not_treated_as_content_resplit(self) -> None:
+        error = RuntimeError(
+            "ChatGPT error_kind=rate_limit retry_action=exponential_backoff: try again later"
+        )
+
+        self.assertTrue(audiobook_maker.is_chatgpt_web_pause_error(error))
+        self.assertFalse(audiobook_maker.should_resplit_chatgpt_web_section(error))
+
+    def test_chatgpt_exact_copy_mismatch_is_content_resplit_candidate(self) -> None:
+        mismatch = audiobook_maker.ChatGPTWebExactCopyMismatchError(
+            "response differs from input",
+            response_text="shortened response",
+        )
+        wrapped = RuntimeError("ChatGPT web section failed")
+        wrapped.__cause__ = mismatch
+
+        self.assertTrue(audiobook_maker.should_resplit_chatgpt_web_section(wrapped))
+
     def test_read_chatgpt_web_notice_messages_consumes_dialog_messages(self) -> None:
+        class MissingLocator:
+            @property
+            def first(self) -> "MissingLocator":
+                return self
+
+            def wait_for(self, **_kwargs: object) -> None:
+                raise TimeoutError
+
         class FakePage:
             def __init__(self) -> None:
                 self._chatgpt_dialog_messages = ["요청을 너무 빠르게 보내고 있습니다."]
 
-            def evaluate(self, _script: str, _payload: object) -> list[str]:
-                return []
+            def locator(self, _selector: str) -> MissingLocator:
+                return MissingLocator()
 
         page = FakePage()
 
@@ -1176,12 +1645,159 @@ class SourceLoadingTests(unittest.TestCase):
         self.assertIn("5장", merged[2].text)
 
 
+class ClearCrashedProfileFlagTests(unittest.TestCase):
+    # job_manager.stop_job() sends SIGTERM to the whole process group (Python + Chrome +
+    # Playwright's Node driver) at once, so Chrome doesn't get a chance to record a clean exit
+    # in its own Preferences before it dies - the next launch inherits exit_type=Crashed, which
+    # can trigger crash-recovery UI that interferes with Playwright's own page setup and causes
+    # that run to fail too, staying Crashed and repeating. Found live: after stopping a batch
+    # job normally (not even a forceful kill), every subsequent launch attempt on that profile
+    # failed with TargetClosedError until the Preferences flag was fixed by hand.
+
+    def _write_preferences(self, profile_dir: Path, exit_type: str, exited_cleanly) -> Path:
+        default_dir = profile_dir / "Default"
+        default_dir.mkdir(parents=True, exist_ok=True)
+        prefs_path = default_dir / "Preferences"
+        prefs_path.write_text(
+            json.dumps({"profile": {"exit_type": exit_type, "exited_cleanly": exited_cleanly}, "other": {"untouched": True}}),
+            encoding="utf-8",
+        )
+        return prefs_path
+
+    def test_noop_when_no_preferences_file_exists(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            audiobook_maker.clear_crashed_profile_flag(Path(tmpdir))  # must not raise
+
+    def test_resets_crashed_exit_type_to_normal(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir)
+            prefs_path = self._write_preferences(profile_dir, "Crashed", False)
+
+            audiobook_maker.clear_crashed_profile_flag(profile_dir)
+
+            data = json.loads(prefs_path.read_text(encoding="utf-8"))
+            self.assertEqual(data["profile"]["exit_type"], "Normal")
+            self.assertTrue(data["profile"]["exited_cleanly"])
+            self.assertTrue(data["other"]["untouched"])  # rest of the file preserved
+
+    def test_leaves_an_already_normal_profile_untouched(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir)
+            prefs_path = self._write_preferences(profile_dir, "Normal", True)
+            original_mtime = prefs_path.stat().st_mtime_ns
+
+            audiobook_maker.clear_crashed_profile_flag(profile_dir)
+
+            self.assertEqual(prefs_path.stat().st_mtime_ns, original_mtime)
+
+
+class ClearStaleSingletonLockTests(unittest.TestCase):
+    # Found live: a translation subprocess's Chrome can outlive its own process (context.close()
+    # doesn't always fully tear it down before Python exits) and its SingletonLock then blocks
+    # every subsequent launch attempt against the same profile with "Failed to create a
+    # ProcessSingleton..." - Playwright's own recovery kill fails with "kill EPERM" in this
+    # environment, so nothing clears it automatically. This caused a full book-attempt failure
+    # ("Words of Radiance") after burning all 5 retries on this error alone.
+
+    def test_noop_when_no_lock_file_exists(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir)
+            audiobook_maker.clear_stale_singleton_lock(profile_dir)  # must not raise
+
+    def test_cleans_up_lock_pointing_at_a_dead_pid(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir)
+            proc = subprocess.Popen(["true"])
+            proc.wait()
+            dead_pid = proc.pid
+            (profile_dir / "SingletonLock").symlink_to(f"somehost-{dead_pid}")
+            (profile_dir / "SingletonCookie").symlink_to("123")
+
+            audiobook_maker.clear_stale_singleton_lock(profile_dir)
+
+            self.assertFalse((profile_dir / "SingletonLock").is_symlink())
+            self.assertFalse((profile_dir / "SingletonCookie").is_symlink())
+
+    def test_kills_a_live_process_that_is_actually_using_this_profile_dir(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir)
+            # Embed the profile_dir path in the process's own argv so `ps -o command=` shows it,
+            # mirroring how a real orphaned Chrome's command line includes --user-data-dir=<profile_dir>.
+            proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", str(profile_dir)])
+            try:
+                time.sleep(0.2)
+                (profile_dir / "SingletonLock").symlink_to(f"somehost-{proc.pid}")
+
+                audiobook_maker.clear_stale_singleton_lock(profile_dir)
+
+                proc.wait(timeout=5)
+                self.assertIsNotNone(proc.returncode)
+                self.assertFalse((profile_dir / "SingletonLock").is_symlink())
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait()
+
+    def test_leaves_an_unrelated_live_process_alone(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir)
+            proc = subprocess.Popen(["sleep", "30"])
+            try:
+                time.sleep(0.2)
+                (profile_dir / "SingletonLock").symlink_to(f"somehost-{proc.pid}")
+
+                audiobook_maker.clear_stale_singleton_lock(profile_dir)
+
+                self.assertIsNone(proc.poll())  # still alive - was not killed
+                self.assertTrue((profile_dir / "SingletonLock").is_symlink())
+            finally:
+                proc.kill()
+                proc.wait()
+
+    def test_profile_browser_cleanup_targets_only_matching_chrome_processes(self) -> None:
+        profile_dir = Path("/tmp/provider-profile")
+        process_table = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=(
+                "  123 /Applications/Google Chrome.app/Google Chrome "
+                f"--user-data-dir={profile_dir}\n"
+                f"  124 /usr/bin/python worker.py --user-data-dir={profile_dir}\n"
+                "  125 /Applications/Google Chrome.app/Google Chrome "
+                "--user-data-dir=/tmp/other-profile\n"
+            ),
+            stderr="",
+        )
+        signals: list[tuple[int, int]] = []
+
+        def fake_kill(pid: int, sig: int) -> None:
+            signals.append((pid, sig))
+            if sig == 0:
+                raise ProcessLookupError
+
+        with patch("audiobook_maker.subprocess.run", return_value=process_table):
+            with patch("audiobook_maker.os.kill", side_effect=fake_kill):
+                stopped = audiobook_maker.terminate_web_profile_browser_processes(
+                    profile_dir,
+                    wait_seconds=0,
+                )
+
+        self.assertEqual(stopped, [123])
+        self.assertIn((123, signal.SIGTERM), signals)
+        self.assertNotIn((124, signal.SIGTERM), signals)
+        self.assertNotIn((125, signal.SIGTERM), signals)
+
+
 class ChatGPTWebWorkflowTests(unittest.TestCase):
-    def test_chatgpt_web_launch_args_hide_window_by_default(self) -> None:
+    def test_chatgpt_web_launch_args_do_not_override_legacy_hidden_window(self) -> None:
         args = audiobook_maker.chatgpt_web_launch_args(visible=False)
 
-        self.assertIn("--window-position=-2400,-2400", args)
-        self.assertIn("--window-size=1280,900", args)
+        self.assertEqual(args, [])
+
+    def test_chatgpt_web_launch_args_do_not_override_visible_window(self) -> None:
+        args = audiobook_maker.chatgpt_web_launch_args(visible=True)
+
+        self.assertEqual(args, [])
 
     def test_extract_chatgpt_conversation_id(self) -> None:
         conversation_id = audiobook_maker.extract_chatgpt_conversation_id(
@@ -1205,16 +1821,9 @@ class ChatGPTWebWorkflowTests(unittest.TestCase):
             def close(self) -> None:
                 return None
 
-        class FakeBrowser:
-            def new_context(self, **_kwargs: object) -> FakeContext:
-                return FakeContext()
-
-            def close(self) -> None:
-                return None
-
         class FakePlaywrightManager:
             def __enter__(self) -> SimpleNamespace:
-                chromium = SimpleNamespace(launch=lambda **_kwargs: FakeBrowser())
+                chromium = SimpleNamespace(launch_persistent_context=lambda *_args, **_kwargs: FakeContext())
                 return SimpleNamespace(chromium=chromium)
 
             def __exit__(self, exc_type, exc, tb) -> bool:
@@ -1245,23 +1854,445 @@ class ChatGPTWebWorkflowTests(unittest.TestCase):
                 return_value=(object(), lambda: FakePlaywrightManager(), RuntimeError),
             ):
                 with patch("audiobook_maker.load_chatgpt_web_cookies", return_value=[]):
-                    with patch("audiobook_maker.prepare_chatgpt_web_page"):
-                        with patch(
-                            "audiobook_maker.fetch_chatgpt_web_voice_settings",
-                            return_value=("cove", ["cove"]),
-                        ):
+                    with patch(
+                        "audiobook_maker.web_provider_profile_dir",
+                        return_value=work_dir / "_browser_profile",
+                    ):
+                        with patch("audiobook_maker.prepare_chatgpt_web_page"):
                             with patch(
-                                "audiobook_maker.reuse_existing_audio_if_valid",
-                                side_effect=lambda path, label: path in {split_audio_1, split_audio_2},
+                                "audiobook_maker.fetch_chatgpt_web_voice_settings",
+                                return_value=("cove", ["cove"]),
                             ):
-                                audio_files = audiobook_maker.synthesize_chatgpt_web_sections(
-                                    sections,
-                                    args=args,
-                                    voice="cove",
-                                    work_dir=work_dir,
-                                )
+                                with patch(
+                                    "audiobook_maker.reuse_existing_audio_if_valid",
+                                    side_effect=lambda path, label: path in {split_audio_1, split_audio_2},
+                                ):
+                                    audio_files = audiobook_maker.synthesize_chatgpt_web_sections(
+                                        sections,
+                                        args=args,
+                                        voice="cove",
+                                        work_dir=work_dir,
+                                    )
 
         self.assertEqual(audio_files, [split_audio_1, split_audio_2])
+
+
+class WebProviderSessionTests(unittest.TestCase):
+    def test_web_provider_profile_dir_respects_env_override(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            with patch.dict("os.environ", {"AUDIOBOOK_WEB_PROFILE_DIR": tmpdir}):
+                profile_dir = audiobook_maker.web_provider_profile_dir("gemini")
+
+            self.assertEqual(profile_dir, Path(tmpdir) / "gemini")
+            self.assertTrue(profile_dir.is_dir())
+
+    def test_prepare_gemini_web_page_detects_guest_mode_without_url_redirect(self) -> None:
+        class LoginButtonLocator:
+            """Mirrors the real page: multiple '로그인' nodes render, and the
+            first one (index 0) is a hidden responsive-layout duplicate while a
+            later one is the actually visible button."""
+
+            def count(self) -> int:
+                return 4
+
+            def nth(self, index: int) -> "LoginButtonLocator._Node":
+                return LoginButtonLocator._Node(visible=index == 1)
+
+            class _Node:
+                def __init__(self, *, visible: bool) -> None:
+                    self._visible = visible
+
+                def is_visible(self) -> bool:
+                    return self._visible
+
+        class FakePage:
+            url = "https://gemini.google.com/app"
+
+            def goto(self, _url: str, **_kwargs: object) -> None:
+                return None
+
+            def get_by_text(self, text: str, *, exact: bool = False) -> LoginButtonLocator:
+                assert text == "로그인"
+                assert exact is True
+                return LoginButtonLocator()
+
+        with patch(
+            "audiobook_maker.wait_for_visible_gemini_locator", return_value=object()
+        ):
+            with patch("audiobook_maker.install_gemini_web_tts_hook") as install_hook:
+                with self.assertRaisesRegex(RuntimeError, "로그인"):
+                    audiobook_maker.prepare_gemini_web_page(
+                        FakePage(), timeout_error_cls=TimeoutError
+                    )
+
+        install_hook.assert_not_called()
+
+    def test_prepare_gemini_web_page_ignores_hidden_login_button_duplicates(self) -> None:
+        # 로그인된 상태에서도 반응형 레이아웃용 숨겨진 "로그인" 사본이 DOM에 남아있을 수
+        # 있다 - count()만으로는 부족하고, 그중 실제로 화면에 보이는 것이 있는지까지
+        # 확인해야 오탐(정상 로그인 세션을 게스트로 오판)을 피할 수 있다.
+        class LoginButtonLocator:
+            def count(self) -> int:
+                return 2
+
+            def nth(self, _index: int) -> "LoginButtonLocator._Node":
+                return LoginButtonLocator._Node()
+
+            class _Node:
+                def is_visible(self) -> bool:
+                    return False
+
+        class FakePage:
+            url = "https://gemini.google.com/app"
+
+            def goto(self, _url: str, **_kwargs: object) -> None:
+                return None
+
+            def get_by_text(self, text: str, *, exact: bool = False) -> LoginButtonLocator:
+                return LoginButtonLocator()
+
+        with patch(
+            "audiobook_maker.wait_for_visible_gemini_locator", return_value=object()
+        ):
+            with patch("audiobook_maker.install_gemini_web_tts_hook") as install_hook:
+                audiobook_maker.prepare_gemini_web_page(
+                    FakePage(), timeout_error_cls=TimeoutError
+                )
+
+        install_hook.assert_called_once()
+
+    def test_prepare_gemini_web_page_accepts_logged_in_session(self) -> None:
+        class NoMatchLocator:
+            def count(self) -> int:
+                return 0
+
+        class FakePage:
+            url = "https://gemini.google.com/app"
+
+            def goto(self, _url: str, **_kwargs: object) -> None:
+                return None
+
+            def get_by_text(self, text: str, *, exact: bool = False) -> NoMatchLocator:
+                return NoMatchLocator()
+
+        with patch(
+            "audiobook_maker.wait_for_visible_gemini_locator", return_value=object()
+        ):
+            with patch("audiobook_maker.install_gemini_web_tts_hook") as install_hook:
+                audiobook_maker.prepare_gemini_web_page(
+                    FakePage(), timeout_error_cls=TimeoutError
+                )
+
+        install_hook.assert_called_once()
+
+        install_hook.assert_called_once()
+
+    def test_ensure_web_provider_session_skips_bootstrap_when_already_logged_in(self) -> None:
+        class FakeContext:
+            def __init__(self) -> None:
+                self.add_cookies_calls = 0
+
+            def new_page(self) -> object:
+                return object()
+
+            def add_cookies(self, _cookies: object) -> None:
+                self.add_cookies_calls += 1
+
+        context = FakeContext()
+        with patch("audiobook_maker.prepare_gemini_web_page") as prepare_mock:
+            with patch("audiobook_maker.load_gemini_web_cookies") as load_cookies_mock:
+                audiobook_maker.ensure_web_provider_session(
+                    context,
+                    provider="gemini",
+                    timeout_error_cls=RuntimeError,
+                    browser_cookie3_module=object(),
+                )
+
+        self.assertEqual(prepare_mock.call_count, 1)
+        load_cookies_mock.assert_not_called()
+        self.assertEqual(context.add_cookies_calls, 0)
+
+    def test_ensure_web_provider_session_can_retain_prepared_page(self) -> None:
+        class FakePage:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        class FakeContext:
+            def __init__(self) -> None:
+                self.page = FakePage()
+
+            def new_page(self) -> FakePage:
+                return self.page
+
+        context = FakeContext()
+        with patch("audiobook_maker.prepare_chatgpt_web_page"):
+            prepared = audiobook_maker.ensure_web_provider_session(
+                context,
+                provider="chatgpt",
+                timeout_error_cls=RuntimeError,
+                browser_cookie3_module=object(),
+                retain_prepared_page=True,
+            )
+
+        self.assertIs(prepared, context.page)
+        self.assertFalse(context.page.closed)
+
+    def test_ensure_web_provider_session_bootstraps_once_then_succeeds(self) -> None:
+        class FakeContext:
+            def __init__(self) -> None:
+                self.added_cookies: list[object] = []
+
+            def new_page(self) -> object:
+                return object()
+
+            def add_cookies(self, cookies: object) -> None:
+                self.added_cookies.append(cookies)
+
+        context = FakeContext()
+        with patch(
+            "audiobook_maker.prepare_gemini_web_page",
+            side_effect=[RuntimeError("Gemini 웹 로그인 페이지로 이동했습니다."), None],
+        ) as prepare_mock:
+            with patch("audiobook_maker.load_gemini_web_cookies", return_value=["cookie"]) as load_cookies_mock:
+                audiobook_maker.ensure_web_provider_session(
+                    context,
+                    provider="gemini",
+                    timeout_error_cls=RuntimeError,
+                    browser_cookie3_module=object(),
+                )
+
+        self.assertEqual(prepare_mock.call_count, 2)
+        load_cookies_mock.assert_called_once()
+        self.assertEqual(context.added_cookies, [["cookie"]])
+
+    def test_ensure_web_provider_session_bootstrap_uses_configured_cookie_file(self) -> None:
+        class FakeContext:
+            def __init__(self) -> None:
+                self.added_cookies: list[object] = []
+
+            def new_page(self) -> object:
+                return object()
+
+            def add_cookies(self, cookies: object) -> None:
+                self.added_cookies.append(cookies)
+
+        context = FakeContext()
+        cookie_file = "/tmp/mock/Chrome/Profile/Cookies"
+        with patch.dict("os.environ", {"AUDIOBOOK_WEB_BOOTSTRAP_COOKIE_FILE": cookie_file}):
+            with patch(
+                "audiobook_maker.prepare_gemini_web_page",
+                side_effect=[RuntimeError("Gemini 웹 로그인 페이지로 이동했습니다."), None],
+            ):
+                with patch(
+                    "audiobook_maker.load_gemini_web_cookies", return_value=["cookie"]
+                ) as load_cookies_mock:
+                    audiobook_maker.ensure_web_provider_session(
+                        context,
+                        provider="gemini",
+                        timeout_error_cls=RuntimeError,
+                        browser_cookie3_module=object(),
+                    )
+
+        load_cookies_mock.assert_called_once_with(load_cookies_mock.call_args[0][0], cookie_file=cookie_file)
+
+    def test_ensure_web_provider_session_raises_when_bootstrap_does_not_help(self) -> None:
+        class FakeContext:
+            def new_page(self) -> object:
+                return object()
+
+            def add_cookies(self, _cookies: object) -> None:
+                return None
+
+        context = FakeContext()
+        with patch(
+            "audiobook_maker.prepare_gemini_web_page",
+            side_effect=RuntimeError("여전히 로그인되지 않았습니다."),
+        ):
+            with patch("audiobook_maker.load_gemini_web_cookies", return_value=["cookie"]):
+                with self.assertRaises(RuntimeError):
+                    audiobook_maker.ensure_web_provider_session(
+                        context,
+                        provider="gemini",
+                        timeout_error_cls=RuntimeError,
+                        browser_cookie3_module=object(),
+                    )
+
+    def test_chatgpt_session_does_not_replace_cookies_for_transient_network_error(self) -> None:
+        class FakePage:
+            def close(self) -> None:
+                return None
+
+        class FakeContext:
+            def __init__(self) -> None:
+                self.add_cookies_calls = 0
+
+            def new_page(self) -> FakePage:
+                return FakePage()
+
+            def add_cookies(self, _cookies: object) -> None:
+                self.add_cookies_calls += 1
+
+        context = FakeContext()
+        with patch(
+            "audiobook_maker.prepare_chatgpt_web_page",
+            side_effect=RuntimeError("ChatGPT error_kind=network_error retry_action=short_backoff"),
+        ):
+            with patch("audiobook_maker.load_chatgpt_web_cookies") as load_cookies:
+                with self.assertRaisesRegex(RuntimeError, "error_kind=network_error"):
+                    audiobook_maker.ensure_web_provider_session(
+                        context,
+                        provider="chatgpt",
+                        timeout_error_cls=RuntimeError,
+                        browser_cookie3_module=object(),
+                    )
+
+        load_cookies.assert_not_called()
+        self.assertEqual(context.add_cookies_calls, 0)
+
+    def test_launch_persistent_web_context_uses_provider_profile_dir(self) -> None:
+        class FakeContext:
+            pass
+
+        captured: dict[str, object] = {}
+
+        def fake_launch_persistent_context(user_data_dir: str, **kwargs: object) -> FakeContext:
+            captured["user_data_dir"] = user_data_dir
+            captured["kwargs"] = kwargs
+            return FakeContext()
+
+        fake_playwright = SimpleNamespace(
+            chromium=SimpleNamespace(launch_persistent_context=fake_launch_persistent_context)
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            with patch(
+                "audiobook_maker.web_provider_profile_dir",
+                return_value=Path(tmpdir) / "gemini",
+            ):
+                context = audiobook_maker.launch_persistent_web_context(
+                    fake_playwright,
+                    provider="gemini",
+                    chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                    visible=False,
+                )
+
+        self.assertIsInstance(context, FakeContext)
+        self.assertEqual(captured["user_data_dir"], str(Path(tmpdir) / "gemini"))
+        self.assertEqual(captured["kwargs"]["args"], [])
+        self.assertEqual(
+            captured["kwargs"]["ignore_default_args"],
+            list(audiobook_maker.WEB_CHROME_IGNORED_PLAYWRIGHT_DEFAULT_ARGS),
+        )
+        self.assertIsNone(captured["kwargs"]["viewport"])
+        self.assertFalse(captured["kwargs"]["headless"])
+        self.assertEqual(
+            captured["kwargs"]["timeout"],
+            audiobook_maker.DEFAULT_WEB_BROWSER_LAUNCH_TIMEOUT_SECONDS * 1000,
+        )
+
+    def test_launch_failure_cleans_only_the_provider_profile_before_retry(self) -> None:
+        fake_playwright = SimpleNamespace(
+            chromium=SimpleNamespace(
+                launch_persistent_context=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    TimeoutError("browser did not become ready")
+                )
+            )
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "chatgpt"
+            with patch("audiobook_maker.web_provider_profile_dir", return_value=profile_dir):
+                with patch(
+                    "audiobook_maker.terminate_web_profile_browser_processes",
+                    return_value=[123],
+                ) as cleanup:
+                    with self.assertRaisesRegex(RuntimeError, "error_kind=browser_launch_failed"):
+                        audiobook_maker.launch_persistent_web_context(
+                            fake_playwright,
+                            provider="chatgpt",
+                            chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                            visible=True,
+                        )
+
+        cleanup.assert_called_once_with(profile_dir)
+
+    def test_launch_persistent_web_context_never_touches_cdp_regardless_of_visible(self) -> None:
+        # Both legacy visible values produce the same normal visible Chrome launch, with no CDP
+        # window manipulation.
+        for visible in (True, False):
+            with self.subTest(visible=visible):
+
+                class FakeContext:
+                    def __init__(self) -> None:
+                        self.new_cdp_session_called = False
+
+                    def new_cdp_session(self, page):
+                        self.new_cdp_session_called = True
+                        raise AssertionError("launch must not create a CDP session")
+
+                fake_context = FakeContext()
+                fake_playwright = SimpleNamespace(
+                    chromium=SimpleNamespace(
+                        launch_persistent_context=lambda *a, _context=fake_context, **k: _context
+                    )
+                )
+
+                with TemporaryDirectory() as tmpdir:
+                    with patch("audiobook_maker.web_provider_profile_dir", return_value=Path(tmpdir) / "gemini"):
+                        audiobook_maker.launch_persistent_web_context(
+                            fake_playwright,
+                            provider="gemini",
+                            chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                            visible=visible,
+                        )
+
+                self.assertFalse(fake_context.new_cdp_session_called)
+
+    def test_profile_lock_blocks_second_context_until_first_closes(self) -> None:
+        class FakeContext:
+            def __init__(self) -> None:
+                self.close_handlers = []
+
+            def on(self, event: str, handler) -> None:
+                if event == "close":
+                    self.close_handlers.append(handler)
+
+            def close(self) -> None:
+                for handler in self.close_handlers:
+                    handler(self)
+
+        fake_playwright = SimpleNamespace(
+            chromium=SimpleNamespace(launch_persistent_context=lambda *_args, **_kwargs: FakeContext())
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "chatgpt"
+            with patch("audiobook_maker.web_provider_profile_dir", return_value=profile_dir):
+                first = audiobook_maker.launch_persistent_web_context(
+                    fake_playwright,
+                    provider="chatgpt",
+                    chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                    visible=False,
+                )
+                with self.assertRaisesRegex(RuntimeError, "error_kind=profile_in_use"):
+                    audiobook_maker.launch_persistent_web_context(
+                        fake_playwright,
+                        provider="chatgpt",
+                        chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                        visible=False,
+                    )
+
+                first.close()
+                second = audiobook_maker.launch_persistent_web_context(
+                    fake_playwright,
+                    provider="chatgpt",
+                    chrome_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                    visible=False,
+                )
+                second.close()
 
 
 class AudioFormatTests(unittest.TestCase):
@@ -1481,6 +2512,83 @@ class HeartbeatTests(unittest.TestCase):
         self.assertEqual(payload["section_prefix"], "111")
         self.assertEqual(payload["attempt"], 2)
         self.assertEqual(payload["detail"], "stable_polls=1")
+
+    def test_audio_observer_records_retry_and_resets_health_after_section_success(self) -> None:
+        from webui.workflow_diagnostics import WorkflowDiagnostics, load_workflow_diagnostics
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            diagnostics = WorkflowDiagnostics(root, "audiobook_generation")
+            diagnostics.start(stage="synthesis", total_units=2)
+            heartbeat = audiobook_maker.ProgressHeartbeat(
+                root / "heartbeat.json",
+                observer=audiobook_maker.audio_workflow_heartbeat_observer(
+                    diagnostics,
+                    max_attempts=3,
+                ),
+            )
+
+            heartbeat.beat(
+                stage="section_attempt_error",
+                label="1/2",
+                section_prefix="001",
+                attempt=1,
+                detail="network connection reset",
+            )
+            failed = load_workflow_diagnostics(root)
+            self.assertEqual(failed["diagnosis"]["kind"], "network_error")
+            self.assertEqual(failed["health"]["state"], "degraded")
+
+            heartbeat.beat(stage="section_complete", label="1/2", section_prefix="001", attempt=2)
+            recovered = load_workflow_diagnostics(root)
+            self.assertIsNone(recovered["diagnosis"])
+            self.assertEqual(recovered["health"]["state"], "healthy")
+            self.assertEqual(recovered["progress"]["completed"], 1)
+
+    def test_synthesis_reuses_main_workflow_heartbeat(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            heartbeat = audiobook_maker.ProgressHeartbeat(Path(tmpdir) / "heartbeat.json")
+            args = Namespace(_progress_heartbeat=heartbeat, heartbeat_file=Path(tmpdir) / "other.json")
+
+            self.assertIs(audiobook_maker.progress_heartbeat_from_args(args), heartbeat)
+
+    def test_main_preserves_failed_workdir_with_diagnostics(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source = root / "source.txt"
+            output = root / "output" / "book.m4a"
+            work_dir = root / "work"
+            source.write_text("source", encoding="utf-8")
+            args = Namespace(
+                list_voices=False,
+                provider="gemini_api_tts",
+                input_file=source,
+                output_file=output,
+                work_dir=work_dir,
+                heartbeat_file=root / "heartbeat.json",
+                keep_workdir=False,
+                audiobook_mode="plain",
+                gemini_api_tts_max_attempts=3,
+            )
+
+            with patch("audiobook_maker.parse_args", return_value=args), patch(
+                "audiobook_maker.ensure_runtime_ready"
+            ), patch("audiobook_maker.resolve_voice", return_value="Sulafat"), patch(
+                "audiobook_maker.validate_voice"
+            ), patch("audiobook_maker.resolve_max_chars_per_chunk", return_value=2500), patch(
+                "audiobook_maker.load_audio_sections",
+                side_effect=RuntimeError("오디오북으로 만들 문단을 찾지 못했습니다."),
+            ):
+                result = audiobook_maker.main()
+
+            diagnostics = json.loads((work_dir / "workflow_diagnostics.json").read_text(encoding="utf-8"))
+            self.assertEqual(result, 1)
+            self.assertTrue(work_dir.is_dir())
+            self.assertEqual(diagnostics["diagnosis"]["kind"], "invalid_input")
+            self.assertEqual(
+                json.loads((root / "heartbeat.json").read_text(encoding="utf-8"))["stage"],
+                "fatal_error",
+            )
 
 
 if __name__ == "__main__":

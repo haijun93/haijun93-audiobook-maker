@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import unicodedata
 import uuid
 from datetime import datetime, timezone
@@ -17,15 +18,17 @@ from typing import Any, BinaryIO
 
 from webui.book_organizer import organize_from_output_dir, get_existing_korean_books
 from webui.storage import atomic_write_json
+from webui.workflow_diagnostics import diagnose_failure, load_workflow_diagnostics
 
 
 AUDIO_EXTENSIONS = {".txt", ".epub", ".docx", ".pdf"}
 TRANSLATION_EXTENSIONS = {".epub", ".pdf", ".mobi"}
-PROVIDERS = {"chatgpt_web", "gemini_web", "gemini_api_tts"}
+PROVIDERS = {"chatgpt_web", "gemini_web", "gemini_api_tts", "edge_tts"}
 MODES = {"plain", "material_only", "study"}
 WORKFLOW_TYPES = {"translation", "batch_translation", "batch_audio"}
 TERMINAL_STATES = {"completed", "failed", "cancelled"}
-ACTIVE_STATES = {"queued", "running", "cancelling"}
+ACTIVE_STATES = {"queued", "running", "recovering", "cancelling"}
+HEARTBEAT_STALE_SECONDS = 30 * 60
 MODEL_RE = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
 PROGRESS_RE = re.compile(r"(?<!\d)(\d{1,6})\s*/\s*(\d{1,6})(?!\d)")
 
@@ -36,6 +39,40 @@ class JobValidationError(ValueError):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def process_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def job_process_is_alive(pid: int, job_dir: Path) -> bool:
+    if not process_is_alive(pid):
+        return False
+    if os.name == "nt":
+        return True
+    try:
+        result = subprocess.run(
+            ["ps", "-ww", "-p", str(pid), "-o", "command="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True
+    if result.returncode != 0:
+        return False
+    return str(job_dir) in result.stdout
 
 
 def safe_file_stem(name: str) -> str:
@@ -132,6 +169,7 @@ def validate_translation_settings(settings: dict[str, Any]) -> dict[str, Any]:
         "recursive": bool(settings.get("recursive")),
         "priority_substrings": str(settings.get("priority_substrings") or "").strip(),
         "disable_web_fallback": bool(settings.get("disable_web_fallback")),
+        "reverse": bool(settings.get("reverse")),
     }
 
 
@@ -178,6 +216,9 @@ class JobManager:
         korean_root: Path | None = None,
         bilingual_root: Path | None = None,
         finished_root: Path | None = None,
+        english_root: Path | None = None,
+        study_root: Path | None = None,
+        english_study_root: Path | None = None,
     ) -> None:
         self.data_root = Path(data_root).expanduser().resolve()
         self.jobs_root = self.data_root / "jobs"
@@ -192,15 +233,29 @@ class JobManager:
         self.korean_root = Path(korean_root or "~/Desktop/소설2/[k]").expanduser().resolve()
         self.bilingual_root = Path(bilingual_root or "~/Desktop/소설2/[k-e]").expanduser().resolve()
         self.finished_root = Path(finished_root or "~/Desktop/소설2/finished").expanduser().resolve()
+        self.english_root = Path(english_root or "~/Desktop/소설2/[e]").expanduser().resolve()
+        self.study_root = Path(study_root or "~/Desktop/소설2/[study]").expanduser().resolve()
+        self.english_study_root = Path(english_study_root or "~/Desktop/소설2/[e-s]").expanduser().resolve()
         self._queue: queue.Queue[str | None] = queue.Queue()
         self._lock = threading.RLock()
         self._processes: dict[str, subprocess.Popen[bytes]] = {}
+        self._recovered_processes: dict[str, tuple[int, bool]] = {}
+        self._recovery_monitors: dict[str, threading.Thread] = {}
+        self._shutdown_event = threading.Event()
+        self._watchdog: threading.Thread | None = None
         self._closed = False
         self._recover_jobs()
         self._worker: threading.Thread | None = None
         if start_worker:
             self._worker = threading.Thread(target=self._worker_loop, name="audiobook-job-worker", daemon=True)
             self._worker.start()
+            self._start_recovery_monitors()
+            self._watchdog = threading.Thread(
+                target=self._watchdog_loop,
+                name="audiobook-job-watchdog",
+                daemon=True,
+            )
+            self._watchdog.start()
 
     def _job_dir(self, job_id: str) -> Path:
         if not re.fullmatch(r"[0-9a-f]{32}", job_id):
@@ -224,14 +279,42 @@ class JobManager:
         for metadata_path in sorted(self.jobs_root.glob("*/job.json")):
             try:
                 job = json.loads(metadata_path.read_text(encoding="utf-8"))
-                if job.get("status") in ACTIVE_STATES:
+                status = str(job.get("status") or "")
+                if status not in ACTIVE_STATES:
+                    continue
+                job_id = str(job["id"])
+                pid = int(job.get("pid") or 0)
+                process_alive = status != "queued" and job_process_is_alive(pid, metadata_path.parent)
+                if process_alive:
+                    resume_cancellation = status == "cancelling"
+                    job["status"] = "cancelling" if resume_cancellation else "recovering"
+                    job["message"] = (
+                        "Resuming cancellation after web server restart"
+                        if resume_cancellation
+                        else "Monitoring job after web server restart"
+                    )
+                    self._recovered_processes[job_id] = (pid, resume_cancellation)
+                else:
                     job["status"] = "queued"
                     job["pid"] = None
-                    job["message"] = "Resumed after web server restart"
-                    self._write_job(job)
-                    self._queue.put(str(job["id"]))
+                    job["message"] = "Resuming from checkpoints after web server restart"
+                    if status != "queued":
+                        job["restart_recovery_attempts"] = int(job.get("restart_recovery_attempts") or 0) + 1
+                    self._queue.put(job_id)
+                self._write_job(job)
             except (OSError, ValueError, KeyError, TypeError):
                 continue
+
+    def _start_recovery_monitors(self) -> None:
+        for job_id, (pid, resume_cancellation) in list(self._recovered_processes.items()):
+            monitor = threading.Thread(
+                target=self._monitor_recovered_process,
+                args=(job_id, pid, resume_cancellation),
+                name=f"audiobook-recovery-{job_id[:8]}",
+                daemon=True,
+            )
+            self._recovery_monitors[job_id] = monitor
+            monitor.start()
 
     def create_job(
         self,
@@ -477,6 +560,8 @@ class JobManager:
             command.extend(["--gemini-web-max-attempts", str(settings["max_attempts"])])
             if settings["visible"]:
                 command.append("--gemini-web-visible")
+        elif settings["provider"] == "edge_tts":
+            command.extend(["--edge-tts-max-attempts", str(settings["max_attempts"])])
         else:
             command.extend(
                 [
@@ -556,6 +641,8 @@ class JobManager:
             command.extend(["--priority-substrings", str(settings["priority_substrings"])])
         if settings.get("disable_web_fallback"):
             command.append("--disable-overnight-web-fallback")
+        if settings.get("reverse"):
+            command.append("--reverse")
         return command
 
     def _worker_loop(self) -> None:
@@ -574,6 +661,66 @@ class JobManager:
             finally:
                 self._queue.task_done()
 
+    def _watchdog_loop(self) -> None:
+        while not self._shutdown_event.wait(5):
+            try:
+                self._watchdog_once()
+            except Exception as error:
+                print(f"Warning: job watchdog check failed: {error}", file=sys.stderr)
+
+    def _watchdog_once(self) -> None:
+        stale_processes: list[subprocess.Popen[bytes]] = []
+        with self._lock:
+            if self._closed:
+                return
+            for job_id, process in list(self._processes.items()):
+                if process.poll() is not None:
+                    continue
+                try:
+                    job = self._read_job(job_id)
+                except KeyError:
+                    continue
+                if job.get("status") != "running":
+                    continue
+                heartbeat = self._heartbeat(job)
+                age = self._heartbeat_age_seconds(job, heartbeat)
+                if age is None or age < HEARTBEAT_STALE_SECONDS:
+                    continue
+
+                restarts = int(job.get("watchdog_restarts") or 0)
+                should_restart = restarts < 1
+                diagnosis = diagnose_failure("stale heartbeat", explicit_kind="heartbeat_stale")
+                job["status"] = "cancelling"
+                job["watchdog_action"] = "restart" if should_restart else "fail"
+                job["watchdog_restarts"] = restarts + 1 if should_restart else restarts
+                job["message"] = (
+                    "No progress heartbeat; restarting once from checkpoints"
+                    if should_restart
+                    else "No progress heartbeat after automatic recovery"
+                )
+                job["diagnosis"] = diagnosis.to_dict()
+                job["recovery"] = {
+                    "automatic_retry": should_restart,
+                    "attempt": restarts + 1,
+                    "attempt_limit": 1,
+                    "retry_after_sec": 0,
+                    "safe_to_resume": diagnosis.safe_to_resume,
+                    "action": (
+                        "Terminate the unresponsive process and resume once from checkpoints."
+                        if should_restart
+                        else diagnosis.action
+                    ),
+                    "circuit_open": not should_restart,
+                }
+                self._write_job(job)
+                self._append_log_note(
+                    job_id,
+                    f"WATCHDOG_STALE heartbeat_age_sec={age:.1f} action={job['watchdog_action']}",
+                )
+                stale_processes.append(process)
+        for process in stale_processes:
+            self._terminate_process(process, grace_seconds=2)
+
     def _mark_unhandled_failure(self, job_id: str, error: Exception) -> None:
         with self._lock:
             try:
@@ -586,6 +733,93 @@ class JobManager:
             job["finished_at"] = utc_now()
             job["message"] = f"Internal job error: {error}"
             self._write_job(job)
+
+    @staticmethod
+    def _completion_message(job_type: str) -> str:
+        return {
+            "audio": "Audiobook ready",
+            "translation": "Korean and bilingual EPUBs ready",
+            "batch_translation": "Folder translation complete",
+            "batch_audio": "Folder audiobooks complete",
+        }.get(job_type, "Job complete")
+
+    def _recovered_completion_detected(self, job: dict[str, Any]) -> bool:
+        if not self._artifact_entries(job):
+            return False
+        heartbeat_stage = str(self._heartbeat(job).get("stage") or "")
+        if heartbeat_stage in {"done", "complete"}:
+            return True
+        diagnostics_status = str(self._workflow_diagnostics(job).get("status") or "")
+        if diagnostics_status == "complete":
+            return True
+        batch_status = self._batch_status(job) or {}
+        return str(batch_status.get("status") or "") == "complete"
+
+    def _monitor_recovered_process(self, job_id: str, pid: int, resume_cancellation: bool) -> None:
+        try:
+            if resume_cancellation:
+                self._terminate_pid_group(pid, grace_seconds=8)
+            while job_process_is_alive(pid, self._job_dir(job_id)):
+                with self._lock:
+                    if self._closed:
+                        return
+                time.sleep(0.5)
+
+            requeue = False
+            should_organize = False
+            with self._lock:
+                if self._closed:
+                    return
+                try:
+                    job = self._read_job(job_id)
+                except KeyError:
+                    return
+                if int(job.get("pid") or 0) != pid or job.get("status") not in ACTIVE_STATES:
+                    return
+                job_type = str(job.get("job_type") or "audio")
+                job["pid"] = None
+                job["finished_at"] = utc_now()
+                job["recovered_process"] = True
+                if job.get("status") == "cancelling":
+                    job["status"] = "cancelled"
+                    job["message"] = "Job cancelled"
+                elif self._recovered_completion_detected(job):
+                    job["status"] = "completed"
+                    job["message"] = self._completion_message(job_type)
+                    should_organize = job_type in {"translation", "batch_translation"}
+                elif int(job.get("restart_recovery_attempts") or 0) < 1:
+                    job["status"] = "queued"
+                    job["finished_at"] = None
+                    job["restart_recovery_attempts"] = 1
+                    job["message"] = "Recovered process ended without completion; resuming from checkpoints"
+                    requeue = True
+                else:
+                    diagnosis = diagnose_failure(
+                        "Recovered process exited without a completion marker",
+                        explicit_kind="child_process_failed",
+                    )
+                    job["status"] = "failed"
+                    job["message"] = "Recovered process exited before completion"
+                    job["diagnosis"] = diagnosis.to_dict()
+                    job["recovery"] = {
+                        "automatic_retry": False,
+                        "attempt": int(job.get("restart_recovery_attempts") or 1),
+                        "attempt_limit": 1,
+                        "retry_after_sec": 0,
+                        "safe_to_resume": diagnosis.safe_to_resume,
+                        "action": diagnosis.action,
+                        "circuit_open": True,
+                    }
+                    job["error_detail"] = self._log_error_detail(job) or diagnosis.root_cause
+                self._write_job(job)
+            if requeue:
+                self._queue.put(job_id)
+            elif should_organize:
+                self._organize_translation_outputs(job_id)
+        finally:
+            with self._lock:
+                self._recovered_processes.pop(job_id, None)
+                self._recovery_monitors.pop(job_id, None)
 
     def _run_job(self, job_id: str) -> None:
         with self._lock:
@@ -640,6 +874,7 @@ class JobManager:
             with self._lock:
                 self._processes.pop(job_id, None)
 
+        requeue = False
         with self._lock:
             job = self._read_job(job_id)
             job["return_code"] = return_code
@@ -647,51 +882,82 @@ class JobManager:
             job["finished_at"] = utc_now()
             artifacts = self._artifact_entries(job)
             job_type = str(job.get("job_type") or "audio")
+            watchdog_action = str(job.pop("watchdog_action", "") or "")
             if job.get("status") in {"cancelling", "cancelled"}:
-                job["status"] = "cancelled"
-                job["message"] = "Job cancelled"
+                if watchdog_action == "restart":
+                    job["status"] = "queued"
+                    job["return_code"] = None
+                    job["finished_at"] = None
+                    job["last_diagnosis"] = job.pop("diagnosis", None)
+                    job["last_recovery"] = job.pop("recovery", None)
+                    job["message"] = "Resuming from checkpoints after watchdog recovery"
+                    requeue = True
+                elif watchdog_action == "fail":
+                    job["status"] = "failed"
+                    job["message"] = "Job stopped: heartbeat_stale"
+                    job["error_detail"] = self._log_error_detail(job)
+                else:
+                    job["status"] = "cancelled"
+                    job["message"] = "Job cancelled"
             elif return_code == 0 and artifacts:
                 job["status"] = "completed"
-                job["message"] = {
-                    "audio": "Audiobook ready",
-                    "translation": "Korean and bilingual EPUBs ready",
-                    "batch_translation": "Folder translation complete",
-                    "batch_audio": "Folder audiobooks complete",
-                }.get(job_type, "Job complete")
-                
-                # 번역 작업(단일/폴더 일괄) 완료 시 원본 파일을 finished 폴더로 이동 & 결과 파일 분류
-                if job_type in {"translation", "batch_translation"}:
-                    try:
-                        if job_type == "translation":
-                            job_dir = self._job_dir(job_id)
-                            input_relpath = str(job.get("input_relpath") or "")
-                            if input_relpath:
-                                input_path = (job_dir / input_relpath).resolve()
-                                if input_path.is_file():
-                                    # finished 폴더가 없으면 자동 생성
-                                    self.finished_root.mkdir(parents=True, exist_ok=True)
-                                    dest_path = self.finished_root / input_path.name
-                                    shutil.move(str(input_path), str(dest_path))
-
-                        # 생성된 EPUB 파일들을 장르/작가별로 분류
-                        artifact_root = str(job.get("artifact_root") or "")
-                        if artifact_root:
-                            output_dir = Path(artifact_root).expanduser().resolve()
-                            try:
-                                # copy(원본 유지): 작업 상세 화면의 다운로드 링크가 계속 유효해야 한다.
-                                organize_from_output_dir(output_dir, self.korean_root, self.bilingual_root, mode="copy")
-                            except Exception as organize_error:
-                                print(f"Warning: Failed to organize books: {organize_error}", file=sys.stderr)
-                    except Exception as e:
-                        # 파일 이동 중 오류가 발생해도 작업 완료는 유지
-                        import traceback
-                        print(f"Warning: Failed to process translation job: {e}", file=sys.stderr)
-                        traceback.print_exc()
+                job["message"] = self._completion_message(job_type)
             else:
                 job["status"] = "failed"
-                job["message"] = "Job engine exited with an error"
-                job["error_detail"] = self._log_error_detail(job)
+                workflow_diagnostics = self._workflow_diagnostics(job)
+                diagnosis = workflow_diagnostics.get("diagnosis")
+                recovery = workflow_diagnostics.get("recovery")
+                if isinstance(diagnosis, dict):
+                    kind = str(diagnosis.get("kind") or "unknown_error")
+                    job["message"] = f"Job stopped: {kind}"
+                    job["diagnosis"] = diagnosis
+                    job["recovery"] = recovery if isinstance(recovery, dict) else None
+                    root_cause = str(diagnosis.get("root_cause") or "").strip()
+                    recovery_data = recovery if isinstance(recovery, dict) else {}
+                    action = str(recovery_data.get("action") or diagnosis.get("action") or "").strip()
+                    diagnostic_detail = "\n".join(part for part in (root_cause, action) if part)
+                    log_detail = self._log_error_detail(job)
+                    job["error_detail"] = "\n".join(
+                        part for part in (diagnostic_detail, log_detail) if part
+                    )[:1200]
+                else:
+                    job["message"] = "Job engine exited with an error"
+                    job["error_detail"] = self._log_error_detail(job)
+
             self._write_job(job)
+        if requeue:
+            self._queue.put(job_id)
+        elif job_type in {"translation", "batch_translation"}:
+            self._organize_translation_outputs(job_id)
+
+    def _organize_translation_outputs(self, job_id: str) -> None:
+        try:
+            with self._lock:
+                job = self._read_job(job_id)
+            job_type = str(job.get("job_type") or "")
+            if job_type == "translation" and job.get("status") == "completed":
+                job_dir = self._job_dir(job_id)
+                input_relpath = str(job.get("input_relpath") or "")
+                if input_relpath:
+                    input_path = (job_dir / input_relpath).resolve()
+                    if input_path.is_file():
+                        self.finished_root.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(input_path), str(self.finished_root / input_path.name))
+
+            artifact_root = str(job.get("artifact_root") or "")
+            if artifact_root:
+                organize_from_output_dir(
+                    Path(artifact_root).expanduser().resolve(),
+                    self.korean_root,
+                    self.bilingual_root,
+                    english_root=self.english_root,
+                    study_root=self.study_root,
+                    english_study_root=self.english_study_root,
+                    mode="copy",
+                )
+        except Exception as error:
+            # 결과 정리 실패가 생성 작업 자체의 완료 상태를 훼손하지 않게 로그로만 남긴다.
+            print(f"Warning: Failed to process translation job: {error}", file=sys.stderr)
 
     def _terminate_process(self, process: subprocess.Popen[bytes], grace_seconds: float = 8.0) -> None:
         if process.poll() is not None:
@@ -714,23 +980,78 @@ class JobManager:
         except (OSError, subprocess.TimeoutExpired):
             process.kill()
 
-    def stop_job(self, job_id: str) -> dict[str, Any]:
+    def _terminate_pid_group(self, pid: int, grace_seconds: float = 8.0) -> None:
+        if not process_is_alive(pid):
+            return
+        try:
+            if os.name == "nt":
+                os.kill(pid, signal.SIGTERM)
+            else:
+                os.killpg(pid, signal.SIGTERM)
+        except OSError:
+            return
+        deadline = time.monotonic() + grace_seconds
+        while process_is_alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if not process_is_alive(pid):
+            return
+        try:
+            if os.name == "nt":
+                os.kill(pid, signal.SIGKILL)
+            else:
+                os.killpg(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+    def stop_job(self, job_id: str, *, reason: str = "unknown caller") -> dict[str, Any]:
+        # 원인 불명의 배치 중단(외부 SIGTERM)을 나중에 추적할 수 있도록, 중지 요청이
+        # 어디서(reason) 들어왔는지 job.log에 남겨 둔다.
+        self._append_log_note(job_id, f"STOP_REQUESTED reason={reason}")
         with self._lock:
             job = self._read_job(job_id)
             if job.get("status") in TERMINAL_STATES:
                 return self.public_job(job_id)
             process = self._processes.get(job_id)
             if process is None:
-                job["status"] = "cancelled"
-                job["finished_at"] = utc_now()
-                job["message"] = "Job cancelled before start"
+                pid = int(job.get("pid") or 0)
+                if not job_process_is_alive(pid, self._job_dir(job_id)):
+                    job["status"] = "cancelled"
+                    job["pid"] = None
+                    job["finished_at"] = utc_now()
+                    job["message"] = "Job cancelled before start"
+                    self._write_job(job)
+                    return self.public_job(job_id)
+                job["status"] = "cancelling"
+                job["message"] = "Stopping recovered job engine"
                 self._write_job(job)
-                return self.public_job(job_id)
-            job["status"] = "cancelling"
-            job["message"] = "Stopping audiobook engine"
-            self._write_job(job)
-        self._terminate_process(process)
+                recovered_pid = pid
+            else:
+                recovered_pid = None
+                job["status"] = "cancelling"
+                job["message"] = "Stopping audiobook engine"
+                self._write_job(job)
+        if process is not None:
+            self._terminate_process(process)
+        elif recovered_pid is not None:
+            self._terminate_pid_group(recovered_pid)
+            with self._lock:
+                job = self._read_job(job_id)
+                if job.get("status") == "cancelling":
+                    job["status"] = "cancelled"
+                    job["pid"] = None
+                    job["finished_at"] = utc_now()
+                    job["message"] = "Job cancelled"
+                    self._write_job(job)
         return self.public_job(job_id)
+
+    def _append_log_note(self, job_id: str, note: str) -> None:
+        try:
+            job = self._read_job(job_id)
+            log_path = self._job_dir(job_id) / str(job.get("log_relpath") or "job.log")
+            with log_path.open("ab", buffering=0) as handle:
+                handle.write(f"[{utc_now()}] {note}\n".encode("utf-8"))
+        except Exception:
+            pass
 
     def delete_job(self, job_id: str) -> None:
         with self._lock:
@@ -746,6 +1067,55 @@ class JobManager:
             return payload if isinstance(payload, dict) else {}
         except (OSError, ValueError, TypeError):
             return {}
+
+    def _heartbeat_age_seconds(self, job: dict[str, Any], heartbeat: dict[str, Any]) -> float | None:
+        timestamp = heartbeat.get("timestamp")
+        try:
+            observed_at = float(timestamp) if timestamp is not None else None
+        except (TypeError, ValueError):
+            observed_at = None
+        if observed_at is None:
+            path = self._job_dir(str(job["id"])) / str(job["heartbeat_relpath"])
+            try:
+                observed_at = path.stat().st_mtime
+            except OSError:
+                pass
+        started_at = str(job.get("started_at") or "")
+        try:
+            process_started_at = datetime.fromisoformat(started_at).timestamp()
+        except ValueError:
+            process_started_at = None
+        if process_started_at is not None:
+            observed_at = max(observed_at or process_started_at, process_started_at)
+        if observed_at is None:
+            return None
+        return max(0.0, time.time() - observed_at)
+
+    def _workflow_diagnostics(self, job: dict[str, Any]) -> dict[str, Any]:
+        job_dir = self._job_dir(str(job["id"]))
+        work_dir = job_dir / str(job.get("work_relpath") or "work")
+        candidates = [work_dir / "workflow_diagnostics.json"]
+        try:
+            candidates.extend(work_dir.rglob("workflow_diagnostics.json"))
+        except OSError:
+            pass
+        diagnosed: list[tuple[str, dict[str, Any]]] = []
+        completed: list[tuple[str, dict[str, Any]]] = []
+        seen: set[Path] = set()
+        for path in candidates:
+            if path in seen:
+                continue
+            seen.add(path)
+            payload = load_workflow_diagnostics(path)
+            if not payload:
+                continue
+            entry = (str(payload.get("updated_at") or ""), payload)
+            if isinstance(payload.get("diagnosis"), dict):
+                diagnosed.append(entry)
+            else:
+                completed.append(entry)
+        pool = diagnosed or completed
+        return max(pool, key=lambda item: item[0])[1] if pool else {}
 
     def _log_error_detail(self, job: dict[str, Any], max_bytes: int = 4000) -> str:
         job_dir = self._job_dir(str(job["id"]))
@@ -856,10 +1226,38 @@ class JobManager:
         if str(job.get("job_type") or "audio") == "audio" and status != "completed":
             artifacts = []
         batch_status = self._batch_status(job)
+        workflow_diagnostics = self._workflow_diagnostics(job)
+        heartbeat_age = self._heartbeat_age_seconds(job, heartbeat)
+        heartbeat_stale = (
+            status in {"running", "recovering", "cancelling"}
+            and heartbeat_age is not None
+            and heartbeat_age >= HEARTBEAT_STALE_SECONDS
+        )
+        diagnosis = (
+            job.get("diagnosis")
+            if isinstance(job.get("diagnosis"), dict)
+            else workflow_diagnostics.get("diagnosis")
+        )
+        recovery = (
+            job.get("recovery")
+            if isinstance(job.get("recovery"), dict)
+            else workflow_diagnostics.get("recovery")
+        )
+        if heartbeat_stale and not isinstance(diagnosis, dict):
+            stale_diagnosis = diagnose_failure("stale heartbeat", explicit_kind="heartbeat_stale")
+            diagnosis = stale_diagnosis.to_dict()
+            recovery = {
+                "automatic_retry": False,
+                "retry_after_sec": 0,
+                "safe_to_resume": stale_diagnosis.safe_to_resume,
+                "action": stale_diagnosis.action,
+                "circuit_open": False,
+            }
         batch = None
         if batch_status is not None:
             completed = batch_status.get("completed") if isinstance(batch_status.get("completed"), list) else []
             batch = {
+                "status": str(batch_status.get("status") or "running"),
                 "total": int(batch_status.get("total") or 0),
                 "targets": [str(name) for name in (batch_status.get("targets") or [])],
                 "current": batch_status.get("current"),
@@ -873,6 +1271,9 @@ class JobManager:
                     for item in completed
                     if isinstance(item, dict)
                 ],
+                "diagnosis": batch_status.get("diagnosis")
+                if isinstance(batch_status.get("diagnosis"), dict)
+                else None,
             }
         return {
             "id": job_id,
@@ -886,6 +1287,11 @@ class JobManager:
             "output_name": job.get("output_name"),
             "message": job.get("message"),
             "error_detail": job.get("error_detail"),
+            "diagnosis": diagnosis,
+            "recovery": recovery,
+            "health": workflow_diagnostics.get("health")
+            if isinstance(workflow_diagnostics.get("health"), dict)
+            else {},
             "return_code": job.get("return_code"),
             "settings": job.get("settings") if isinstance(job.get("settings"), dict) else {},
             "batch": batch,
@@ -896,6 +1302,8 @@ class JobManager:
             },
             "progress": progress,
             "progress_text": progress_text,
+            "heartbeat_age_seconds": round(heartbeat_age, 1) if heartbeat_age is not None else None,
+            "heartbeat_stale": heartbeat_stale,
             "download_ready": bool(artifacts),
             "artifacts": [
                 {
@@ -957,9 +1365,22 @@ class JobManager:
             if self._closed:
                 return
             self._closed = True
+            self._shutdown_event.set()
             processes = list(self._processes.values())
+            recovered_pids = [
+                self._recovered_processes[job_id][0]
+                for job_id in self._recovery_monitors
+                if job_id in self._recovered_processes
+            ]
+            recovery_monitors = list(self._recovery_monitors.values())
         for process in processes:
             self._terminate_process(process, grace_seconds=1)
+        for pid in recovered_pids:
+            self._terminate_pid_group(pid, grace_seconds=1)
         if self._worker is not None:
             self._queue.put(None)
             self._worker.join(timeout=2)
+        if self._watchdog is not None:
+            self._watchdog.join(timeout=2)
+        for monitor in recovery_monitors:
+            monitor.join(timeout=2)

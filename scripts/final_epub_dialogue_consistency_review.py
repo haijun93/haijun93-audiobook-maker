@@ -28,7 +28,10 @@ from atomic_io import atomic_write_json, atomic_write_text
 CASUAL_PRONOUN_RE = re.compile(r"(?<![가-힣])(?:너|너는|너를|너의|너희|널|네가|니가|자네)(?![가-힣])")
 POLITE_END_RE = re.compile(r"(?:요|습니다|습니까|세요|십시오|예요|이에요)[.!?…]*$")
 TITLE_RE = re.compile(r"(?:선생님|교수님|박사님|사장님|원장님|형사님|변호사님|의사 선생님)")
-CASUAL_END_RE = re.compile(r"(?:어|아|가|야|해|했어|거야|잖아|겠어|한다|했다|다)[.!?…]*$")
+# See final_epub_tone_review.CASUAL_END_RE for why the bare "야" alternative excludes a
+# trailing ellipsis/2+ dots: it is otherwise indistinguishable from the "-아야/-어야"
+# connective cut off mid-clause ("들어봐야….").
+CASUAL_END_RE = re.compile(r"(?:어|아|가|야(?!\s*(?:\.{2,}|…))|해|했어|거야|잖아|겠어|한다|했다|다)[.!?…]*$")
 
 
 @dataclass

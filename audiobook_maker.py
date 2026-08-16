@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import difflib
 import html
@@ -12,18 +13,30 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 import wave
 import zipfile
+from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 
 from defusedxml import ElementTree as DefusedElementTree
+
+from scripts.atomic_io import atomic_write_json
+from webui.workflow_diagnostics import WorkflowDiagnostics
+
+try:
+    import fcntl
+except ImportError:  # Windows uses msvcrt in the lock helpers below.
+    fcntl = None  # type: ignore[assignment]
 
 ROOT = Path(__file__).resolve().parent
 
@@ -100,6 +113,7 @@ ChatGPTWebNotice = WebProviderNotice
 @dataclass
 class ProgressHeartbeat:
     path: Path
+    observer: Callable[[dict[str, object]], None] | None = None
 
     def beat(
         self,
@@ -133,6 +147,11 @@ class ProgressHeartbeat:
             encoding="utf-8",
         )
         temp_path.replace(self.path)
+        if self.observer is not None:
+            try:
+                self.observer(dict(payload))
+            except Exception:
+                pass
 
 
 def beat_heartbeat(
@@ -153,6 +172,89 @@ def beat_heartbeat(
         attempt=attempt,
         detail=detail,
     )
+
+
+def progress_heartbeat_from_args(args: argparse.Namespace) -> ProgressHeartbeat | None:
+    shared = getattr(args, "_progress_heartbeat", None)
+    if isinstance(shared, ProgressHeartbeat):
+        return shared
+    heartbeat_path = getattr(args, "heartbeat_file", None)
+    return ProgressHeartbeat(Path(heartbeat_path)) if heartbeat_path else None
+
+
+def provider_max_attempts(args: argparse.Namespace) -> int:
+    setting = {
+        "chatgpt_web": "chatgpt_web_max_attempts",
+        "gemini_web": "gemini_web_max_attempts",
+        "gemini_api_tts": "gemini_api_tts_max_attempts",
+        "edge_tts": "edge_tts_max_attempts",
+    }.get(str(getattr(args, "provider", "")))
+    try:
+        return max(1, int(getattr(args, setting, 3))) if setting else 3
+    except (TypeError, ValueError):
+        return 3
+
+
+def audio_workflow_heartbeat_observer(
+    diagnostics: WorkflowDiagnostics,
+    *,
+    max_attempts: int,
+) -> Callable[[dict[str, object]], None]:
+    last_marker: tuple[object, ...] | None = None
+    completed_stages = {
+        "section_complete",
+        "reuse_existing_audio",
+        "reuse_existing_split_audio",
+    }
+
+    def observe(payload: dict[str, object]) -> None:
+        nonlocal last_marker
+        diagnostics.observe_heartbeat(payload)
+        stage = str(payload.get("stage") or "")
+        detail = str(payload.get("detail") or "")
+        label = str(payload.get("label") or "")
+        attempt_value = payload.get("attempt")
+        try:
+            attempt = max(1, int(attempt_value or 1))
+        except (TypeError, ValueError):
+            attempt = 1
+
+        if stage == "section_attempt_error":
+            diagnostics.record_failure(
+                detail or stage,
+                stage=stage,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                evidence={
+                    key: payload[key]
+                    for key in ("label", "section_prefix", "attempt", "detail")
+                    if payload.get(key) is not None
+                },
+            )
+            return
+        if stage in {"fatal_error", "conversation_rate_limit_wait", "rate_limit_wait"}:
+            return
+
+        match = re.search(r"(?<!\d)(\d+)\s*/\s*(\d+)(?!\d)", label)
+        current = int(match.group(1)) if match else None
+        total = int(match.group(2)) if match else None
+        completed = None
+        if current is not None:
+            completed = current if stage in completed_stages else max(0, current - 1)
+        marker = (stage, current, total, attempt if attempt_value is not None else None)
+        if marker == last_marker:
+            return
+        last_marker = marker
+        diagnostics.progress(
+            stage=stage or "audiobook_generation",
+            completed=completed,
+            total=total,
+            current=current,
+            detail=detail,
+            success=stage in completed_stages,
+        )
+
+    return observe
 
 
 HEADING_PATTERNS = (
@@ -228,6 +330,14 @@ CHATGPT_WEB_REFUSAL_MARKERS = (
     "This content can’t be shown for safety reasons",
     "This content can't be shown for safety reasons",
     "intended model behavior in our Model Spec",
+    # 브라우저가 --lang=ko로 뜨기 때문에 ChatGPT 웹 UI가 위 영어 배너와 같은 내용을
+    # 한국어로 보여주는 경우가 있다. 실제로 이 한국어 배너 문구가 chunk_0001_response.txt에
+    # 그대로(거절로 인식되지 못한 채) 저장되는 사례를 발견했다 - 영어 문구만 있어서
+    # is_chatgpt_web_refusal_response()가 이걸 거절로 인식하지 못하고 그대로 "번역 결과"로
+    # 취급, 형식 검증에서만 계속 실패해 재시도를 반복하고(문학적 맥락 재설득 프롬프트도
+    # 전혀 발동 안 됨) 결국 청크 전체가 막혔다.
+    "안전상의 이유로 이 콘텐츠를 표시할 수 없습니다",
+    "의도된 모델 동작에 대한 자세한 내용은 모델 사양에서 확인하세요",
     "그 요청은 도와드릴 수 없습니다",
     "그 요청은 도와드릴 수 없어요",
     "성적으로 노골적이고 동의가 불분명한 장면의 그대로 복제·낭독용 출력은 제공할 수 없습니다",
@@ -317,6 +427,36 @@ CHATGPT_WEB_NOTICE_SCAN_SELECTORS = (
     '[data-testid*="modal"]',
     '[data-testid*="banner"]',
 )
+CHATGPT_WEB_ACTIONABLE_NOTICE_SELECTORS = (
+    *CHATGPT_WEB_RATE_LIMIT_MODAL_SELECTORS,
+    '[role="dialog"]',
+    '[role="alert"]',
+    '[data-testid*="toast"]',
+    '[data-testid*="notification"]',
+    '[data-testid*="modal"]',
+    '[data-testid*="banner"]',
+)
+CHATGPT_WEB_GENERATION_ACTIVE_SELECTORS = (
+    'button[data-testid="stop-button"]',
+    'button[aria-label="Stop generating"]',
+    'button[aria-label="Stop response"]',
+    'button[aria-label="응답 중지"]',
+    '[data-message-author-role="assistant"][data-is-streaming="true"]',
+    '.result-streaming',
+)
+CHATGPT_WEB_PROMPT_INPUT_SELECTORS = (
+    "#prompt-textarea",
+    'div.ProseMirror[contenteditable="true"]',
+    '[contenteditable="true"][role="textbox"]',
+)
+CHATGPT_WEB_PROMPT_INPUT_SELECTOR = ", ".join(CHATGPT_WEB_PROMPT_INPUT_SELECTORS)
+CHATGPT_WEB_SEND_BUTTON_SELECTORS = (
+    'button[data-testid="send-button"]',
+    'button[aria-label="Send prompt"]',
+    'button[aria-label="Send message"]',
+    'button[aria-label="보내기"]',
+    'button[aria-label="메시지 보내기"]',
+)
 CHATGPT_WEB_LOGIN_REQUIRED_MARKERS = (
     "로그인이 필요",
     "다시 로그인",
@@ -388,6 +528,23 @@ CHATGPT_WEB_CLOSE_CONTROL_KEYWORDS = (
 )
 CHATGPT_WEB_RATE_LIMIT_WAIT_SEC = 900
 CHATGPT_WEB_RATE_LIMIT_RETRY_BACKOFF_SEC = 180
+CHATGPT_WEB_RATE_LIMIT_COOLDOWN_SEC = 20 * 60
+CHATGPT_WEB_RATE_LIMIT_STATE_FILE = ".chatgpt_rate_limit_state.json"
+CHATGPT_WEB_PACING_STATE_FILE = ".chatgpt_request_pacing.json"
+CHATGPT_WEB_SESSION_HEALTH_FILE = ".chatgpt_session_health.json"
+# 2026-08-16 이전까지 base=5분/penalty=7.5분/max=15분이었다. 그렇게 보수적이었던 이유가
+# 사실은 계정 등급이 아니라 로그인 세션이 만료된 상태를 rate limit으로 오진했던 것으로
+# 밝혀졌다(자동화 프로필 재로그인 후 Plus로 확인됨, read_chatgpt_web_notice_messages의
+# 셀렉터 사각지대 버그가 원인). Plus 계정 확인 후 Gemini 계정의 기본 간격(8~12초)에 맞춰
+# 대폭 줄이되, ChatGPT 웹 UI가 역사적으로 더 불안정했던 점을 고려해 약간의 여유만 둔다.
+CHATGPT_WEB_PACING_BASE_INTERVAL_SEC = 20
+CHATGPT_WEB_PACING_PENALTY_INTERVAL_SEC = 60
+CHATGPT_WEB_PACING_ESCALATION_SEC = 30
+CHATGPT_WEB_PACING_MAX_INTERVAL_SEC = 4 * 60
+CHATGPT_WEB_PACING_PENALTY_SEC = 6 * 60 * 60
+CHATGPT_WEB_PACING_INCIDENT_WINDOW_SEC = 24 * 60 * 60
+CHATGPT_WEB_PACING_HEARTBEAT_SEC = 30
+CHATGPT_WEB_PACING_RECOVERY_SUCCESS_COUNT = 3
 DEFAULT_CHATGPT_WEB_MAX_ATTEMPTS = 8
 MIN_AUDIO_SEGMENT_WORDS = 600
 CHATGPT_WEB_SPOKEN_DOMAIN_SUFFIXES = {
@@ -489,7 +646,16 @@ CHATGPT_WEB_REPEAT_PROMPT_TEMPLATE = """
 {text}
 [본문 끝]
 """.strip()
-CHATGPT_WEB_HIDDEN_WINDOW_POSITION = (-2400, -2400)
+WEB_CHROME_IGNORED_PLAYWRIGHT_DEFAULT_ARGS = (
+    "--password-store=basic",
+    "--use-mock-keychain",
+    "--disable-background-networking",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-sync",
+    "--disable-component-update",
+)
 DEFAULT_CHATGPT_MAX_CHARS_PER_CHUNK = 1800
 DEFAULT_CHATGPT_INSTRUCTIONS = DEFAULT_KOREAN_AUDIOBOOK_READING_INSTRUCTIONS
 GEMINI_API_TTS_DEFAULT_MODEL = "gemini-2.5-flash-preview-tts"
@@ -550,6 +716,37 @@ GEMINI_API_TTS_PROMPT_TEMPLATE = """
 # TRANSCRIPT
 {text}
 """.strip()
+EDGE_TTS_DEFAULT_VOICE = "ko-KR-SunHiNeural"
+EDGE_TTS_VOICES = (
+    "ko-KR-SunHiNeural",
+    "ko-KR-InJoonNeural",
+    "ko-KR-HyunsuMultilingualNeural",
+    "en-US-AvaNeural",
+    "en-US-AndrewNeural",
+    "en-US-EmmaNeural",
+    "en-US-BrianNeural",
+    "en-US-AnaNeural",
+    "en-US-ChristopherNeural",
+    "en-US-EricNeural",
+    "en-US-GuyNeural",
+    "en-US-JennyNeural",
+    "en-US-MichelleNeural",
+    "en-US-RogerNeural",
+    "en-US-SteffanNeural",
+)
+EDGE_TTS_VOICE_DESCRIPTIONS = {
+    "ko-KR-SunHiNeural": "선희 (한국어 여성, 부드럽고 자연스러움)",
+    "ko-KR-InJoonNeural": "인준 (한국어 남성, 차분하고 신뢰감)",
+    "ko-KR-HyunsuMultilingualNeural": "현수 (한국어/다국어 남성, 또렷함)",
+    "en-US-AvaNeural": "Ava (English Female, Natural)",
+    "en-US-AndrewNeural": "Andrew (English Male, Warm)",
+    "en-US-EmmaNeural": "Emma (English Female, Crisp)",
+    "en-US-BrianNeural": "Brian (English Male, Deep)",
+    "en-US-JennyNeural": "Jenny (English Female, Storyteller)",
+    "en-US-GuyNeural": "Guy (English Male, News/Narration)",
+}
+DEFAULT_EDGE_TTS_MAX_CHARS_PER_CHUNK = 4000
+DEFAULT_EDGE_TTS_MAX_ATTEMPTS = 3
 GEMINI_WEB_URL = "https://gemini.google.com/app"
 GEMINI_WEB_CHROME_PATH = CHATGPT_WEB_CHROME_PATH
 GEMINI_WEB_DEFAULT_VOICE = "account_default"
@@ -649,6 +846,7 @@ GEMINI_WEB_SESSION_ERROR_MARKERS = (
     "다시 로그인",
     "로그인이 필요",
 )
+GEMINI_WEB_GUEST_MODE_LOGIN_BUTTON_TEXT = "로그인"
 GEMINI_WEB_ACCOUNT_ERROR_MARKERS = (
     "can't access this service",
     "gemini isn't available for this account",
@@ -903,7 +1101,7 @@ class EpubTextExtractor(HTMLParser):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="한국어 txt/epub/docx/pdf 파일을 ChatGPT/Gemini 웹 또는 Gemini API TTS로 오디오북으로 변환합니다."
+        description="한국어 txt/epub/docx/pdf 파일을 ChatGPT/Gemini 웹 또는 Gemini API TTS, Edge TTS로 오디오북으로 변환합니다."
     )
     parser.add_argument("--input-file", type=Path, help="입력 txt/epub/docx/pdf 파일 경로")
     parser.add_argument("--output-file", type=Path, help="출력 오디오 파일 경로")
@@ -916,16 +1114,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--provider",
-        choices=("chatgpt_web", "gemini_web", "gemini_api_tts"),
+        choices=("chatgpt_web", "gemini_web", "gemini_api_tts", "edge_tts"),
         default=DEFAULT_PROVIDER,
-        help="오디오 생성 provider (`chatgpt_web`, `gemini_web`, `gemini_api_tts`)",
+        help="오디오 생성 provider (`chatgpt_web`, `gemini_web`, `gemini_api_tts`, `edge_tts`)",
     )
     parser.add_argument("--voice", type=str, help="provider 음성 이름")
     parser.add_argument(
         "--max-chars-per-chunk",
         type=int,
         default=None,
-        help="세그먼트 최대 문자 수(기본: ChatGPT 웹 1800 / Gemini 웹 1600 / Gemini API TTS 2500)",
+        help="세그먼트 최대 문자 수(기본: ChatGPT 웹 1800 / Gemini 웹 1600 / Gemini API TTS 2500 / Edge TTS 4000)",
     )
     parser.add_argument(
         "--audio-bitrate-kbps",
@@ -956,7 +1154,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--chatgpt-web-visible",
         action="store_true",
-        help="기본값은 ChatGPT 웹 Chrome 창을 화면 밖으로 띄웁니다. 이 옵션을 주면 창을 보이게 실행합니다.",
+        default=True,
+        help="호환성 옵션입니다. ChatGPT 웹 Chrome은 항상 일반 표시 창으로 실행됩니다.",
     )
     parser.add_argument(
         "--chatgpt-web-max-attempts",
@@ -977,7 +1176,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--gemini-web-visible",
         action="store_true",
-        help="기본값은 Gemini 웹 Chrome 창을 화면 밖으로 띄웁니다. 이 옵션을 주면 창을 보이게 실행합니다.",
+        default=True,
+        help="호환성 옵션입니다. Gemini 웹 Chrome은 항상 일반 표시 창으로 실행됩니다.",
     )
     parser.add_argument(
         "--gemini-web-max-attempts",
@@ -1005,6 +1205,30 @@ def parse_args() -> argparse.Namespace:
         "--gemini-api-tts-reading-instructions",
         default=DEFAULT_GEMINI_API_TTS_INSTRUCTIONS,
         help="Gemini API TTS 프롬프트에 포함할 추가 낭독 지침입니다.",
+    )
+    parser.add_argument(
+        "--edge-tts-rate",
+        type=str,
+        default="+0%",
+        help="Edge TTS 말하기 속도 (예: +0%, +10%, -10%)",
+    )
+    parser.add_argument(
+        "--edge-tts-pitch",
+        type=str,
+        default="+0Hz",
+        help="Edge TTS 음높이 (예: +0Hz, +5Hz, -5Hz)",
+    )
+    parser.add_argument(
+        "--edge-tts-volume",
+        type=str,
+        default="+0%",
+        help="Edge TTS 볼륨 (예: +0%, +20%, -20%)",
+    )
+    parser.add_argument(
+        "--edge-tts-max-attempts",
+        type=int,
+        default=DEFAULT_EDGE_TTS_MAX_ATTEMPTS,
+        help=f"Edge TTS 섹션별 재시도 횟수(기본: {DEFAULT_EDGE_TTS_MAX_ATTEMPTS})",
     )
     parser.add_argument(
         "--request-timeout-sec",
@@ -1237,6 +1461,7 @@ def load_browser_cookies(
     domain_names: tuple[str, ...],
     read_error_prefix: str,
     missing_error: str,
+    cookie_file: str | None = None,
 ) -> list[dict[str, object]]:
     cookies: list[dict[str, object]] = []
     seen: set[tuple[str, str, str]] = set()
@@ -1244,7 +1469,9 @@ def load_browser_cookies(
 
     for domain_name in domain_names:
         try:
-            source_cookies = browser_cookie3_module.chrome(domain_name=domain_name)
+            source_cookies = browser_cookie3_module.chrome(
+                domain_name=domain_name, cookie_file=cookie_file
+            )
         except Exception as exc:
             last_error = exc
             continue
@@ -1254,22 +1481,24 @@ def load_browser_cookies(
             if key in seen:
                 continue
             seen.add(key)
-            cookies.append(
-                {
-                    "name": cookie.name,
-                    "value": cookie.value,
-                    "domain": cookie.domain,
-                    "path": cookie.path,
-                    "expires": (
-                        float(cookie.expires)
-                        if cookie.expires and cookie.expires > 0
-                        else -1
-                    ),
-                    "httpOnly": bool(cookie._rest.get("HttpOnly") is not None),
-                    "secure": bool(cookie.secure),
-                    "sameSite": "Lax",
-                }
-            )
+            cookie_dict: dict[str, object] = {
+                "name": cookie.name,
+                "value": cookie.value,
+                "domain": cookie.domain,
+                "path": cookie.path,
+                "expires": (
+                    float(cookie.expires)
+                    if cookie.expires and cookie.expires > 0
+                    else -1
+                ),
+                "httpOnly": bool(cookie._rest.get("HttpOnly") is not None),
+                "secure": bool(cookie.secure),
+            }
+            if cookie.name.startswith("__Secure-3P") or cookie.name.startswith("__Host-3P"):
+                cookie_dict["sameSite"] = "None"
+            elif cookie.name.startswith("__Secure-1P") or cookie.name.startswith("__Host-1P"):
+                cookie_dict["sameSite"] = "Lax"
+            cookies.append(cookie_dict)
 
     if not cookies and last_error is not None:
         raise RuntimeError(f"{read_error_prefix}: {last_error}") from last_error
@@ -1278,21 +1507,27 @@ def load_browser_cookies(
     return cookies
 
 
-def load_chatgpt_web_cookies(browser_cookie3_module) -> list[dict[str, object]]:
+def load_chatgpt_web_cookies(
+    browser_cookie3_module, *, cookie_file: str | None = None
+) -> list[dict[str, object]]:
     return load_browser_cookies(
         browser_cookie3_module,
         domain_names=("chatgpt.com",),
         read_error_prefix="Chrome 에서 chatgpt.com 쿠키를 읽지 못했습니다",
         missing_error="Chrome 에 로그인된 chatgpt.com 쿠키를 찾지 못했습니다.",
+        cookie_file=cookie_file,
     )
 
 
-def load_gemini_web_cookies(browser_cookie3_module) -> list[dict[str, object]]:
+def load_gemini_web_cookies(
+    browser_cookie3_module, *, cookie_file: str | None = None
+) -> list[dict[str, object]]:
     return load_browser_cookies(
         browser_cookie3_module,
-        domain_names=("google.com", "accounts.google.com", "gemini.google.com"),
+        domain_names=("google.com", "accounts.google.com", "gemini.google.com", "google.co.kr"),
         read_error_prefix="Chrome 에서 Gemini 웹용 Google 쿠키를 읽지 못했습니다",
         missing_error="Chrome 에 로그인된 Gemini 웹용 Google 쿠키를 찾지 못했습니다.",
+        cookie_file=cookie_file,
     )
 
 
@@ -1326,7 +1561,7 @@ def gemini_web_session_available(chrome_path: str = GEMINI_WEB_CHROME_PATH) -> b
         browser_cookie3, _, _ = load_gemini_web_modules()
         return browser_cookie_session_available(
             browser_cookie3,
-            domain_names=("google.com", "accounts.google.com", "gemini.google.com"),
+            domain_names=("google.com", "accounts.google.com", "gemini.google.com", "google.co.kr"),
         )
     except Exception:
         return False
@@ -1363,6 +1598,10 @@ def gemini_api_tts_voice_choices() -> tuple[str, ...]:
     return GEMINI_API_TTS_VOICES
 
 
+def edge_tts_voice_choices() -> tuple[str, ...]:
+    return EDGE_TTS_VOICES
+
+
 def normalize_gemini_api_tts_model_name(model_name: str) -> str:
     normalized = (model_name or "").strip()
     if not normalized:
@@ -1374,15 +1613,24 @@ def default_gemini_api_tts_voice() -> str:
     return GEMINI_API_TTS_DEFAULT_VOICE
 
 
+def default_edge_tts_voice() -> str:
+    return EDGE_TTS_DEFAULT_VOICE
+
+
 def normalize_voice_name(provider: str, voice: str) -> str:
     normalized = voice.strip()
     if provider == "gemini_api_tts":
         voice_map = {item.lower(): item for item in gemini_api_tts_voice_choices()}
         return voice_map.get(normalized.lower(), normalized)
+    if provider == "edge_tts":
+        voice_map = {item.lower(): item for item in edge_tts_voice_choices()}
+        return voice_map.get(normalized.lower(), normalized)
     return normalized.lower()
 
 
 def default_max_chars_per_chunk(provider: str) -> int:
+    if provider == "edge_tts":
+        return DEFAULT_EDGE_TTS_MAX_CHARS_PER_CHUNK
     if provider == "gemini_api_tts":
         return DEFAULT_GEMINI_API_TTS_MAX_CHARS_PER_CHUNK
     if provider == "gemini_web":
@@ -1405,6 +1653,8 @@ def print_available_voices(provider: str) -> None:
         voices = gemini_api_tts_voice_choices()
     elif provider == "gemini_web":
         voices = gemini_web_voice_choices()
+    elif provider == "edge_tts":
+        voices = edge_tts_voice_choices()
     else:
         raise RuntimeError(f"지원하지 않는 provider 입니다: {provider}")
     for voice in voices:
@@ -3305,6 +3555,32 @@ def validate_output_suffix(output_path: Path) -> None:
         raise RuntimeError("출력 파일 확장자는 .m4a, .mp3, .wav, .aiff 중 하나여야 합니다.")
 
 
+def ensure_audio_preflight(
+    *,
+    input_file: Path | None,
+    output_path: Path,
+    work_dir: Path,
+) -> None:
+    if input_file is not None and (not input_file.is_file() or input_file.stat().st_size <= 0):
+        raise RuntimeError(f"입력 파일을 찾지 못했거나 비어 있습니다: {input_file}")
+
+    for directory in {work_dir, output_path.parent}:
+        probe = directory / f".audiobook-write-test-{os.getpid()}"
+        try:
+            probe.write_bytes(b"ok")
+        finally:
+            probe.unlink(missing_ok=True)
+
+    input_size = input_file.stat().st_size if input_file is not None else 0
+    required_free = max(64 * 1024 * 1024, input_size * 3)
+    free_bytes = shutil.disk_usage(work_dir).free
+    if free_bytes < required_free:
+        raise RuntimeError(
+            "disk full: 오디오 작업 공간이 부족합니다 "
+            f"(필요 {required_free} bytes, 여유 {free_bytes} bytes)."
+        )
+
+
 def ensure_runtime_ready(args: argparse.Namespace, output_path: Path) -> None:
     validate_output_suffix(output_path)
 
@@ -3332,6 +3608,8 @@ def ensure_runtime_ready(args: argparse.Namespace, output_path: Path) -> None:
         return
     if args.provider == "gemini_api_tts":
         load_gemini_api_key()
+        return
+    if args.provider == "edge_tts":
         return
     raise RuntimeError(f"지원하지 않는 provider 입니다: {args.provider}")
 
@@ -3364,6 +3642,8 @@ def resolve_voice(args: argparse.Namespace) -> str:
         return default_gemini_api_tts_voice()
     if args.provider == "gemini_web":
         return default_gemini_web_voice()
+    if args.provider == "edge_tts":
+        return default_edge_tts_voice()
     raise RuntimeError(f"지원하지 않는 provider 입니다: {args.provider}")
 
 
@@ -3389,11 +3669,18 @@ def validate_voice(args: argparse.Namespace, voice: str) -> None:
                 f"{voice} (available: {', '.join(gemini_api_tts_voice_choices())})"
             )
         return
+    if args.provider == "edge_tts":
+        if voice not in set(edge_tts_voice_choices()):
+            raise RuntimeError(
+                "설정한 Edge TTS 음성을 찾지 못했습니다: "
+                f"{voice} (available: {', '.join(edge_tts_voice_choices())})"
+            )
+        return
     raise RuntimeError(f"지원하지 않는 provider 입니다: {args.provider}")
 
 
 def temp_audio_suffix(args: argparse.Namespace) -> str:
-    if args.provider == "chatgpt_web":
+    if args.provider in {"chatgpt_web", "edge_tts"}:
         return ".mp3"
     if args.provider == "gemini_api_tts":
         return ".wav"
@@ -3554,6 +3841,524 @@ def is_chatgpt_web_rate_limit_text(text: str) -> bool:
     )
 
 
+def chatgpt_web_rate_limit_state_path() -> Path:
+    configured_base = os.environ.get("AUDIOBOOK_WEB_PROFILE_DIR", "").strip()
+    profile_base = (
+        Path(configured_base).expanduser()
+        if configured_base
+        else Path.home() / "Library" / "Application Support" / "AudiobookStudio" / "browser_profiles"
+    )
+    return profile_base / "chatgpt" / CHATGPT_WEB_RATE_LIMIT_STATE_FILE
+
+
+def chatgpt_web_pacing_state_path() -> Path:
+    return chatgpt_web_rate_limit_state_path().with_name(CHATGPT_WEB_PACING_STATE_FILE)
+
+
+def load_chatgpt_web_pacing_state() -> dict[str, object]:
+    path = chatgpt_web_pacing_state_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def chatgpt_web_pacing_scope() -> str:
+    configured = os.environ.get("AUDIOBOOK_CHATGPT_PACING_SCOPE", "").strip()
+    if configured:
+        return configured
+    task_id = os.environ.get("AUDIOBOOK_SCHEDULER_TASK", "").strip().lower()
+    if task_id.startswith(("pam-general-", "vk-")):
+        return "general_translation"
+    return "default"
+
+
+def _chatgpt_pacing_scope_values(state: dict[str, object], name: str) -> dict[str, float]:
+    raw = state.get(name)
+    if not isinstance(raw, dict):
+        return {}
+    values: dict[str, float] = {}
+    for key, value in raw.items():
+        try:
+            values[str(key)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return values
+
+
+def _chatgpt_pacing_scope_value(
+    state: dict[str, object],
+    mapping_name: str,
+    legacy_name: str,
+    scope: str,
+) -> float:
+    values = _chatgpt_pacing_scope_values(state, mapping_name)
+    if scope in values:
+        return values[scope]
+    if scope != "default":
+        return 0.0
+    try:
+        return float(state.get(legacy_name) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _chatgpt_pacing_incident_records(
+    state: dict[str, object],
+    *,
+    now: float,
+    window_seconds: float,
+) -> list[dict[str, object]]:
+    raw_incidents = state.get("rate_limit_incidents")
+    if not isinstance(raw_incidents, list):
+        return []
+    records: list[dict[str, object]] = []
+    for value in raw_incidents:
+        raw_timestamp = value.get("timestamp") if isinstance(value, dict) else value
+        scope = str(value.get("scope") or "default") if isinstance(value, dict) else "default"
+        try:
+            timestamp = float(raw_timestamp)
+        except (TypeError, ValueError):
+            continue
+        if now - window_seconds < timestamp <= now:
+            records.append({"timestamp": timestamp, "scope": scope})
+    records.sort(key=lambda item: float(item["timestamp"]))
+    return records
+
+
+def _chatgpt_pacing_number(name: str, default: float, *, minimum: float = 0.0) -> float:
+    try:
+        return max(minimum, float(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return max(minimum, default)
+
+
+def chatgpt_web_pacing_interval(
+    state: dict[str, object],
+    *,
+    now: float | None = None,
+    scope: str | None = None,
+) -> tuple[float, list[float], float]:
+    current = time.time() if now is None else now
+    active_scope = scope or chatgpt_web_pacing_scope()
+    incident_window = _chatgpt_pacing_number(
+        "AUDIOBOOK_CHATGPT_PACING_INCIDENT_WINDOW_SEC",
+        CHATGPT_WEB_PACING_INCIDENT_WINDOW_SEC,
+        minimum=60,
+    )
+    incident_records = _chatgpt_pacing_incident_records(
+        state,
+        now=current,
+        window_seconds=incident_window,
+    )
+    incidents = [
+        float(record["timestamp"])
+        for record in incident_records
+        if record["scope"] == active_scope
+    ]
+
+    base_interval = _chatgpt_pacing_number(
+        "AUDIOBOOK_CHATGPT_MIN_REQUEST_INTERVAL_SEC",
+        CHATGPT_WEB_PACING_BASE_INTERVAL_SEC,
+        minimum=0,
+    )
+    penalty_interval = _chatgpt_pacing_number(
+        "AUDIOBOOK_CHATGPT_PENALTY_REQUEST_INTERVAL_SEC",
+        CHATGPT_WEB_PACING_PENALTY_INTERVAL_SEC,
+        minimum=base_interval,
+    )
+    escalation = _chatgpt_pacing_number(
+        "AUDIOBOOK_CHATGPT_PACING_ESCALATION_SEC",
+        CHATGPT_WEB_PACING_ESCALATION_SEC,
+        minimum=0,
+    )
+    maximum = _chatgpt_pacing_number(
+        "AUDIOBOOK_CHATGPT_MAX_REQUEST_INTERVAL_SEC",
+        CHATGPT_WEB_PACING_MAX_INTERVAL_SEC,
+        minimum=penalty_interval,
+    )
+    penalty_until = _chatgpt_pacing_scope_value(
+        state,
+        "penalty_until_by_scope",
+        "penalty_until",
+        active_scope,
+    )
+    if current < penalty_until and incidents:
+        interval = min(maximum, penalty_interval + escalation * (len(incidents) - 1))
+    else:
+        interval = base_interval
+    return interval, incidents, penalty_until
+
+
+def record_chatgpt_web_pacing_incident(
+    *,
+    detected_at: float,
+    blocked_until: float,
+    scope: str | None = None,
+) -> dict[str, object]:
+    active_scope = scope or chatgpt_web_pacing_scope()
+    state = load_chatgpt_web_pacing_state()
+    _interval, incidents, previous_penalty_until = chatgpt_web_pacing_interval(
+        state,
+        now=detected_at,
+        scope=active_scope,
+    )
+    incident_window = _chatgpt_pacing_number(
+        "AUDIOBOOK_CHATGPT_PACING_INCIDENT_WINDOW_SEC",
+        CHATGPT_WEB_PACING_INCIDENT_WINDOW_SEC,
+        minimum=60,
+    )
+    incident_records = _chatgpt_pacing_incident_records(
+        state,
+        now=detected_at,
+        window_seconds=incident_window,
+    )
+    # The same visible modal can be observed repeatedly while one recovery attempt is in
+    # progress. Count that as one incident so the adaptive interval reflects real recurrences.
+    if not incidents or detected_at - incidents[-1] >= 5 * 60:
+        incidents.append(detected_at)
+        incident_records.append({"timestamp": detected_at, "scope": active_scope})
+    penalty_seconds = _chatgpt_pacing_number(
+        "AUDIOBOOK_CHATGPT_PACING_PENALTY_SEC",
+        CHATGPT_WEB_PACING_PENALTY_SEC,
+        minimum=60,
+    )
+    penalty_by_scope = _chatgpt_pacing_scope_values(state, "penalty_until_by_scope")
+    next_send_by_scope = _chatgpt_pacing_scope_values(state, "next_send_not_before_by_scope")
+    success_streaks = _chatgpt_pacing_scope_values(state, "success_streaks_by_scope")
+    penalty_until = max(previous_penalty_until, detected_at + penalty_seconds)
+    next_send_not_before = max(
+        _chatgpt_pacing_scope_value(
+            state,
+            "next_send_not_before_by_scope",
+            "next_send_not_before",
+            active_scope,
+        ),
+        blocked_until,
+    )
+    penalty_by_scope[active_scope] = penalty_until
+    next_send_by_scope[active_scope] = next_send_not_before
+    success_streaks[active_scope] = 0
+    state.update(
+        {
+            "version": 2,
+            "rate_limit_incidents": incident_records,
+            "last_rate_limit_at": detected_at,
+            "last_rate_limit_scope": active_scope,
+            "penalty_until": penalty_until,
+            "penalty_until_by_scope": penalty_by_scope,
+            "next_send_not_before": next_send_not_before,
+            "next_send_not_before_by_scope": next_send_by_scope,
+            "success_streaks_by_scope": success_streaks,
+        }
+    )
+    atomic_write_json(chatgpt_web_pacing_state_path(), state, trailing_newline=True)
+    return state
+
+
+def record_chatgpt_web_pacing_success(
+    *,
+    completed_at: float | None = None,
+    scope: str | None = None,
+) -> dict[str, object]:
+    current = time.time() if completed_at is None else completed_at
+    active_scope = scope or chatgpt_web_pacing_scope()
+    state = load_chatgpt_web_pacing_state()
+    success_streaks = _chatgpt_pacing_scope_values(state, "success_streaks_by_scope")
+    streak = int(success_streaks.get(active_scope, 0)) + 1
+    success_streaks[active_scope] = streak
+    penalty_by_scope = _chatgpt_pacing_scope_values(state, "penalty_until_by_scope")
+    next_send_by_scope = _chatgpt_pacing_scope_values(state, "next_send_not_before_by_scope")
+    recovery_count = int(
+        _chatgpt_pacing_number(
+            "AUDIOBOOK_CHATGPT_PACING_RECOVERY_SUCCESS_COUNT",
+            CHATGPT_WEB_PACING_RECOVERY_SUCCESS_COUNT,
+            minimum=1,
+        )
+    )
+    penalty_until = _chatgpt_pacing_scope_value(
+        state,
+        "penalty_until_by_scope",
+        "penalty_until",
+        active_scope,
+    )
+    if streak >= recovery_count and current < penalty_until:
+        base_interval = _chatgpt_pacing_number(
+            "AUDIOBOOK_CHATGPT_MIN_REQUEST_INTERVAL_SEC",
+            CHATGPT_WEB_PACING_BASE_INTERVAL_SEC,
+            minimum=0,
+        )
+        last_send_at = _chatgpt_pacing_scope_value(
+            state,
+            "last_send_at_by_scope",
+            "last_send_at",
+            active_scope,
+        )
+        penalty_until = current
+        penalty_by_scope[active_scope] = current
+        next_send_by_scope[active_scope] = min(
+            next_send_by_scope.get(active_scope, last_send_at + base_interval),
+            last_send_at + base_interval,
+        )
+        success_streaks[active_scope] = 0
+        state["last_pacing_recovery_at"] = current
+        state["last_pacing_recovery_scope"] = active_scope
+    state.update(
+        {
+            "version": 2,
+            "last_success_at": current,
+            "last_success_scope": active_scope,
+            "successful_response_streak": success_streaks[active_scope],
+            "success_streaks_by_scope": success_streaks,
+            "penalty_until": penalty_until,
+            "penalty_until_by_scope": penalty_by_scope,
+            "next_send_not_before_by_scope": next_send_by_scope,
+        }
+    )
+    atomic_write_json(chatgpt_web_pacing_state_path(), state, trailing_newline=True)
+    return state
+
+
+def reserve_chatgpt_web_request_slot(
+    *,
+    now: float | None = None,
+) -> tuple[bool, float, dict[str, object]]:
+    current = time.time() if now is None else now
+    active_scope = chatgpt_web_pacing_scope()
+    state = load_chatgpt_web_pacing_state()
+    interval, incidents, penalty_until = chatgpt_web_pacing_interval(
+        state,
+        now=current,
+        scope=active_scope,
+    )
+    rate_limit_state = load_chatgpt_web_rate_limit_state()
+    blocked_until = float(rate_limit_state.get("blocked_until") or 0)
+    detected_at = float(
+        rate_limit_state.get("episode_started_at")
+        or rate_limit_state.get("detected_at")
+        or 0
+    )
+    rate_scope = str(rate_limit_state.get("scope") or "default")
+
+    # Migrate a rate-limit state written by an older process into the new adaptive state.
+    if (
+        rate_scope == active_scope
+        and detected_at
+        and current - CHATGPT_WEB_PACING_INCIDENT_WINDOW_SEC < detected_at <= current
+    ):
+        if not incidents or detected_at - incidents[-1] >= 5 * 60:
+            state = record_chatgpt_web_pacing_incident(
+                detected_at=detected_at,
+                blocked_until=blocked_until,
+                scope=active_scope,
+            )
+            interval, incidents, penalty_until = chatgpt_web_pacing_interval(
+                state,
+                now=current,
+                scope=active_scope,
+            )
+
+    last_send_at = _chatgpt_pacing_scope_value(
+        state,
+        "last_send_at_by_scope",
+        "last_send_at",
+        active_scope,
+    )
+    next_send_not_before = _chatgpt_pacing_scope_value(
+        state,
+        "next_send_not_before_by_scope",
+        "next_send_not_before",
+        active_scope,
+    )
+    next_send_at = max(
+        blocked_until,
+        next_send_not_before,
+        last_send_at + interval if last_send_at else 0,
+    )
+    wait_seconds = max(0.0, next_send_at - current)
+    if wait_seconds > 0:
+        return False, wait_seconds, state
+
+    last_send_by_scope = _chatgpt_pacing_scope_values(state, "last_send_at_by_scope")
+    next_send_by_scope = _chatgpt_pacing_scope_values(state, "next_send_not_before_by_scope")
+    interval_by_scope = _chatgpt_pacing_scope_values(state, "last_interval_seconds_by_scope")
+    last_send_by_scope[active_scope] = current
+    next_send_by_scope[active_scope] = current + interval
+    interval_by_scope[active_scope] = interval
+    state.update(
+        {
+            "version": 2,
+            "last_send_at": current,
+            "last_send_scope": active_scope,
+            "last_send_at_by_scope": last_send_by_scope,
+            "last_interval_seconds": interval,
+            "last_interval_seconds_by_scope": interval_by_scope,
+            "penalty_until": penalty_until,
+            "next_send_not_before": current + interval,
+            "next_send_not_before_by_scope": next_send_by_scope,
+        }
+    )
+    atomic_write_json(chatgpt_web_pacing_state_path(), state, trailing_newline=True)
+    return True, 0.0, state
+
+
+def wait_for_chatgpt_web_request_slot(
+    page,
+    *,
+    heartbeat: ProgressHeartbeat | None = None,
+    label: str | None = None,
+    section_prefix: str | None = None,
+    attempt: int | None = None,
+) -> dict[str, object]:
+    while True:
+        reserved, remaining, state = reserve_chatgpt_web_request_slot()
+        if reserved:
+            interval, incidents, _penalty_until = chatgpt_web_pacing_interval(state)
+            beat_heartbeat(
+                heartbeat,
+                stage="chatgpt_request_slot_reserved",
+                label=label,
+                section_prefix=section_prefix,
+                attempt=attempt,
+                detail=f"interval={interval:.0f}s incidents_24h={len(incidents)}",
+            )
+            return state
+        interval, incidents, penalty_until = chatgpt_web_pacing_interval(state)
+        beat_heartbeat(
+            heartbeat,
+            stage="chatgpt_request_pacing",
+            label=label,
+            section_prefix=section_prefix,
+            attempt=attempt,
+            detail=(
+                f"remaining={remaining:.0f}s interval={interval:.0f}s "
+                f"incidents_24h={len(incidents)} penalty_until={penalty_until:.0f}"
+            ),
+        )
+        page.wait_for_timeout(
+            min(CHATGPT_WEB_PACING_HEARTBEAT_SEC, max(1, remaining)) * 1000
+        )
+
+
+def load_chatgpt_web_rate_limit_state() -> dict[str, object]:
+    path = chatgpt_web_rate_limit_state_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def recent_chatgpt_web_rate_limit_state(
+    *,
+    max_age_sec: float = 2 * 60 * 60,
+) -> dict[str, object]:
+    state = load_chatgpt_web_rate_limit_state()
+    detected_at = float(state.get("detected_at") or 0)
+    if detected_at and 0 <= time.time() - detected_at < max_age_sec:
+        return state
+    return {}
+
+
+def active_chatgpt_web_rate_limit_state(*, now: float | None = None) -> dict[str, object]:
+    current = time.time() if now is None else now
+    state = load_chatgpt_web_rate_limit_state()
+    try:
+        blocked_until = float(state.get("blocked_until") or 0)
+    except (TypeError, ValueError):
+        return {}
+    return state if blocked_until > current else {}
+
+
+def record_chatgpt_web_rate_limit(
+    message: str,
+    *,
+    cooldown_sec: int = CHATGPT_WEB_RATE_LIMIT_COOLDOWN_SEC,
+    now: float | None = None,
+) -> dict[str, object]:
+    detected_at = time.time() if now is None else now
+    previous = load_chatgpt_web_rate_limit_state()
+    previous_until = float(previous.get("blocked_until") or 0)
+    previous_episode_at = float(
+        previous.get("episode_started_at") or previous.get("detected_at") or 0
+    )
+    same_episode = bool(
+        previous_episode_at
+        and detected_at <= previous_until + CHATGPT_WEB_RATE_LIMIT_RETRY_BACKOFF_SEC
+    )
+    if same_episode:
+        episode_started_at = previous_episode_at
+        blocked_until = max(
+            previous_until,
+            detected_at + CHATGPT_WEB_RATE_LIMIT_RETRY_BACKOFF_SEC,
+        )
+        recovery_attempted = bool(previous.get("recovery_attempted"))
+        observation_count = int(previous.get("observation_count") or 1) + 1
+        scope = str(previous.get("scope") or chatgpt_web_pacing_scope())
+    else:
+        episode_started_at = detected_at
+        blocked_until = detected_at + max(1, cooldown_sec)
+        recovery_attempted = False
+        observation_count = 1
+        scope = chatgpt_web_pacing_scope()
+    state = {
+        "kind": "conversation_rate_limit",
+        "detected_at": detected_at,
+        "episode_started_at": episode_started_at,
+        "blocked_until": blocked_until,
+        "cooldown_seconds": max(1, int(blocked_until - detected_at)),
+        "recovery_attempted": recovery_attempted,
+        "observation_count": observation_count,
+        "scope": scope,
+        "message": normalize_chatgpt_web_copy(message)[:500],
+    }
+    atomic_write_json(chatgpt_web_rate_limit_state_path(), state, trailing_newline=True)
+    record_chatgpt_web_pacing_incident(
+        detected_at=episode_started_at,
+        blocked_until=blocked_until,
+        scope=scope,
+    )
+    return state
+
+
+def mark_chatgpt_web_rate_limit_recovery_attempted() -> None:
+    state = load_chatgpt_web_rate_limit_state()
+    if not state:
+        return
+    state["recovery_attempted"] = True
+    atomic_write_json(chatgpt_web_rate_limit_state_path(), state, trailing_newline=True)
+
+
+def clear_chatgpt_web_rate_limit_state() -> None:
+    chatgpt_web_rate_limit_state_path().unlink(missing_ok=True)
+
+
+def wait_for_recorded_chatgpt_web_rate_limit(
+    page,
+    *,
+    heartbeat: ProgressHeartbeat | None = None,
+    label: str | None = None,
+    section_prefix: str | None = None,
+    attempt: int | None = None,
+) -> None:
+    while True:
+        state = load_chatgpt_web_rate_limit_state()
+        blocked_until = float(state.get("blocked_until") or 0)
+        remaining = max(0, int(blocked_until - time.time()))
+        if remaining <= 0:
+            return
+        beat_heartbeat(
+            heartbeat,
+            stage="conversation_rate_limit_wait",
+            label=label,
+            section_prefix=section_prefix,
+            attempt=attempt,
+            detail=f"remaining={remaining}s persisted=true",
+        )
+        page.wait_for_timeout(min(30, max(1, remaining)) * 1000)
+
+
 def classify_chatgpt_web_notice_text(text: str) -> ChatGPTWebNotice | None:
     normalized = normalize_chatgpt_web_copy(text)
     lowered = normalized.lower()
@@ -3572,6 +4377,58 @@ def classify_chatgpt_web_notice_text(text: str) -> ChatGPTWebNotice | None:
     if any(marker in lowered for marker in CHATGPT_WEB_RETRYABLE_NOTICE_MARKERS):
         return ChatGPTWebNotice(kind="retryable_error", action="retry", message=normalized)
     return None
+
+
+CHATGPT_WEB_PAUSE_ERROR_KINDS = {
+    "usage_limit",
+    "rate_limit",
+    "session_expired",
+    "account_mismatch",
+    "account_unavailable",
+    "profile_in_use",
+}
+
+
+def chatgpt_web_error_kind(error: BaseException | str) -> str | None:
+    normalized = normalize_chatgpt_web_copy(str(error))
+    explicit = re.search(r"error_kind=([a-z_]+)", normalized.lower())
+    if explicit:
+        return explicit.group(1)
+    notice = classify_chatgpt_web_notice_text(normalized)
+    if notice is None:
+        return None
+    return {
+        "account_restricted": "account_unavailable",
+        "login_required": "session_expired",
+        "conversation_rate_limit": "rate_limit",
+        "rate_limit": "rate_limit",
+        "retryable_error": "temporary_service_error",
+    }.get(notice.kind)
+
+
+def is_chatgpt_web_pause_error(error: BaseException | str) -> bool:
+    return chatgpt_web_error_kind(error) in CHATGPT_WEB_PAUSE_ERROR_KINDS
+
+
+def should_resplit_chatgpt_web_section(error: BaseException) -> bool:
+    """Only content-shaped failures benefit from recursively shortening the text."""
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ChatGPTWebExactCopyMismatchError):
+            return True
+        message = normalize_chatgpt_web_copy(str(current)).lower()
+        if (
+            "응답이 거절" in message
+            or "content can't be shown for safety reasons" in message
+            or "content can’t be shown for safety reasons" in message
+            or "prompt too long" in message
+            or "프롬프트가 너무" in message
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def choose_chatgpt_web_notice(messages: list[str]) -> ChatGPTWebNotice | None:
@@ -3621,38 +4478,43 @@ def read_chatgpt_web_notice_messages(page) -> list[str]:
     dialog_messages = list(dialog_messages_store)
     if dialog_messages_store:
         dialog_messages_store.clear()
-    dom_messages = page.evaluate(
-        """({selectors}) => {
-          const results = [];
-          const seen = new Set();
-          const isVisible = (node) => {
-            if (!(node instanceof Element)) return false;
-            const style = window.getComputedStyle(node);
-            if (style.visibility === 'hidden' || style.display === 'none') return false;
-            const rect = node.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-          };
-          for (const selector of selectors) {
-            for (const node of document.querySelectorAll(selector)) {
-              if (!isVisible(node)) continue;
-              const text = String(node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim();
-              if (!text || text.length < 4) continue;
-              const normalized = text.slice(0, 500);
-              if (seen.has(normalized)) continue;
-              seen.add(normalized);
-              results.push(normalized);
-              if (results.length >= 20) return results;
-            }
-          }
-          return results;
-        }""",
-        {"selectors": list(CHATGPT_WEB_NOTICE_SCAN_SELECTORS)},
-    )
+    dom_messages: list[str] = []
+    for selector in CHATGPT_WEB_ACTIONABLE_NOTICE_SELECTORS:
+        try:
+            locator = page.locator(selector).first
+            locator.wait_for(state="visible", timeout=200)
+            text = locator.text_content(timeout=500)
+        except Exception:
+            continue
+        normalized = normalize_chatgpt_web_copy(str(text))[:500]
+        if len(normalized) >= 4 and normalized not in dom_messages:
+            dom_messages.append(normalized)
     messages: list[str] = []
-    for raw in [*dialog_messages, *(dom_messages or [])]:
+    for raw in [*dialog_messages, *dom_messages]:
         normalized = normalize_chatgpt_web_copy(str(raw))
         if normalized and normalized not in messages:
             messages.append(normalized)
+    if not messages:
+        # ChatGPT의 "세션이 만료되었습니다" 로그인 모달을 실제로 놓친 사례가 있었다(2026-08-16) -
+        # role="dialog"/toast/modal/banner 같은 알려진 셀렉터에 안 걸리는 자체 마크업을 쓰는
+        # 경우가 있는 듯하다. 그래서 URL도 안 바뀌고(/auth, /login 아님) DOM 셀렉터도 못 찾아서
+        # session_expired가 아니라 뜻 모를 "프롬프트 입력창을 찾지 못했습니다"만 남았고, 그
+        # 원인을 알아내는 데 하루가 걸렸다. 위 셀렉터 스캔이 아무것도 못 찾았을 때만(흔치 않은
+        # 경로라 비용 부담 적음) body 전체 텍스트를 한 번 더 훑어 로그인/제한 문구를 찾는다.
+        try:
+            body_text = normalize_chatgpt_web_copy(str(page.locator("body").inner_text(timeout=1500)))
+        except Exception:
+            body_text = ""
+        if body_text:
+            lowered = body_text.lower()
+            fallback_marker_groups = (
+                CHATGPT_WEB_LOGIN_REQUIRED_MARKERS,
+                CHATGPT_WEB_ACCOUNT_RESTRICTED_MARKERS,
+                CHATGPT_WEB_RATE_LIMIT_LIMIT_MARKERS,
+                CHATGPT_WEB_RATE_LIMIT_SPEED_MARKERS,
+            )
+            if any(marker in lowered for group in fallback_marker_groups for marker in group):
+                messages.append(body_text[:500])
     return messages
 
 
@@ -3845,7 +4707,7 @@ def recover_chatgpt_web_from_conversation_limit(
         pass
     page.wait_for_timeout(1500)
     try:
-        page.locator("#prompt-textarea").first.wait_for(timeout=30000)
+        page.locator(CHATGPT_WEB_PROMPT_INPUT_SELECTOR).first.wait_for(timeout=30000)
     except Exception:
         pass
     close_chatgpt_web_notice_ui(page)
@@ -3869,7 +4731,6 @@ def handle_chatgpt_web_page_notices(
     max_wait_sec: int = 0,
 ) -> None:
     deadline = time.monotonic() + max_wait_sec if max_wait_sec > 0 else None
-
     while True:
         notice = choose_chatgpt_web_notice(read_chatgpt_web_notice_messages(page))
         if notice is None:
@@ -3886,8 +4747,14 @@ def handle_chatgpt_web_page_notices(
                 detail=f"{notice.kind}: {excerpt}",
             )
             if notice.kind == "login_required":
-                raise RuntimeError("ChatGPT 웹 로그인 또는 세션이 만료되었습니다. chatgpt.com 로그인 상태를 확인하세요.")
-            raise RuntimeError(f"ChatGPT 웹 계정 제한 알림이 감지되었습니다: {excerpt}")
+                raise RuntimeError(
+                    "ChatGPT error_kind=session_expired retry_action=refresh_session_then_retry: "
+                    "웹 로그인 또는 세션이 만료되었습니다. chatgpt.com 로그인 상태를 확인하세요."
+                )
+            raise RuntimeError(
+                "ChatGPT error_kind=account_unavailable retry_action=pause_for_account_recovery: "
+                f"웹 계정 제한 알림이 감지되었습니다: {excerpt}"
+            )
 
         if notice.action == "retry":
             beat_heartbeat(
@@ -3902,7 +4769,10 @@ def handle_chatgpt_web_page_notices(
                 page.wait_for_timeout(2000)
                 continue
             close_chatgpt_web_notice_ui(page)
-            raise RuntimeError(f"ChatGPT 웹 오류 알림이 반복되고 있습니다: {excerpt}")
+            raise RuntimeError(
+                "ChatGPT error_kind=temporary_service_error retry_action=exponential_backoff: "
+                f"웹 오류 알림이 반복되고 있습니다: {excerpt}"
+            )
 
         if notice.action == "reset_chat":
             remaining = max(0, int(deadline - time.monotonic())) if deadline is not None else 0
@@ -3915,8 +4785,26 @@ def handle_chatgpt_web_page_notices(
                 detail=f"remaining={remaining}s text={excerpt}",
             )
             if deadline is not None and time.monotonic() >= deadline:
-                raise RuntimeError(f"ChatGPT 웹 대화 접근 제한 알림이 지속되고 있습니다: {excerpt}")
+                raise RuntimeError(
+                    "ChatGPT error_kind=rate_limit retry_action=exponential_backoff: "
+                    f"웹 대화 접근 제한 알림이 지속되고 있습니다: {excerpt}"
+                )
+            persisted_state = load_chatgpt_web_rate_limit_state()
+            if persisted_state.get("recovery_attempted"):
+                record_chatgpt_web_rate_limit(notice.message)
+                raise RuntimeError(
+                    "ChatGPT error_kind=rate_limit retry_action=account_cooldown: "
+                    f"20분 cooldown 후에도 대화 접근 제한이 지속되고 있습니다: {excerpt}"
+                )
             close_chatgpt_web_notice_ui(page)
+            record_chatgpt_web_rate_limit(notice.message)
+            wait_for_recorded_chatgpt_web_rate_limit(
+                page,
+                heartbeat=heartbeat,
+                label=label,
+                section_prefix=section_prefix,
+                attempt=attempt,
+            )
             recover_chatgpt_web_from_conversation_limit(
                 page,
                 heartbeat=heartbeat,
@@ -3924,7 +4812,7 @@ def handle_chatgpt_web_page_notices(
                 section_prefix=section_prefix,
                 attempt=attempt,
             )
-            page.wait_for_timeout(CHATGPT_WEB_RATE_LIMIT_RETRY_BACKOFF_SEC * 1000)
+            mark_chatgpt_web_rate_limit_recovery_attempted()
             continue
 
         remaining = max(0, int(deadline - time.monotonic())) if deadline is not None else 0
@@ -3937,7 +4825,10 @@ def handle_chatgpt_web_page_notices(
             detail=f"{notice.kind}: remaining={remaining}s text={excerpt}",
         )
         if deadline is not None and time.monotonic() >= deadline:
-            raise RuntimeError(f"ChatGPT 웹 알림이 지속되고 있습니다: {excerpt}")
+            raise RuntimeError(
+                "ChatGPT error_kind=rate_limit retry_action=exponential_backoff: "
+                f"웹 알림이 지속되고 있습니다: {excerpt}"
+            )
         closed = close_chatgpt_web_notice_ui(page)
         if closed:
             beat_heartbeat(
@@ -3993,7 +4884,10 @@ def wait_for_chatgpt_web_rate_limit_to_clear(
             detail=f"remaining={remaining}s",
         )
         if time.monotonic() >= deadline:
-            raise RuntimeError("ChatGPT 웹 요청 속도 제한 모달이 지속되고 있습니다.")
+            raise RuntimeError(
+                "ChatGPT error_kind=rate_limit retry_action=exponential_backoff: "
+                "웹 요청 속도 제한 모달이 지속되고 있습니다."
+            )
         try:
             page.keyboard.press("Escape")
         except Exception:
@@ -4006,6 +4900,194 @@ def extract_chatgpt_conversation_id(url: str) -> str:
     return match.group(1) if match else ""
 
 
+def raise_for_unavailable_chatgpt_prompt(page) -> None:
+    messages = read_chatgpt_web_notice_messages(page)
+    notice = choose_chatgpt_web_notice(messages)
+    rate_state = active_chatgpt_web_rate_limit_state()
+    if notice is None and rate_state:
+        notice = ChatGPTWebNotice(
+            kind="conversation_rate_limit",
+            action="reset_chat",
+            message=str(rate_state.get("message") or "recent persisted conversation rate limit"),
+        )
+    if notice is None and any(marker in page.url.lower() for marker in ("/auth", "/login")):
+        notice = ChatGPTWebNotice(
+            kind="login_required",
+            action="raise",
+            message=f"login URL: {page.url}",
+        )
+    if notice is None:
+        raise RuntimeError(
+            "ChatGPT error_kind=prompt_interaction_failed "
+            "retry_action=refresh_page_then_retry: 프롬프트 입력창을 찾지 못했습니다."
+            f" URL: {page.url}"
+        )
+    excerpt = notice.message[:220]
+    if notice.kind in {"conversation_rate_limit", "rate_limit"}:
+        record_chatgpt_web_rate_limit(notice.message)
+        raise RuntimeError(
+            "ChatGPT error_kind=rate_limit retry_action=account_cooldown: "
+            f"프롬프트 준비 중 요청 속도 제한을 감지했습니다: {excerpt}"
+        )
+    if notice.kind == "login_required":
+        raise RuntimeError(
+            "ChatGPT error_kind=session_expired retry_action=refresh_session_then_retry: "
+            f"프롬프트 준비 중 로그인 만료를 감지했습니다: {excerpt}"
+        )
+    if notice.kind == "account_restricted":
+        raise RuntimeError(
+            "ChatGPT error_kind=account_unavailable retry_action=pause_for_account_recovery: "
+            f"프롬프트 준비 중 계정 제한을 감지했습니다: {excerpt}"
+        )
+    raise RuntimeError(
+        "ChatGPT error_kind=temporary_service_error retry_action=exponential_backoff: "
+        f"프롬프트 준비 중 서비스 오류를 감지했습니다: {excerpt}"
+    )
+
+
+def chatgpt_web_session_health_path() -> Path:
+    return web_provider_profile_dir("chatgpt") / CHATGPT_WEB_SESSION_HEALTH_FILE
+
+
+def inspect_chatgpt_web_session(page) -> dict[str, object]:
+    """Read authentication metadata without returning or persisting the access token."""
+    result = page.evaluate(
+        r"""async () => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 10000);
+          try {
+            const response = await fetch('/api/auth/session', {
+              credentials: 'include',
+              signal: controller.signal,
+            });
+            let session = {};
+            try {
+              session = await response.json();
+            } catch (_error) {
+              session = {};
+            }
+            const account = session.account || {};
+            const user = session.user || {};
+            const profileSelectors = [
+              '[data-testid="accounts-profile-button"]',
+              '[data-testid="profile-button"]',
+              'button[aria-label*="프로필"]',
+              'button[aria-label*="Profile"]',
+            ];
+            const profileText = profileSelectors
+              .flatMap((selector) => Array.from(document.querySelectorAll(selector)))
+              .map((node) => String(node.innerText || node.textContent || '').trim())
+              .filter(Boolean)
+              .join(' ')
+              .replace(/\s+/g, ' ')
+              .slice(0, 240);
+            return {
+              ok: response.ok,
+              status: response.status,
+              authenticated: Boolean(session.accessToken),
+              email: String(user.email || ''),
+              name: String(user.name || ''),
+              tier: String(
+                account.planType || account.plan_type || session.planType || session.plan_type || ''
+              ).toLowerCase(),
+              profileText,
+            };
+          } catch (error) {
+            return {
+              ok: false,
+              status: 0,
+              authenticated: false,
+              error: String(error && error.message ? error.message : error),
+            };
+          } finally {
+            clearTimeout(timer);
+          }
+        }"""
+    )
+    return dict(result) if isinstance(result, dict) else {}
+
+
+def _chatgpt_tier_from_session(session: dict[str, object]) -> str:
+    tier = str(session.get("tier") or "").strip().lower()
+    if tier:
+        return tier
+    profile_text = str(session.get("profileText") or "").lower()
+    for candidate in ("enterprise", "business", "team", "pro", "plus", "free"):
+        if re.search(rf"\b{candidate}\b", profile_text):
+            return candidate
+    return ""
+
+
+def verify_chatgpt_web_session(
+    page,
+    *,
+    heartbeat: ProgressHeartbeat | None = None,
+    label: str | None = None,
+    section_prefix: str | None = None,
+    attempt: int | None = None,
+) -> dict[str, object]:
+    session = inspect_chatgpt_web_session(page)
+    status = int(session.get("status") or 0)
+    authenticated = bool(session.get("authenticated"))
+    email = str(session.get("email") or "").strip().lower()
+    tier = _chatgpt_tier_from_session(session)
+    expected_email = os.environ.get("AUDIOBOOK_CHATGPT_EXPECTED_ACCOUNT", "").strip().lower()
+    expected_tier = os.environ.get("AUDIOBOOK_CHATGPT_EXPECTED_TIER", "").strip().lower()
+
+    health: dict[str, object] = {
+        "checked_at": round(time.time(), 3),
+        "authenticated": authenticated,
+        "http_status": status,
+        "email": email,
+        "tier": tier or "unknown",
+        "expected_email": expected_email,
+        "expected_tier": expected_tier,
+    }
+    if not authenticated:
+        health["status"] = "session_expired" if status in {200, 401, 403} else "unreachable"
+        health["error"] = str(session.get("error") or "missing access token")[:300]
+        atomic_write_json(chatgpt_web_session_health_path(), health, trailing_newline=True)
+        if status not in {200, 401, 403}:
+            raise RuntimeError(
+                "ChatGPT error_kind=network_error retry_action=short_backoff: "
+                f"로그인 세션 확인 API에 연결하지 못했습니다 (status={status})."
+            )
+        raise RuntimeError(
+            "ChatGPT error_kind=session_expired retry_action=refresh_session_then_retry: "
+            "전용 브라우저 프로필의 로그인 세션이 만료되었습니다."
+        )
+
+    mismatch_reason = ""
+    if expected_email and email and email != expected_email:
+        mismatch_reason = f"expected_email={expected_email} actual_email={email}"
+    if expected_tier and tier:
+        paid_tiers = {"plus", "pro", "team", "business", "enterprise"}
+        tier_matches = tier == expected_tier or (expected_tier == "paid" and tier in paid_tiers)
+        if not tier_matches:
+            mismatch_reason = (
+                f"{mismatch_reason} " if mismatch_reason else ""
+            ) + f"expected_tier={expected_tier} actual_tier={tier}"
+    if mismatch_reason:
+        health.update({"status": "account_mismatch", "error": mismatch_reason})
+        atomic_write_json(chatgpt_web_session_health_path(), health, trailing_newline=True)
+        raise RuntimeError(
+            "ChatGPT error_kind=account_mismatch retry_action=restore_expected_account: "
+            f"번역 전용 프로필이 지정된 계정과 다릅니다 ({mismatch_reason})."
+        )
+
+    health["status"] = "verified"
+    atomic_write_json(chatgpt_web_session_health_path(), health, trailing_newline=True)
+    beat_heartbeat(
+        heartbeat,
+        stage="chatgpt_session_verified",
+        label=label,
+        section_prefix=section_prefix,
+        attempt=attempt,
+        detail=f"tier={tier or 'unknown'}; account={email or 'authenticated'}",
+    )
+    return health
+
+
 def prepare_chatgpt_web_page(
     page,
     *,
@@ -4016,42 +5098,69 @@ def prepare_chatgpt_web_page(
     attempt: int | None = None,
 ) -> None:
     install_chatgpt_web_notice_hooks(page)
+    wait_for_recorded_chatgpt_web_rate_limit(
+        page,
+        heartbeat=heartbeat,
+        label=label,
+        section_prefix=section_prefix,
+        attempt=attempt,
+    )
     navigation_error: Exception | None = None
     try:
         page.goto(CHATGPT_WEB_URL, wait_until="domcontentloaded", timeout=120000)
     except timeout_error_cls as exc:
         navigation_error = exc
     page.wait_for_timeout(1500)
-    prompt_box = page.locator("#prompt-textarea").first
-    prompt_timeout_ms = 30000 if navigation_error is not None else 120000
-    try:
-        prompt_box.wait_for(timeout=prompt_timeout_ms)
-    except timeout_error_cls as exc:
-        if navigation_error is not None:
-            raise RuntimeError(
-                "ChatGPT 홈 화면 로딩이 지연되고 있으며 프롬프트 입력창도 준비되지 않았습니다. "
-                "chatgpt.com 연결 상태를 확인하세요."
-            ) from navigation_error
+    beat_heartbeat(
+        heartbeat,
+        stage="chatgpt_page_loaded",
+        label=label,
+        section_prefix=section_prefix,
+        attempt=attempt,
+        detail=page.url,
+    )
+    notice = choose_chatgpt_web_notice(read_chatgpt_web_notice_messages(page))
+    if notice is not None and notice.kind == "login_required":
         raise RuntimeError(
-            "ChatGPT 프롬프트 입력창을 찾지 못했습니다. chatgpt.com 로그인 상태를 확인하세요."
-        ) from exc
-    handle_chatgpt_web_page_notices(
-        page,
-        heartbeat=heartbeat,
-        label=label,
-        section_prefix=section_prefix,
-        attempt=attempt,
-        max_wait_sec=15,
-    )
-    wait_for_chatgpt_web_rate_limit_to_clear(
+            "ChatGPT error_kind=session_expired retry_action=refresh_session_then_retry: "
+            f"로그인 만료 알림을 감지했습니다: {notice.message[:220]}"
+        )
+    if notice is not None and notice.kind == "account_restricted":
+        raise RuntimeError(
+            "ChatGPT error_kind=account_unavailable retry_action=pause_for_account_recovery: "
+            f"계정 제한 알림을 감지했습니다: {notice.message[:220]}"
+        )
+    verify_chatgpt_web_session(
         page,
         heartbeat=heartbeat,
         label=label,
         section_prefix=section_prefix,
         attempt=attempt,
     )
-
-
+    prompt_box = page.locator(CHATGPT_WEB_PROMPT_INPUT_SELECTOR).first
+    prompt_timeout_ms = 30000 if navigation_error is not None else 120000
+    prompt_deadline = time.monotonic() + prompt_timeout_ms / 1000
+    while True:
+        try:
+            prompt_box.wait_for(timeout=min(10000, prompt_timeout_ms))
+            break
+        except timeout_error_cls:
+            remaining = max(0, int(prompt_deadline - time.monotonic()))
+            beat_heartbeat(
+                heartbeat,
+                stage="chatgpt_prompt_wait",
+                label=label,
+                section_prefix=section_prefix,
+                attempt=attempt,
+                detail=f"remaining={remaining}s url={page.url}",
+            )
+            if remaining <= 0:
+                if navigation_error is not None:
+                    raise RuntimeError(
+                        "ChatGPT error_kind=network_error retry_action=exponential_backoff: "
+                        "홈 화면 로딩이 지연되고 프롬프트 입력창도 준비되지 않았습니다."
+                    ) from navigation_error
+                raise_for_unavailable_chatgpt_prompt(page)
 def fetch_chatgpt_web_voice_settings(page) -> tuple[str, tuple[str, ...]]:
     result = page.evaluate(
         """async () => {
@@ -4097,75 +5206,68 @@ def send_chatgpt_web_prompt(
     section_prefix: str | None = None,
     attempt: int | None = None,
 ) -> None:
-    box = page.locator("#prompt-textarea").first
-    deadline = time.monotonic() + CHATGPT_WEB_RATE_LIMIT_WAIT_SEC
-    while True:
-        handle_chatgpt_web_page_notices(
+    try:
+        wait_for_chatgpt_web_request_slot(
             page,
             heartbeat=heartbeat,
             label=label,
             section_prefix=section_prefix,
             attempt=attempt,
-            max_wait_sec=max(5, int(deadline - time.monotonic())),
         )
-        wait_for_chatgpt_web_rate_limit_to_clear(
-            page,
-            heartbeat=heartbeat,
-            label=label,
-            section_prefix=section_prefix,
-            attempt=attempt,
-            max_wait_sec=max(5, int(deadline - time.monotonic())),
-        )
-        try:
-            box.click(timeout=5000)
-            box.fill(prompt)
-            page.keyboard.press("Enter")
-            handle_chatgpt_web_page_notices(
-                page,
-                heartbeat=heartbeat,
-                label=label,
-                section_prefix=section_prefix,
-                attempt=attempt,
-                max_wait_sec=max(5, int(deadline - time.monotonic())),
-            )
+        box = page.locator(CHATGPT_WEB_PROMPT_INPUT_SELECTOR).first
+        # 번역 프롬프트는 지침+인물관계 가이드+본문 청크를 합쳐 1만자를 넘기기도 한다.
+        # Playwright의 기본 30초 타임아웃이 이 contenteditable(ProseMirror) 편집기에
+        # 긴 텍스트를 넣을 때 실제로 부족해서, fill() 자체가 아니라 그냥 느려서 실패하는
+        # 사례가 있었다(2026-08-16, Dark Notes). 그 타임아웃 예외 메시지는 실패한 fill()
+        # 호출의 인자(프롬프트 원문)를 그대로 에코하는데, 그 프롬프트 안에 "거절"이라는
+        # 단어가 들어있어서(모델에게 거절하지 말라고 지시하는 문장) content_refusal로
+        # 오분류되기까지 했다 - 진짜 원인은 단순히 시간이 더 필요했던 것뿐이다.
+        box.fill(prompt, timeout=90_000)
+        sent = False
+        for selector in CHATGPT_WEB_SEND_BUTTON_SELECTORS:
             try:
-                beat_heartbeat(
-                    heartbeat,
-                    stage="chatgpt_prompt_submitted",
-                    label=label,
-                    section_prefix=section_prefix,
-                    attempt=attempt,
-                    detail=page.url,
-                )
-                page.wait_for_url(re.compile(r"https://chatgpt\.com/c/.*"), timeout=15000)
-            except timeout_error_cls:
-                pass
-            beat_heartbeat(
-                heartbeat,
-                stage="chatgpt_prompt_submit_done",
-                label=label,
-                section_prefix=section_prefix,
-                attempt=attempt,
-                detail=page.url,
-            )
-            return
-        except Exception as exc:
-            if not (
-                is_chatgpt_web_rate_limit_text(str(exc))
-                or chatgpt_web_rate_limit_modal_visible(page)
-            ):
-                raise
-            if time.monotonic() >= deadline:
-                raise RuntimeError("ChatGPT 웹 요청 속도 제한 모달이 지속되고 있습니다.") from exc
-            beat_heartbeat(
-                heartbeat,
-                stage="rate_limit_wait",
-                label=label,
-                section_prefix=section_prefix,
-                attempt=attempt,
-                detail="prompt_blocked",
-            )
-            page.wait_for_timeout(CHATGPT_WEB_RATE_LIMIT_RETRY_BACKOFF_SEC * 1000)
+                button = page.locator(selector).first
+                if button.count() and button.is_visible() and button.is_enabled():
+                    button.click(timeout=5000)
+                    sent = True
+                    break
+            except Exception:
+                continue
+        if not sent:
+            page.keyboard.press("Enter")
+    except Exception as exc:
+        active_rate_state = active_chatgpt_web_rate_limit_state()
+        if not is_chatgpt_web_rate_limit_text(str(exc)) and not active_rate_state:
+            raise
+        record_chatgpt_web_rate_limit(
+            str(exc)
+            if is_chatgpt_web_rate_limit_text(str(exc))
+            else str(active_rate_state.get("message") or exc)
+        )
+        raise RuntimeError(
+            "ChatGPT error_kind=rate_limit retry_action=account_cooldown: "
+            "프롬프트 전송 중 요청 속도 제한을 감지했습니다."
+        ) from exc
+    try:
+        beat_heartbeat(
+            heartbeat,
+            stage="chatgpt_prompt_submitted",
+            label=label,
+            section_prefix=section_prefix,
+            attempt=attempt,
+            detail=page.url,
+        )
+        page.wait_for_url(re.compile(r"https://chatgpt\.com/c/.*"), timeout=15000)
+    except timeout_error_cls:
+        pass
+    beat_heartbeat(
+        heartbeat,
+        stage="chatgpt_prompt_submit_done",
+        label=label,
+        section_prefix=section_prefix,
+        attempt=attempt,
+        detail=page.url,
+    )
 
 
 def read_last_chatgpt_web_response(page) -> tuple[str, str]:
@@ -4174,6 +5276,29 @@ def read_last_chatgpt_web_response(page) -> tuple[str, str]:
         return "", ""
     node = messages.last
     return (node.get_attribute("data-message-id") or "").strip(), node.inner_text().strip()
+
+
+def chatgpt_web_generation_is_active(page) -> bool:
+    """Return whether ChatGPT still shows a streaming/stop-generation control.
+
+    A response can remain textually unchanged for several polls while the model is still
+    generating. Treating that pause as completion produced truncated marker responses and
+    unnecessary full retries, so stable text is only final once these controls disappear.
+    """
+    for selector in CHATGPT_WEB_GENERATION_ACTIVE_SELECTORS:
+        try:
+            locator = page.locator(selector).first
+            if locator.count() and locator.is_visible():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def chatgpt_web_request_allows_slow_start(section_prefix: str | None) -> bool:
+    """Whether a request is large enough that the first response token may take minutes."""
+    prefix = (section_prefix or "").lower()
+    return prefix.startswith(("chunk_", "notes_chunk_")) or prefix == "relationship_guide"
 
 
 def wait_for_chatgpt_web_response(
@@ -4190,20 +5315,12 @@ def wait_for_chatgpt_web_response(
     last_text = ""
     stable_polls = 0
     empty_polls = 0
-    if section_prefix and section_prefix.startswith("chunk_"):
+    if chatgpt_web_request_allows_slow_start(section_prefix):
         max_empty_polls = max(40, min(120, timeout_sec // 10))
     else:
         max_empty_polls = max(10, min(20, timeout_sec // 15))
 
     while time.monotonic() < deadline:
-        handle_chatgpt_web_page_notices(
-            page,
-            heartbeat=heartbeat,
-            label=label,
-            section_prefix=section_prefix,
-            attempt=attempt,
-            max_wait_sec=max(5, int(deadline - time.monotonic())),
-        )
         message_id, text = read_last_chatgpt_web_response(page)
         normalized = normalize_chatgpt_web_copy(text)
         empty_polls = empty_polls + 1 if not normalized else 0
@@ -4223,9 +5340,25 @@ def wait_for_chatgpt_web_response(
             stable_polls = 0
 
         required_stable_polls = 8 if section_prefix == "relationship_guide" else 3
-        if last_message_id and last_text and stable_polls >= required_stable_polls:
+        if (
+            last_message_id
+            and last_text
+            and stable_polls >= required_stable_polls
+            and not chatgpt_web_generation_is_active(page)
+        ):
+            record_chatgpt_web_pacing_success()
+            clear_chatgpt_web_rate_limit_state()
             return last_message_id, last_text
         if empty_polls >= max_empty_polls:
+            rate_state = active_chatgpt_web_rate_limit_state()
+            if rate_state:
+                record_chatgpt_web_rate_limit(
+                    str(rate_state.get("message") or "recent persisted conversation rate limit")
+                )
+                raise RuntimeError(
+                    "ChatGPT error_kind=rate_limit retry_action=account_cooldown: "
+                    "최근 대화 제한 이후 응답 본문이 시작되지 않았습니다."
+                )
             raise TimeoutError("ChatGPT 웹 응답 본문이 시작되지 않아 재시도합니다.")
 
         page.wait_for_timeout(3000)
@@ -4309,21 +5442,10 @@ def fetch_chatgpt_web_audio_bytes(
 
 
 def chatgpt_web_launch_args(*, visible: bool) -> list[str]:
-    args = [
-        "--disable-blink-features=AutomationControlled",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-renderer-backgrounding",
-        "--disable-background-timer-throttling",
-    ]
-    if not visible:
-        x, y = CHATGPT_WEB_HIDDEN_WINDOW_POSITION
-        args.extend(
-            [
-                f"--window-position={x},{y}",
-                "--window-size=1280,900",
-            ]
-        )
-    return args
+    # Retain the parameter for old callers, but let Chrome use its normal window, focus,
+    # session, and background behavior without user-requested launch overrides.
+    del visible
+    return []
 
 
 def extract_gemini_web_conversation_id(url: str) -> str | None:
@@ -4531,7 +5653,560 @@ def prepare_gemini_web_page(
         raise_if_gemini_web_notice(notice)
         detail = f" 화면 메시지: {notice}" if notice else ""
         raise TimeoutError(f"Gemini 웹 프롬프트 입력창을 찾지 못했습니다.{detail}")
+    # 로그인이 끊겨도 gemini.google.com/app은 accounts.google.com으로 리다이렉트하지 않고
+    # 그대로 게스트(비로그인) 모드로 렌더링된다. URL만 봐서는 로그인 상태와 구분이 안 되므로,
+    # 상단 "로그인" 버튼의 존재 자체를 확인해야 한다. 사이드바 축약 상태에 따라 사라지는
+    # "활동을 저장하려면..." 안내 문구는 신뢰할 수 없어(사이드바가 접히면 body 텍스트에서
+    # 사라짐) 쓰지 않는다. 이 확인이 없으면 세션이 끊긴 채로 계속 요청을 보내면서도 정상
+    # 진행 중이라고 착각한다.
+    try:
+        guest_login_button = page.get_by_text(
+            GEMINI_WEB_GUEST_MODE_LOGIN_BUTTON_TEXT, exact=True
+        )
+        guest_mode_detected = any(
+            guest_login_button.nth(i).is_visible() for i in range(guest_login_button.count())
+        )
+    except Exception:
+        guest_mode_detected = False
+
+    # -------------------------------------------------------------
+    # Self-Healing Hot-Swap: 게스트 모드 또는 로그인 풀림 감지 시
+    # 실제 크롬 프로필의 최신 세션 쿠키를 실시간 핫 주입하여 무중단 복구
+    # -------------------------------------------------------------
+    if guest_mode_detected or "accounts.google.com" in str(getattr(page, "url", "")):
+        try:
+            override = os.environ.get("AUDIOBOOK_WEB_PROFILE_DIR")
+            base = Path(override).expanduser() if override else WEB_ACCOUNT_PROFILE_BASES["main"]
+            account_label = infer_web_account_label(base)
+            cookie_path = WEB_ACCOUNT_BOOTSTRAP_COOKIE_FILES.get(account_label)
+            if cookie_path and cookie_path.is_file():
+                browser_cookie3, _, _ = load_gemini_web_modules()
+                fresh_cookies = load_gemini_web_cookies(browser_cookie3, cookie_file=str(cookie_path))
+                if fresh_cookies and hasattr(page, "context"):
+                    page.context.add_cookies(fresh_cookies)
+                    page.goto(GEMINI_WEB_URL, wait_until="domcontentloaded")
+                    page.wait_for_timeout(2500)
+                    
+                    # Re-verify after hot injection
+                    guest_login_button = page.get_by_text(
+                        GEMINI_WEB_GUEST_MODE_LOGIN_BUTTON_TEXT, exact=True
+                    )
+                    guest_mode_detected = any(
+                        guest_login_button.nth(i).is_visible() for i in range(guest_login_button.count())
+                    )
+        except Exception:
+            pass
+
+    if guest_mode_detected or "accounts.google.com" in str(getattr(page, "url", "")):
+        raise RuntimeError(
+            "Gemini 웹이 비로그인(게스트) 상태입니다. 로그인 세션을 확인하세요."
+        )
     install_gemini_web_tts_hook(page)
+
+
+# "main"/"account2"/"account3" 세 제미나이 계정(각각 haijun93@gmail.com, haijun2be@gmail.com, ngaytot9@gmail.com)과
+# "chatgpt" 계정(haijun93@gmail.com 고정)이 쓰는 영구 프로필 베이스 디렉터리. web_app.py의
+# --web-account가 여기서 실제 경로를 끌어와 AUDIOBOOK_WEB_PROFILE_DIR을 자동으로 설정한다 -
+# 실행할 때마다 사람이 직접 경로 문자열을 타이핑하다 계정을 헷갈리는 실수를 원천적으로 없앤다.
+WEB_ACCOUNT_PROFILE_BASES: dict[str, Path] = {
+    "main": Path.home() / "Library" / "Application Support" / "AudiobookStudio" / "browser_profiles",
+    "account2": Path.home() / "Library" / "Application Support" / "AudiobookStudio-account2" / "browser_profiles",
+    "account3": Path.home() / "Library" / "Application Support" / "AudiobookStudio-account3" / "browser_profiles",
+    "chatgpt": Path.home() / "Library" / "Application Support" / "AudiobookStudio-chatgpt" / "browser_profiles",
+}
+WEB_ACCOUNT_BOOTSTRAP_COOKIE_FILES: dict[str, Path] = {
+    "main": Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 1" / "Cookies",
+    "account2": Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 2" / "Cookies",
+    "account3": Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 18" / "Cookies",
+    "chatgpt": Path.home() / "Library" / "Application Support" / "Google" / "Chrome" / "Profile 1" / "Cookies",
+}
+WEB_ACCOUNT_LABELS = tuple(WEB_ACCOUNT_PROFILE_BASES)
+WEB_PROFILE_LOCK_FILE = ".audiobook_web_profile.lock"
+DEFAULT_WEB_BROWSER_LAUNCH_TIMEOUT_SECONDS = 120
+
+
+def infer_web_account_label(base: Path) -> str:
+    base_str = str(base)
+    if "AudiobookStudio-account3" in base_str:
+        return "account3"
+    if "AudiobookStudio-account2" in base_str:
+        return "account2"
+    if "AudiobookStudio-chatgpt" in base_str:
+        return "chatgpt"
+    return "main"
+
+
+def web_provider_profile_dir(provider: str) -> Path:
+    """
+    provider("gemini"/"chatgpt")별 Playwright 영구 프로필 디렉터리.
+
+    예전에는 매 실행마다 임시 프로필을 새로 띄우고 실제 Chrome의 쿠키 스냅샷만 주입했는데,
+    그러면 Google/OpenAI가 그 자동화 세션 안에서 회전시킨 세션 토큰이 브라우저가 닫히는 순간
+    통째로 버려졌다. 이 프로필을 계속 재사용하면 세션이 자연스럽게 갱신되어, 며칠~몇 주씩
+    이어지는 배치 작업 중간에 로그인이 풀리는 문제를 줄일 수 있다.
+
+    AUDIOBOOK_WEB_PROFILE_DIR을 명시적으로 지정하지 않으면 "main" 계정 기본 경로로 조용히
+    빠지는데, 이 조용한 폴백이 실제로 다른 계정 작업이 의도치 않게 main 프로필을 같이 쓰게
+    만든 사고의 원인이었다(2026-08-15). 최소한 눈에 띄게라도 만들기 위해 폴백이 실제로
+    쓰일 때마다 경고를 표준에러로 남긴다 - 의도한 것이면 무시해도 되지만, 다른 계정용으로
+    띄운 프로세스에서 이 경고가 보이면 AUDIOBOOK_WEB_PROFILE_DIR(또는 web_app.py
+    --web-account)이 빠졌다는 신호다.
+    """
+    override = os.environ.get("AUDIOBOOK_WEB_PROFILE_DIR")
+    if override:
+        base = Path(override).expanduser()
+    else:
+        base = WEB_ACCOUNT_PROFILE_BASES["main"]
+        print(
+            "[web_provider_profile_dir] WARNING: AUDIOBOOK_WEB_PROFILE_DIR not set - "
+            f"falling back to the 'main' account profile ({base}). If this process is meant "
+            "to run under a different account (account2/chatgpt), this is a misconfiguration.",
+            file=sys.stderr,
+            flush=True,
+        )
+    profile_dir = base / provider
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return profile_dir
+
+
+def acquire_web_profile_lock(profile_dir: Path, *, provider: str):
+    """Prevent two jobs from launching Chrome against the same persistent profile.
+
+    Chromium's SingletonLock is created too late to coordinate our Python processes. Without
+    this earlier advisory lock, two books can race into startup and each can mistake the other
+    process for a stale Chrome instance. The result is usually a killed browser and two failed
+    jobs instead of one orderly wait.
+    """
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = profile_dir / WEB_PROFILE_LOCK_FILE
+    handle = lock_path.open("a+", encoding="utf-8")
+    try:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        else:
+            import msvcrt
+
+            handle.seek(0)
+            handle.write(" ")
+            handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError as exc:
+        handle.seek(0)
+        owner = handle.read().strip()[:300] or "owner unavailable"
+        handle.close()
+        raise RuntimeError(
+            f"{provider.title()} error_kind=profile_in_use retry_action=wait_for_profile: "
+            f"browser profile is already in use ({profile_dir}); {owner}"
+        ) from exc
+
+    handle.seek(0)
+    handle.truncate()
+    handle.write(
+        f"pid={os.getpid()} provider={provider} started={time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+    )
+    handle.flush()
+    return handle
+
+
+def release_web_profile_lock(lock_handle) -> None:
+    if lock_handle is None or getattr(lock_handle, "closed", False):
+        return
+    try:
+        if fcntl is not None:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+        else:
+            import msvcrt
+
+            lock_handle.seek(0)
+            msvcrt.locking(lock_handle.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+    finally:
+        lock_handle.close()
+
+
+def clear_stale_singleton_lock(profile_dir: Path) -> None:
+    """Chrome의 영구 프로필 잠금(SingletonLock)이 이전 실행이 남긴 좀비 프로세스를 계속
+    가리키는 채로 남아있으면, 다음 launch_persistent_context() 호출이 전부
+    "Failed to create a ProcessSingleton for your profile directory" 오류로 실패한다.
+    Playwright 자체에도 그런 프로세스를 감지해 죽이고 재시도하는 로직이 있지만, 라이브
+    환경에서 그 kill이 "kill EPERM"으로 계속 실패해(자신이 직접 띄운 자식이 아니라 이전
+    번역 하위 프로세스가 남긴 프로세스라 소유권 관계가 달라 보이는 것으로 추정) 재시도를
+    5번 다 이 오류로 날려버리고 책 한 권 전체가 실패하는 사례가 실제로 있었다("Words of
+    Radiance"). 이 프로세스 자신은(같은 사용자 소유의 평범한 자식 프로세스가 아니라
+    이전 실행의 잔재라도) 죽일 수 있으므로, launch 시도 전에 직접 정리한다. 잠금이 가리키는
+    프로세스가 아직 살아있는 게 이 launch를 시도하는 우리 자신의 정상적인 동시 세션일 수도
+    있으니, kill은 프로세스가 실제로 이 프로필 디렉터리를 쓰고 있는 Chrome일 때만 한다."""
+    lock_path = profile_dir / "SingletonLock"
+    if not lock_path.is_symlink():
+        return
+    try:
+        target = os.readlink(lock_path)
+    except OSError:
+        return
+    pid_text = target.rsplit("-", 1)[-1]
+    if not pid_text.isdigit():
+        return
+    pid = int(pid_text)
+    try:
+        cmdline = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout
+    except Exception:
+        return
+    cmdline = cmdline.strip()
+    if cmdline and str(profile_dir) not in cmdline:
+        # 살아있는 프로세스가 있지만 이 프로필과 무관하다(PID가 이미 다른 프로세스로
+        # 재사용됐거나) - 잘못 죽이지 않도록 그냥 둔다.
+        return
+    if cmdline:
+        # 이 프로필 디렉터리로 실행 중인 Chrome이 맞다 - 우리가 지금 새로 launch하려는
+        # 시도와 동시에 살아있을 정상적인 이유가 없으므로(프로필당 항상 순차 실행) 좀비로
+        # 보고 정리한다.
+        try:
+            os.kill(pid, signal.SIGKILL)
+            time.sleep(0.5)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            return
+    # cmdline이 비어 있으면 pid는 이미 죽어 있는 것 - 잠금 파일만 청소하면 된다.
+    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        try:
+            (profile_dir / name).unlink()
+        except OSError:
+            pass
+
+
+def clear_crashed_profile_flag(profile_dir: Path) -> None:
+    """job_manager.stop_job()은 os.killpg(...)로 프로세스 그룹 전체(Python + Chrome +
+    Playwright의 Node 드라이버)에 동시에 SIGTERM을 보낸다. Chrome이 "정상 종료했다"고
+    Preferences에 기록할 틈도 없이 같이 죽어버리므로, 배치를 정상적으로 stop만 해도 다음
+    실행에서 프로필이 exit_type=Crashed로 시작하게 된다. Chrome이 크래시 상태를 물려받으면
+    (세션 복구 UI 등으로) Playwright의 초기 페이지 설정이 꼬여 TargetClosedError로 이어지고,
+    그 실행도 비정상 종료하면서 다시 Crashed로 남아 - 한번 크래시가 나면 실행할 때마다 계속
+    실패하는 악순환이 되는 것을 실제로 확인했다("Words of Radiance", 그리고 이후 Pam Godwin
+    11권 전원 실패). 매 launch 전에 무조건 Normal로 되돌려 이 악순환의 고리를 끊는다."""
+    prefs_path = profile_dir / "Default" / "Preferences"
+    if not prefs_path.is_file():
+        return
+    try:
+        data = json.loads(prefs_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    profile_section = data.setdefault("profile", {})
+    if profile_section.get("exit_type") == "Normal" and profile_section.get("exited_cleanly") is True:
+        return
+    profile_section["exit_type"] = "Normal"
+    profile_section["exited_cleanly"] = True
+    try:
+        prefs_path.write_text(json.dumps(data), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def terminate_web_profile_browser_processes(
+    profile_dir: Path,
+    *,
+    wait_seconds: float = 3.0,
+) -> list[int]:
+    """Stop browser remnants that belong to one persistent provider profile only."""
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,command="],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+
+    def pid_is_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    profile_marker = f"--user-data-dir={profile_dir}"
+    candidates: list[int] = []
+    for raw_line in result.stdout.splitlines():
+        parts = raw_line.strip().split(None, 1)
+        if len(parts) != 2 or profile_marker not in parts[1]:
+            continue
+        command = parts[1]
+        if "Google Chrome" not in command and "Chromium" not in command:
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        if pid != os.getpid():
+            candidates.append(pid)
+
+    for pid in candidates:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (PermissionError, ProcessLookupError):
+            pass
+    deadline = time.monotonic() + max(0.0, wait_seconds)
+    while candidates and time.monotonic() < deadline:
+        if not any(pid_is_alive(pid) for pid in candidates):
+            break
+        time.sleep(0.1)
+    for pid in candidates:
+        if not pid_is_alive(pid):
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (PermissionError, ProcessLookupError):
+            pass
+    return candidates
+
+
+@contextmanager
+def web_browser_launch_deadline(seconds: int):
+    """Apply a hard startup deadline when the platform can interrupt Playwright safely."""
+    if not hasattr(signal, "SIGALRM") or not hasattr(signal, "setitimer"):
+        yield
+        return
+
+    previous_handler = None
+    previous_timer: tuple[float, float] | None = None
+    started = time.monotonic()
+
+    def timeout_handler(_signum, _frame) -> None:
+        raise TimeoutError(f"browser startup exceeded {seconds} seconds")
+
+    try:
+        previous_handler = signal.signal(signal.SIGALRM, timeout_handler)
+        previous_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
+    except (OSError, ValueError):
+        yield
+        return
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer and previous_timer[0] > 0:
+            elapsed = time.monotonic() - started
+            signal.setitimer(
+                signal.ITIMER_REAL,
+                max(0.001, previous_timer[0] - elapsed),
+                previous_timer[1],
+            )
+
+
+@contextmanager
+def web_browser_launch_watchdog(profile_dir: Path, *, provider: str, seconds: int):
+    """Break a Playwright startup hang even when its sync greenlet ignores SIGALRM."""
+    finished = threading.Event()
+
+    def watch() -> None:
+        if finished.wait(seconds):
+            return
+        incident = {
+            "detected_at": time.time(),
+            "provider": provider,
+            "kind": "browser_launch_failed",
+            "action": "terminate_profile_browser_and_restart_from_checkpoint",
+            "timeout_seconds": seconds,
+            "pid": os.getpid(),
+        }
+        try:
+            atomic_write_json(
+                profile_dir / ".browser_launch_watchdog.json",
+                incident,
+                trailing_newline=True,
+            )
+        except OSError:
+            pass
+        print(
+            f"{provider.title()} error_kind=browser_launch_failed "
+            "retry_action=restart_browser_from_checkpoint: "
+            f"browser startup watchdog exceeded {seconds} seconds",
+            file=sys.stderr,
+            flush=True,
+        )
+        terminate_web_profile_browser_processes(profile_dir)
+        if not finished.wait(15):
+            os._exit(75)
+
+    thread = threading.Thread(
+        target=watch,
+        name=f"{provider}-browser-launch-watchdog",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        yield
+    finally:
+        finished.set()
+        thread.join(timeout=0.2)
+
+
+def launch_persistent_web_context(
+    playwright,
+    *,
+    provider: str,
+    chrome_path: str,
+    visible: bool,
+    viewport: dict[str, int] | None = None,
+):
+    """provider 전용 영구 프로필을 일반 표시 상태의 Chrome으로 실행한다.
+
+    자동화 호환성을 위해 headless=False는 유지하지만, 창 위치·크기·최소화·포커스·백그라운드
+    동작은 강제하지 않는다. ``visible``은 기존 호출자 호환용이며 더 이상 창을 숨기지 않는다.
+    """
+    profile_dir = web_provider_profile_dir(provider)
+    profile_lock = acquire_web_profile_lock(profile_dir, provider=provider)
+    try:
+        launch_timeout_seconds = max(
+            30,
+            int(
+                os.environ.get(
+                    "AUDIOBOOK_WEB_BROWSER_LAUNCH_TIMEOUT_SEC",
+                    str(DEFAULT_WEB_BROWSER_LAUNCH_TIMEOUT_SECONDS),
+                )
+            ),
+        )
+    except ValueError:
+        launch_timeout_seconds = DEFAULT_WEB_BROWSER_LAUNCH_TIMEOUT_SECONDS
+    try:
+        clear_stale_singleton_lock(profile_dir)
+        clear_crashed_profile_flag(profile_dir)
+        with web_browser_launch_watchdog(
+            profile_dir,
+            provider=provider,
+            seconds=launch_timeout_seconds,
+        ):
+            with web_browser_launch_deadline(launch_timeout_seconds):
+                context = playwright.chromium.launch_persistent_context(
+                    str(profile_dir),
+                    headless=False,
+                    executable_path=str(Path(chrome_path).expanduser()),
+                    args=chatgpt_web_launch_args(visible=visible),
+                    ignore_default_args=list(WEB_CHROME_IGNORED_PLAYWRIGHT_DEFAULT_ARGS),
+                    viewport=viewport,
+                    timeout=launch_timeout_seconds * 1000,
+                )
+    except Exception as exc:
+        terminate_web_profile_browser_processes(profile_dir)
+        clear_stale_singleton_lock(profile_dir)
+        release_web_profile_lock(profile_lock)
+        raise RuntimeError(
+            f"{provider.title()} error_kind=browser_launch_failed "
+            "retry_action=restart_browser_from_checkpoint: "
+            f"persistent browser startup failed ({exc})"
+        ) from exc
+
+    released = False
+
+    def release_profile_lock(*_args) -> None:
+        nonlocal released
+        if released:
+            return
+        released = True
+        release_web_profile_lock(profile_lock)
+
+    try:
+        context.on("close", release_profile_lock)
+    except Exception:
+        # Lightweight test doubles may not expose Playwright's event API. Keep the handle on
+        # the context so it remains held for the context lifetime in those environments.
+        context._audiobook_web_profile_lock = profile_lock
+    return context
+
+
+def minimize_web_window(context) -> None:
+    """Deprecated compatibility shim; browser windows are no longer minimized."""
+    del context
+
+
+def ensure_web_provider_session(
+    context,
+    *,
+    provider: str,
+    timeout_error_cls,
+    browser_cookie3_module,
+    heartbeat: ProgressHeartbeat | None = None,
+    retain_prepared_page: bool = False,
+):
+    """
+    영구 프로필에 아직 유효한 로그인 세션이 없으면(최초 실행이거나 세션이 실제로 끊겼을 때)
+    실제 Chrome의 쿠키를 한 번 주입해 복구를 시도한다. 그래도 로그인 확인이 실패하면 예전
+    오류를 그대로 올려서(재부트스트랩을 계속 반복하지 않고) 상위의 재시도/쿨다운 로직이
+    그 실패를 정상적으로 분류하게 한다.
+    """
+    prepare = prepare_gemini_web_page if provider == "gemini" else prepare_chatgpt_web_page
+    load_cookies = load_gemini_web_cookies if provider == "gemini" else load_chatgpt_web_cookies
+
+    def _probe() -> tuple[Exception | None, object | None]:
+        page = context.new_page()
+        keep_page = False
+        try:
+            prepare(page, timeout_error_cls=timeout_error_cls, heartbeat=heartbeat)
+            keep_page = retain_prepared_page
+            return None, page if keep_page else None
+        except Exception as exc:  # noqa: BLE001 - re-raised by the caller if the bootstrap retry also fails
+            return exc, None
+        finally:
+            if not keep_page:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+
+    first_error, prepared_page = _probe()
+    if first_error is None:
+        return prepared_page
+
+    error_text = str(first_error).lower()
+    if provider == "chatgpt":
+        bootstrap_allowed = chatgpt_web_error_kind(first_error) in {
+            "session_expired",
+            "account_mismatch",
+        }
+    else:
+        bootstrap_allowed = any(
+            marker in error_text
+            for marker in ("로그인", "session_expired", "accounts.google.com")
+        )
+    if not bootstrap_allowed:
+        raise first_error
+
+    bootstrap_cookie_file = os.environ.get("AUDIOBOOK_WEB_BOOTSTRAP_COOKIE_FILE", "").strip() or None
+    if not bootstrap_cookie_file:
+        override = os.environ.get("AUDIOBOOK_WEB_PROFILE_DIR")
+        base = Path(override).expanduser() if override else WEB_ACCOUNT_PROFILE_BASES["main"]
+        account_label = infer_web_account_label(base)
+        default_cookie_path = WEB_ACCOUNT_BOOTSTRAP_COOKIE_FILES.get(account_label)
+        if default_cookie_path and default_cookie_path.is_file():
+            bootstrap_cookie_file = str(default_cookie_path)
+
+    beat_heartbeat(
+        heartbeat,
+        stage="web_session_bootstrap",
+        detail=(
+            f"provider={provider}; refreshing session from Chrome cookies"
+            + (f" (cookie_file={bootstrap_cookie_file})" if bootstrap_cookie_file else "")
+        ),
+    )
+    cookies = load_cookies(browser_cookie3_module, cookie_file=bootstrap_cookie_file)
+    context.add_cookies(cookies)
+
+    second_error, prepared_page = _probe()
+    if second_error is not None:
+        raise second_error
+    return prepared_page
 
 
 def send_gemini_web_prompt(
@@ -4736,38 +6411,32 @@ def synthesize_gemini_web_sections(
     work_dir: Path,
 ) -> list[Path]:
     browser_cookie3, sync_playwright, timeout_error_cls = load_gemini_web_modules()
-    cookies = load_gemini_web_cookies(browser_cookie3)
     chrome_path = str(Path(args.gemini_web_chrome_path).expanduser())
     audio_files: list[Path] = []
     max_attempts = max(1, args.gemini_web_max_attempts)
-    heartbeat = ProgressHeartbeat(args.heartbeat_file) if args.heartbeat_file else None
+    heartbeat = progress_heartbeat_from_args(args)
 
     with sync_playwright() as playwright:
         beat_heartbeat(heartbeat, stage="launch_browser", detail="gemini_playwright_start")
-        browser = playwright.chromium.launch(
-            headless=False,
-            executable_path=chrome_path,
-            args=chatgpt_web_launch_args(visible=args.gemini_web_visible),
+        context = launch_persistent_web_context(
+            playwright,
+            provider="gemini",
+            chrome_path=chrome_path,
+            visible=args.gemini_web_visible,
         )
-        context = None
         try:
-            context = browser.new_context(viewport={"width": 1440, "height": 1200})
-            context.add_cookies(cookies)
-
-            probe_page = context.new_page()
-            try:
-                prepare_gemini_web_page(
-                    probe_page,
-                    timeout_error_cls=timeout_error_cls,
-                    heartbeat=heartbeat,
-                )
-                beat_heartbeat(
-                    heartbeat,
-                    stage="browser_ready",
-                    detail="gemini_prompt_ready",
-                )
-            finally:
-                probe_page.close()
+            ensure_web_provider_session(
+                context,
+                provider="gemini",
+                timeout_error_cls=timeout_error_cls,
+                browser_cookie3_module=browser_cookie3,
+                heartbeat=heartbeat,
+            )
+            beat_heartbeat(
+                heartbeat,
+                stage="browser_ready",
+                detail="gemini_prompt_ready",
+            )
 
             def split_audio_paths_for_prefix(prefix: str) -> list[Path]:
                 pattern = re.compile(rf"^{re.escape(prefix)}(?:_\d+)+\.ogg$")
@@ -4940,8 +6609,12 @@ def synthesize_gemini_web_sections(
                             attempt=attempt,
                             detail=str(exc),
                         )
+                        if is_chatgpt_web_pause_error(exc):
+                            raise
                     finally:
                         page.close()
+                    if attempt < max_attempts:
+                        time.sleep(min(30, 2 ** attempt))
 
                 raise RuntimeError(
                     f"Gemini 웹 섹션 합성 실패({prefix}, {max_attempts}회 시도): {last_error}"
@@ -5056,9 +6729,7 @@ def synthesize_gemini_web_sections(
                     )
                 )
         finally:
-            if context is not None:
-                context.close()
-            browser.close()
+            context.close()
 
     return audio_files
 
@@ -5263,7 +6934,7 @@ def synthesize_gemini_api_tts_sections(
 ) -> list[Path]:
     audio_files: list[Path] = []
     max_attempts = max(1, args.gemini_api_tts_max_attempts)
-    heartbeat = ProgressHeartbeat(args.heartbeat_file) if args.heartbeat_file else None
+    heartbeat = progress_heartbeat_from_args(args)
     model = normalize_gemini_api_tts_model_name(args.gemini_api_tts_model)
 
     def split_audio_paths_for_prefix(prefix: str) -> list[Path]:
@@ -5552,24 +7223,28 @@ def synthesize_chatgpt_web_sections(
     work_dir: Path,
 ) -> list[Path]:
     browser_cookie3, sync_playwright, timeout_error_cls = load_chatgpt_web_modules()
-    cookies = load_chatgpt_web_cookies(browser_cookie3)
     chrome_path = str(Path(args.chatgpt_web_chrome_path).expanduser())
     audio_files: list[Path] = []
     max_attempts = max(1, args.chatgpt_web_max_attempts)
-    heartbeat = ProgressHeartbeat(args.heartbeat_file) if args.heartbeat_file else None
+    heartbeat = progress_heartbeat_from_args(args)
     audiobook_mode = resolve_audiobook_mode(args)
 
     with sync_playwright() as playwright:
         beat_heartbeat(heartbeat, stage="launch_browser", detail="playwright_start")
-        browser = playwright.chromium.launch(
-            headless=False,
-            executable_path=chrome_path,
-            args=chatgpt_web_launch_args(visible=args.chatgpt_web_visible),
+        context = launch_persistent_web_context(
+            playwright,
+            provider="chatgpt",
+            chrome_path=chrome_path,
+            visible=args.chatgpt_web_visible,
         )
-        context = None
         try:
-            context = browser.new_context(viewport={"width": 1440, "height": 1200})
-            context.add_cookies(cookies)
+            ensure_web_provider_session(
+                context,
+                provider="chatgpt",
+                timeout_error_cls=timeout_error_cls,
+                browser_cookie3_module=browser_cookie3,
+                heartbeat=heartbeat,
+            )
 
             settings_page = context.new_page()
             try:
@@ -5939,6 +7614,8 @@ def synthesize_chatgpt_web_sections(
                 try:
                     return request_chatgpt_web_piece(section=section, prefix=prefix, label=label)
                 except RuntimeError as exc:
+                    if is_chatgpt_web_pause_error(exc) or not should_resplit_chatgpt_web_section(exc):
+                        raise
                     child_sections = build_retry_child_sections(
                         work_dir,
                         prefix=prefix,
@@ -5989,11 +7666,136 @@ def synthesize_chatgpt_web_sections(
                     )
                 )
         finally:
-            if context is not None:
-                context.close()
-            browser.close()
+            context.close()
 
     return audio_files
+
+async def _run_edge_tts_communicate(
+    text: str,
+    voice: str,
+    output_path: Path,
+    *,
+    rate: str = "+0%",
+    pitch: str = "+0Hz",
+    volume: str = "+0%",
+) -> None:
+    import edge_tts
+
+    communicate = edge_tts.Communicate(
+        text=text,
+        voice=voice,
+        rate=rate,
+        pitch=pitch,
+        volume=volume,
+    )
+    await communicate.save(str(output_path))
+
+
+def request_edge_tts_audio_file(
+    text: str,
+    output_path: Path,
+    *,
+    voice: str,
+    rate: str = "+0%",
+    pitch: str = "+0Hz",
+    volume: str = "+0%",
+) -> None:
+    try:
+        asyncio.run(
+            _run_edge_tts_communicate(
+                text=text,
+                voice=voice,
+                output_path=output_path,
+                rate=rate,
+                pitch=pitch,
+                volume=volume,
+            )
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Edge TTS 음성 합성 실패 ({voice}): {exc}") from exc
+
+
+def synthesize_edge_tts_sections(
+    sections: list[AudioSection],
+    *,
+    args: argparse.Namespace,
+    voice: str,
+    work_dir: Path,
+) -> list[Path]:
+    audio_files: list[Path] = []
+    max_attempts = max(1, getattr(args, "edge_tts_max_attempts", DEFAULT_EDGE_TTS_MAX_ATTEMPTS))
+    heartbeat = progress_heartbeat_from_args(args)
+    rate = getattr(args, "edge_tts_rate", "+0%") or "+0%"
+    pitch = getattr(args, "edge_tts_pitch", "+0Hz") or "+0Hz"
+    volume = getattr(args, "edge_tts_volume", "+0%") or "+0%"
+
+    for index, section in enumerate(sections, start=1):
+        prefix = f"section_{index:04d}"
+        target_path = work_dir / f"{prefix}.mp3"
+        text_path = work_dir / f"{prefix}.txt"
+        label = f"오디오 {index}/{len(sections)}"
+
+        clean_content = section.text.strip()
+        if not clean_content:
+            continue
+
+        text_path.write_text(clean_content, encoding="utf-8")
+
+        if target_path.is_file() and target_path.stat().st_size > 0:
+            if heartbeat is not None:
+                heartbeat.beat(
+                    stage="reuse_existing_audio",
+                    label=label,
+                    section_prefix=prefix,
+                    detail="existing_edge_tts_audio",
+                )
+            audio_files.append(target_path)
+            continue
+
+        last_error = None
+        for attempt in range(1, max_attempts + 1):
+            if heartbeat is not None:
+                heartbeat.beat(
+                    stage="edge_tts_synthesis",
+                    label=label,
+                    section_prefix=prefix,
+                    attempt=attempt,
+                    detail=f"voice={voice}",
+                )
+            try:
+                request_edge_tts_audio_file(
+                    clean_content,
+                    target_path,
+                    voice=voice,
+                    rate=rate,
+                    pitch=pitch,
+                    volume=volume,
+                )
+                if not target_path.is_file() or target_path.stat().st_size == 0:
+                    raise RuntimeError("Edge TTS가 빈 오디오 파일을 생성했습니다.")
+                if heartbeat is not None:
+                    heartbeat.beat(
+                        stage="section_complete",
+                        label=label,
+                        section_prefix=prefix,
+                        attempt=attempt,
+                        detail="edge_tts_success",
+                    )
+                audio_files.append(target_path)
+                break
+            except Exception as exc:
+                last_error = exc
+                if target_path.is_file():
+                    target_path.unlink(missing_ok=True)
+                if attempt < max_attempts:
+                    time.sleep(1.5 * attempt)
+        else:
+            raise RuntimeError(
+                f"Edge TTS 섹션 {index}/{len(sections)} 합성 실패 (최대 {max_attempts}회 시도): {last_error}"
+            ) from last_error
+
+    return audio_files
+
 
 def synthesize_sections(
     sections: list[AudioSection],
@@ -6018,6 +7820,13 @@ def synthesize_sections(
         )
     if args.provider == "gemini_web":
         return synthesize_gemini_web_sections(
+            sections,
+            args=args,
+            voice=voice,
+            work_dir=work_dir,
+        )
+    if args.provider == "edge_tts":
+        return synthesize_edge_tts_sections(
             sections,
             args=args,
             voice=voice,
@@ -6141,6 +7950,14 @@ def manifest_provider_settings(
             "spokenize_domains_and_emails": True,
             "api_key_env_names": list(GEMINI_API_KEY_ENV_NAMES),
         }
+    if args.provider == "edge_tts":
+        return {
+            "voice": resolve_voice(args),
+            "rate": getattr(args, "edge_tts_rate", "+0%"),
+            "pitch": getattr(args, "edge_tts_pitch", "+0Hz"),
+            "volume": getattr(args, "edge_tts_volume", "+0%"),
+            "max_attempts": getattr(args, "edge_tts_max_attempts", DEFAULT_EDGE_TTS_MAX_ATTEMPTS),
+        }
     raise RuntimeError(f"지원하지 않는 provider 입니다: {args.provider}")
 
 
@@ -6177,11 +7994,16 @@ def write_manifest(
             for section in sections
         ],
     }
-    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_manifest_path = manifest_path.with_name(f"{manifest_path.name}.tmp")
+    temp_manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_manifest_path.replace(manifest_path)
 
 
 def main() -> int:
     args = parse_args()
+    diagnostics: WorkflowDiagnostics | None = None
+    heartbeat: ProgressHeartbeat | None = None
+    run_succeeded = False
 
     try:
         if args.list_voices:
@@ -6189,6 +8011,37 @@ def main() -> int:
             return 0
 
         output_path = resolve_output_path(args)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        work_dir = resolve_work_dir(args, output_path)
+        work_dir.mkdir(parents=True, exist_ok=True)
+        diagnostics = WorkflowDiagnostics(work_dir, "audiobook_generation")
+        diagnostics.start(
+            stage="preflight",
+            metadata={
+                "provider": args.provider,
+                "audiobook_mode": resolve_audiobook_mode(args),
+            },
+            evidence_paths={
+                "input": args.input_file,
+                "output": output_path,
+            },
+        )
+        heartbeat_path = Path(args.heartbeat_file) if args.heartbeat_file else work_dir / "heartbeat.json"
+        heartbeat = ProgressHeartbeat(
+            heartbeat_path,
+            observer=audio_workflow_heartbeat_observer(
+                diagnostics,
+                max_attempts=provider_max_attempts(args),
+            ),
+        )
+        args._progress_heartbeat = heartbeat
+        beat_heartbeat(heartbeat, stage="startup", detail="workdir_ready")
+
+        ensure_audio_preflight(
+            input_file=args.input_file,
+            output_path=output_path,
+            work_dir=work_dir,
+        )
         ensure_runtime_ready(args, output_path)
 
         voice = resolve_voice(args)
@@ -6203,11 +8056,6 @@ def main() -> int:
             else max_chars_per_chunk
         )
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        work_dir = resolve_work_dir(args, output_path)
-        work_dir.mkdir(parents=True, exist_ok=True)
-        heartbeat = ProgressHeartbeat(args.heartbeat_file) if args.heartbeat_file else None
-        beat_heartbeat(heartbeat, stage="startup", detail="workdir_ready")
         cleanup_dirs = [work_dir]
         if output_path.parent != work_dir:
             cleanup_dirs.append(output_path.parent)
@@ -6239,6 +8087,14 @@ def main() -> int:
         print(f"세그먼트 기준 최대 글자 수: {section_source_limit}", file=sys.stderr)
         print(f"세그먼트 수: {len(sections)}", file=sys.stderr)
         beat_heartbeat(heartbeat, stage="sections_ready", detail=f"count={len(sections)}")
+        diagnostics.progress(
+            stage="sections_ready",
+            completed=0,
+            total=len(sections),
+            current=1,
+            detail=f"sections={len(sections)}",
+            success=True,
+        )
         audio_files = synthesize_sections(
             sections,
             args=args,
@@ -6263,13 +8119,47 @@ def main() -> int:
             sections=sections,
         )
         beat_heartbeat(heartbeat, stage="done", detail=output_path.name)
+        run_succeeded = True
+        try:
+            diagnostics.complete(
+                stage="complete",
+                artifacts={
+                    "output": str(output_path),
+                    "manifest": str(output_path.with_name(f"{output_path.stem}_manifest.json")),
+                    "audio_sections": len(audio_files),
+                },
+            )
+        except Exception as diagnostic_error:
+            print(f"완료 진단 기록 실패: {diagnostic_error}", file=sys.stderr)
     except Exception as exc:
-        if "heartbeat" in locals():
-            beat_heartbeat(heartbeat, stage="fatal_error", detail=str(exc))
+        failure_stage = "audiobook_generation"
+        if heartbeat is not None:
+            try:
+                current = json.loads(heartbeat.path.read_text(encoding="utf-8"))
+                failure_stage = str(current.get("stage") or failure_stage)
+            except (OSError, ValueError, TypeError):
+                pass
+        if diagnostics is not None:
+            try:
+                diagnostics.record_current_exception(
+                    exc,
+                    stage=failure_stage,
+                    evidence={
+                        "output": str(output_path) if "output_path" in locals() else None,
+                        "work_dir": str(work_dir) if "work_dir" in locals() else None,
+                    },
+                )
+            except Exception as diagnostic_error:
+                print(f"진단 기록 실패: {diagnostic_error}", file=sys.stderr)
+        if heartbeat is not None:
+            try:
+                beat_heartbeat(heartbeat, stage="fatal_error", detail=str(exc))
+            except Exception:
+                pass
         print(f"오디오북 생성 실패: {exc}", file=sys.stderr)
         return 1
     finally:
-        should_cleanup = not args.keep_workdir and not args.work_dir
+        should_cleanup = run_succeeded and not args.keep_workdir and not args.work_dir
         if "work_dir" in locals() and work_dir.exists() and should_cleanup:
             shutil.rmtree(work_dir, ignore_errors=True)
 

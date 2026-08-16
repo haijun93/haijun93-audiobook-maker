@@ -21,3 +21,5 @@ dist/
 RESUME_*.md
 work_you_chatgpt/
 *_ko_web.txt
+scratch/
+.vscode/

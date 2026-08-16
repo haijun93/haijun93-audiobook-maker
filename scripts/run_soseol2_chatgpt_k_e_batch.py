@@ -239,7 +239,14 @@ def parse_args() -> argparse.Namespace:
         help="Translation web provider (default: gemini; chatgpt is legacy opt-in only).",
     )
     parser.add_argument("--web-max-attempts", "--chatgpt-web-max-attempts", dest="web_max_attempts", type=int, default=5)
-    parser.add_argument("--web-visible", "--chatgpt-web-visible", dest="web_visible", action="store_true")
+    parser.add_argument(
+        "--web-visible",
+        "--chatgpt-web-visible",
+        dest="web_visible",
+        action="store_true",
+        default=True,
+        help="호환성 옵션입니다. 웹 번역 Chrome은 항상 일반 표시 창으로 실행됩니다.",
+    )
     parser.add_argument(
         "--skip-idle-tone-maintenance",
         action="store_true",

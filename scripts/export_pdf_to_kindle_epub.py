@@ -31,6 +31,20 @@ def normalize_line(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def clean_pdf_title(raw_stem: str) -> str:
+    """PDF 파일명을 표지/메타데이터에 쓸 수 있는 사람이 읽을 제목으로 정제한다.
+
+    변환되지 않은 원본 파일명(예: ``_OceanofPDF.com_Cage_of_Ice_and_Echoes_-_Pam_Godwin``)이
+    그대로 ``dc:title``에 들어가면, 이후 파이프라인 전체(표지 플레이스홀더, 온라인 표지 검색,
+    번역 프롬프트)에 더러운 제목이 그대로 퍼진다.
+    """
+    title = re.sub(r"(?i)[_\s]*oceanofpdf[._\s-]*com[_\s]*", " ", raw_stem)
+    title = re.sub(r"^\[(?:e|s|k|k-e)\]\s*", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"[_-]+", " ", title)
+    title = re.sub(r"\s+", " ", title).strip()
+    return title or raw_stem
+
+
 def collect_pages(pdf_path: Path) -> list[list[str]]:
     pages: list[list[str]] = []
     with fitz.open(pdf_path) as doc:
@@ -101,6 +115,22 @@ def merge_page_lines(lines: list[str]) -> list[str]:
     return paragraphs
 
 
+def is_heading_like(para: str) -> bool:
+    return len(para) <= 36 and not para.endswith(("다", "요", ".", "함", "됨", "임", "음"))
+
+
+def first_heading_label(paragraphs: list[str], fallback: str) -> str:
+    """목차/네비게이션에 쓸 라벨을 고른다.
+
+    물리적 PDF 페이지 번호("Page 12") 대신, 그 페이지 안에서 실제 장/절 제목처럼 보이는
+    첫 줄(예: "40 - Leonid")을 찾아 라벨로 쓴다. 그런 줄이 없으면 기존처럼 페이지 번호를 쓴다.
+    """
+    for para in paragraphs:
+        if not para.startswith(("•", "-", "▣", "☞", "⇒")) and is_heading_like(para):
+            return para
+    return fallback
+
+
 def page_to_xhtml(page_num: int, paragraphs: list[str], *, language: str = "ko") -> str:
     body = []
     for para in paragraphs:
@@ -156,7 +186,7 @@ def build_epub(
     pages = collect_pages(pdf_path)
     repeated_noise = repeated_noise_lines(pages)
 
-    title = pdf_path.stem
+    title = clean_pdf_title(pdf_path.stem)
     chapters: list[tuple[str, str, str]] = []
     for idx, raw_lines in enumerate(pages, start=1):
         filtered = [line for line in raw_lines if not should_drop_line(line, repeated_noise)]
@@ -164,7 +194,7 @@ def build_epub(
         if not paragraphs:
             continue
         filename = f"page_{idx:03}.xhtml"
-        label = f"{page_label} {idx}"
+        label = first_heading_label(paragraphs, f"{page_label} {idx}")
         chapters.append((filename, label, page_to_xhtml(idx, paragraphs, language=language)))
 
     if not chapters:
@@ -245,7 +275,7 @@ p { margin: 0 0 0.7em; }
 
 
 def build_fixed_layout_epub(pdf_path: Path, output_epub: Path) -> None:
-    title = pdf_path.stem
+    title = clean_pdf_title(pdf_path.stem)
     chapters: list[tuple[str, str, str, bytes]] = []
 
     with fitz.open(pdf_path) as doc:

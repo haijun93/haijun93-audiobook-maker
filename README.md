@@ -174,6 +174,12 @@ Common watchdog settings:
 Intermediate text, responses, metadata, audio segments, and a manifest remain
 in the job work directory so interrupted work can continue.
 
+For continuous use of multiple Gemini and ChatGPT web accounts, see
+[`docs/CONTINUOUS_TRANSLATION_SCHEDULER.md`](docs/CONTINUOUS_TRANSLATION_SCHEDULER.md).
+The scheduler keeps one worker per browser profile, work-steals from a shared
+durable queue, resumes checkpoints, isolates account cooldowns, and reports all
+account slots in the live web dashboard.
+
 ## Configuration
 
 Copy `.env.example` to `.env.local` or export the same variables in the shell.

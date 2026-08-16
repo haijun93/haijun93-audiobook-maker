@@ -3,19 +3,34 @@ from __future__ import annotations
 
 import argparse
 import atexit
+from datetime import datetime, timezone
 import io
+import json
 import os
 import threading
+import time
 import webbrowser
+import hashlib
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, Response, jsonify, render_template, request, send_file, stream_with_context
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from audiobook_maker import discover_chrome_executable, resolve_ffmpeg_binary
+from audiobook_maker import (
+    EDGE_TTS_DEFAULT_VOICE,
+    EDGE_TTS_VOICES,
+    EDGE_TTS_VOICE_DESCRIPTIONS,
+    chatgpt_web_voice_choices,
+    discover_chrome_executable,
+    gemini_api_tts_voice_choices,
+    gemini_web_voice_choices,
+    request_edge_tts_audio_file,
+    resolve_ffmpeg_binary,
+)
 from webui.job_manager import JobManager, JobValidationError, scan_folder_sources
 from webui.platform import discover_ebook_convert
+from webui.runtime_monitor import RuntimeMonitor
 
 
 ROOT = Path(__file__).resolve().parent
@@ -39,6 +54,7 @@ def create_app(
     *,
     data_root: Path | None = None,
     manager: JobManager | None = None,
+    runtime_monitor: RuntimeMonitor | None = None,
     max_upload_mb: int = 100,
 ) -> Flask:
     upload_limit_mb = max(1, int(max_upload_mb))
@@ -56,7 +72,9 @@ def create_app(
     job_manager = manager or JobManager(
         data_root or Path(os.getenv("AUDIOBOOK_WEB_DATA_DIR", str(DEFAULT_DATA_ROOT)))
     )
+    monitor = runtime_monitor or RuntimeMonitor(ignored_roots=[job_manager.jobs_root])
     app.extensions["job_manager"] = job_manager
+    app.extensions["runtime_monitor"] = monitor
     if owns_manager:
         atexit.register(job_manager.close)
 
@@ -114,6 +132,317 @@ def create_app(
     def list_jobs():
         return jsonify({"jobs": job_manager.list_jobs()})
 
+    @app.get("/api/runtime")
+    def runtime_status():
+        return jsonify(monitor.snapshot())
+
+    @app.get("/api/runtime/stream")
+    def runtime_status_stream():
+        @stream_with_context
+        def event_stream():
+            while True:
+                snapshot = monitor.snapshot()
+                yield f"event: runtime\ndata: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
+                time.sleep(max(0.25, int(snapshot.get("refresh_after_ms") or 1000) / 1000))
+
+        return Response(
+            event_stream(),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @app.get("/api/tts/voices")
+    def get_voices():
+        provider = str(request.args.get("provider") or "edge_tts").lower()
+        if provider == "edge_tts":
+            voices = []
+            for v_id in EDGE_TTS_VOICES:
+                desc = EDGE_TTS_VOICE_DESCRIPTIONS.get(v_id, v_id)
+                is_ko = "ko-KR" in v_id
+                gender = "Female" if any(f in v_id for f in ("SunHi", "Ava", "Emma", "Ana", "Jenny", "Michelle")) else "Male"
+                voices.append({
+                    "id": v_id,
+                    "name": desc,
+                    "lang": "ko-KR" if is_ko else "en-US",
+                    "gender": gender,
+                    "default_sample": "안녕하세요. 오디오북 제작 스튜디오의 한국어 음성 샘플입니다." if is_ko else "Hello, this is an audiobook preview sample.",
+                })
+            return jsonify({"provider": "edge_tts", "default_voice": EDGE_TTS_DEFAULT_VOICE, "voices": voices})
+        elif provider == "gemini_api_tts":
+            voices = [
+                {
+                    "id": v,
+                    "name": f"{v} (Gemini Neural)",
+                    "lang": "ko-KR",
+                    "gender": "Female" if v in ("Aoede", "Callirrhoe", "Autonoe", "Leda", "Kore", "Despina", "Erinome", "Laomedeia", "Pulcherrima", "Vindemiatrix", "Sulafat") else "Male",
+                    "default_sample": "안녕하세요. Gemini API TTS 음성 샘플입니다.",
+                }
+                for v in gemini_api_tts_voice_choices()
+            ]
+            return jsonify({"provider": "gemini_api_tts", "default_voice": "Sulafat", "voices": voices})
+        elif provider == "chatgpt_web":
+            voices = [
+                {
+                    "id": v,
+                    "name": f"{v.title()} (ChatGPT Web)",
+                    "lang": "ko-KR",
+                    "gender": "Female" if v.lower() in ("juniper", "breeze", "cove", "shimmer", "sol") else "Male",
+                    "default_sample": "안녕하세요. ChatGPT 웹 음성 샘플입니다.",
+                }
+                for v in chatgpt_web_voice_choices()
+            ]
+            return jsonify({"provider": "chatgpt_web", "default_voice": "cove", "voices": voices})
+        else:
+            voices = [
+                {
+                    "id": "account_default",
+                    "name": "계정 기본 음성 (Gemini Web)",
+                    "lang": "ko-KR",
+                    "gender": "Neutral",
+                    "default_sample": "안녕하세요. Gemini 웹 음성 샘플입니다.",
+                }
+            ]
+            return jsonify({"provider": "gemini_web", "default_voice": "account_default", "voices": voices})
+
+    @app.get("/api/tts/preview")
+    def preview_voice():
+        provider = str(request.args.get("provider") or "edge_tts").lower()
+        voice = str(request.args.get("voice") or EDGE_TTS_DEFAULT_VOICE).strip()
+        is_ko = "ko-KR" in voice or not voice.startswith("en-")
+        default_text = "안녕하세요. 오디오북 제작 스튜디오의 한국어 음성 샘플입니다." if is_ko else "Hello, this is an audiobook preview sample."
+        sample_text = str(request.args.get("text") or "").strip() or default_text
+
+        if provider == "edge_tts":
+            cache_dir = (data_root or Path(os.getenv("AUDIOBOOK_WEB_DATA_DIR", str(DEFAULT_DATA_ROOT)))) / "preview_cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            text_hash = hashlib.md5(f"{voice}_{sample_text}".encode("utf-8")).hexdigest()[:12]
+            preview_file = cache_dir / f"preview_{voice}_{text_hash}.mp3"
+            if not preview_file.is_file() or preview_file.stat().st_size == 0:
+                try:
+                    request_edge_tts_audio_file(sample_text, preview_file, voice=voice)
+                except Exception as exc:
+                    return jsonify({"error": f"Preview generation failed: {exc}"}), 500
+            return send_file(preview_file, mimetype="audio/mpeg", max_age=86400)
+        return jsonify({"error": f"미리듣기는 Edge TTS 음성에서 즉시 지원됩니다."}), 400
+
+    @app.get("/api/batch-report")
+    def get_batch_report():
+        scheduler_dir = ROOT / ".work" / "continuous_scheduler"
+        state_file = scheduler_dir / "state.json"
+        config_file = scheduler_dir / "config.json"
+        health_file = scheduler_dir / "account_login_health.json"
+        latest_audit_file = scheduler_dir / "latest_operations_audit.json"
+        audit_log_file = scheduler_dir / "operations_audits.jsonl"
+        events_file = scheduler_dir / "events.jsonl"
+        
+        state = json.loads(state_file.read_text(encoding="utf-8")) if state_file.is_file() else {}
+        config = json.loads(config_file.read_text(encoding="utf-8")) if config_file.is_file() else {}
+        health = json.loads(health_file.read_text(encoding="utf-8")) if health_file.is_file() else {}
+        latest_audit = json.loads(latest_audit_file.read_text(encoding="utf-8")) if latest_audit_file.is_file() else {}
+        
+        # 1. Audit history
+        audit_history = []
+        if audit_log_file.is_file():
+            try:
+                lines = audit_log_file.read_text(encoding="utf-8").strip().splitlines()
+                for line in lines[-6:]:
+                    try:
+                        audit_history.append(json.loads(line))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # 2. Map tasks to executing accounts from events.jsonl
+        task_account_map = {}
+        if events_file.is_file():
+            try:
+                for line in events_file.read_text(encoding="utf-8").splitlines():
+                    try:
+                        ev = json.loads(line)
+                        tid = ev.get("task_id")
+                        aid = ev.get("account_id")
+                        if tid and aid:
+                            task_account_map[tid] = aid
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # 3. Scan completion timestamps from standard library epub files in 소설2
+        library_root = Path("/Users/hyeokjunkong/Desktop/소설2")
+        epub_mtimes = {}
+        if library_root.is_dir():
+            try:
+                for prefix in ["[k-e]", "[k]", "[study]", "[e-s]"]:
+                    pref_dir = library_root / prefix
+                    if pref_dir.is_dir():
+                        for ep in pref_dir.glob("**/*.epub"):
+                            mtime = datetime.fromtimestamp(ep.stat().st_mtime).isoformat()
+                            for tspec in config.get("tasks", []):
+                                title = tspec.get("title", "")
+                                clean_title = title.split(" (")[0].strip()
+                                if clean_title and clean_title in ep.name:
+                                    if tspec["id"] not in epub_mtimes or mtime > epub_mtimes[tspec["id"]]:
+                                        epub_mtimes[tspec["id"]] = mtime
+            except Exception:
+                pass
+
+        # 4. Active & Completed tasks
+        active_tasks = []
+        completed_tasks = []
+        task_states = state.get("tasks", {})
+        for tspec in config.get("tasks", []):
+            tid = tspec["id"]
+            tstate = task_states.get(tid, {})
+            status = tstate.get("status", "unknown")
+            work_dir = Path(tspec.get("work_dir", ""))
+            hb_path = work_dir / "heartbeat.json"
+            
+            hb = {}
+            if hb_path.is_file():
+                try:
+                    hb = json.loads(hb_path.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+                    
+            completed = hb.get("completed_chunks", hb.get("completed", 0))
+            total = hb.get("total_chunks", hb.get("total", 0))
+            label = str(hb.get("label") or "")
+            
+            # If completed/total is 0 but label has '번역 X/Y', parse from label
+            if (total == 0 or completed == 0) and "번역 " in label:
+                try:
+                    import re
+                    m = re.search(r"번역\s+(\d+)\s*/\s*(\d+)", label)
+                    if m:
+                        completed = int(m.group(1))
+                        total = int(m.group(2))
+                except Exception:
+                    pass
+                    
+            pct = round((completed / total * 100), 1) if total > 0 else 0.0
+            
+            task_info = {
+                "id": tid,
+                "title": tspec.get("title", tid),
+                "status": status,
+                "account_id": tstate.get("account_id"),
+                "completed": completed,
+                "total": total,
+                "progress_percent": pct,
+                "stage": hb.get("stage", ""),
+                "label": label,
+                "detail": hb.get("detail", ""),
+                "speed_cph": hb.get("chunks_per_hour", 0.0),
+                "eta_minutes": hb.get("eta_minutes"),
+                "last_error": tstate.get("error"),
+                "started_at": tstate.get("started_at"),
+            }
+            
+            if status in ("completed", "done") or hb.get("stage") == "complete" or tid in epub_mtimes:
+                completed_tasks.append(task_info)
+            elif status in ("running", "external", "active") or hb.get("label"):
+                active_tasks.append(task_info)
+
+        # 5. Completed Timeline with Accounts
+        ACCOUNT_LABELS = {
+            "main": "계정 1 (haijun93)",
+            "account2": "계정 2 (haijun2be)",
+            "account3": "계정 3 (ngaytot9)",
+            "chatgpt": "ChatGPT (haijun93)",
+        }
+
+        completed_timeline = []
+        for tspec in config.get("tasks", []):
+            tid = tspec["id"]
+            tstate = task_states.get(tid, {})
+            work_dir = Path(tspec.get("work_dir", ""))
+            hb_path = work_dir / "heartbeat.json"
+            ev_file = work_dir / "workflow_events.jsonl"
+            is_complete = tstate.get("primary_complete") or tstate.get("status") in ("completed", "finalize_wait", "done") or tid in epub_mtimes
+            if not is_complete and hb_path.is_file():
+                try:
+                    hb = json.loads(hb_path.read_text(encoding="utf-8"))
+                    if hb.get("stage") == "complete" or hb.get("completed_chunks", 0) >= hb.get("total_chunks", 1):
+                        is_complete = True
+                except Exception:
+                    pass
+
+            if is_complete:
+                exec_account = task_account_map.get(tid) or tstate.get("account_id") or (tspec.get("preferred_accounts") or ["main"])[0]
+                comp_time = epub_mtimes.get(tid) or tstate.get("completed_at") or tstate.get("started_at")
+                
+                # Calculate exact translation duration from workflow events
+                duration_text = ""
+                if ev_file.is_file():
+                    try:
+                        lines = ev_file.read_text(encoding="utf-8").strip().splitlines()
+                        if lines:
+                            first_ev = json.loads(lines[0])
+                            last_ev = json.loads(lines[-1])
+                            t0 = first_ev.get("timestamp")
+                            t1 = last_ev.get("timestamp")
+                            if t0 and t1:
+                                dt0 = datetime.fromisoformat(t0)
+                                dt1 = datetime.fromisoformat(t1)
+                                sec = max(0, (dt1 - dt0).total_seconds())
+                                hrs = int(sec // 3600)
+                                mins = int((sec % 3600) // 60)
+                                if hrs > 0:
+                                    duration_text = f"{hrs}시간 {mins}분"
+                                else:
+                                    duration_text = f"{mins}분"
+                    except Exception:
+                        pass
+
+                completed_timeline.append({
+                    "id": tid,
+                    "title": tspec.get("title", tid),
+                    "account_id": exec_account,
+                    "account_label": ACCOUNT_LABELS.get(exec_account, exec_account),
+                    "completed_at": comp_time,
+                    "duration_text": duration_text,
+                })
+
+        completed_timeline.sort(key=lambda x: str(x.get("completed_at") or ""), reverse=True)
+
+        account_health = health.get("account_health", {})
+        
+        now = time.time()
+        last_audit_time = latest_audit.get("started_at")
+        next_audit_sec = 1800
+        if last_audit_time:
+            try:
+                last_ts = datetime.fromisoformat(last_audit_time).timestamp()
+                elapsed = now - last_ts
+                next_audit_sec = max(0, int(1800 - (elapsed % 1800)))
+            except Exception:
+                pass
+                
+        return jsonify({
+            "timestamp": health.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            "next_audit_seconds": next_audit_sec,
+            "accounts": account_health,
+            "active_tasks": active_tasks,
+            "completed_tasks": completed_tasks,
+            "completed_timeline": completed_timeline,
+            "latest_audit": latest_audit,
+            "audit_history": audit_history,
+        })
+
+    @app.post("/api/batch-report/run-check")
+    def trigger_batch_report():
+        try:
+            import subprocess
+            subprocess.Popen([".venv311/bin/python", "scripts/check_accounts_and_report.py"])
+            return jsonify({"status": "triggered", "message": "점검이 백그라운드에서 시작되었습니다."})
+        except Exception as exc:
+            return jsonify({"status": "error", "error": str(exc)}), 500
+
     @app.post("/api/jobs")
     def create_job():
         source_kind = str(request.form.get("source_kind") or "file")
@@ -168,6 +497,12 @@ def create_app(
             "request_timeout": request.form.get("request_timeout"),
             "visible": bool_form("visible"),
             "overwrite": bool_form("overwrite"),
+            # 배치 번역(/api/jobs/batch)에는 이 필드가 있는데 단일 번역(이 라우트)에는 빠져
+            # 있어서, 이 엔드포인트로 넣은 작업은 요청에 값을 넣어도 전부 무시되고 항상
+            # ChatGPT 대체가 허용된 채로 실행되고 있었다("disable_web_fallback" 미지정 시
+            # job_manager가 False로 기본 처리). 명시적으로 끄겠다고 보낸 경우가 아니면
+            # 기본값을 True(대체 금지)로 둔다 - ChatGPT 사용이 사용자 요청으로 중단된 상태다.
+            "disable_web_fallback": bool_form("disable_web_fallback") if "disable_web_fallback" in request.form else True,
         }
         job = job_manager.create_translation_job(
             source_name=upload.filename,
@@ -205,6 +540,7 @@ def create_app(
                 "overwrite": bool_value(payload.get("overwrite")),
                 "priority_substrings": payload.get("priority_substrings"),
                 "disable_web_fallback": bool_value(payload.get("disable_web_fallback")),
+                "reverse": bool_value(payload.get("reverse")),
             }
         else:
             settings = {
@@ -247,8 +583,9 @@ def create_app(
 
     @app.post("/api/jobs/<job_id>/stop")
     def stop_job(job_id: str):
+        reason = f"HTTP POST from {request.remote_addr} UA={request.headers.get('User-Agent', '')[:120]}"
         try:
-            return jsonify({"job": job_manager.stop_job(job_id)})
+            return jsonify({"job": job_manager.stop_job(job_id, reason=reason)})
         except KeyError:
             return jsonify({"error": "Job not found"}), 404
 
@@ -301,6 +638,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Allow binding beyond localhost. The web UI has no built-in authentication.",
     )
+    parser.add_argument(
+        "--web-account",
+        choices=("main", "account2", "account3", "chatgpt"),
+        default=os.getenv("AUDIOBOOK_WEB_ACCOUNT"),
+        help=(
+            "이 인스턴스가 쓸 Playwright 영구 브라우저 프로필 계정(main=haijun93@gmail.com Gemini, "
+            "account2=haijun2be@gmail.com Gemini, account3=ngaytot9@gmail.com Gemini, chatgpt=haijun93@gmail.com ChatGPT). 지정하면 "
+            "AUDIOBOOK_WEB_PROFILE_DIR을 이 계정의 고정 경로로 자동 설정해, 매번 경로 문자열을 "
+            "직접 타이핑하다 계정을 혼용하는 실수를 막는다. 이미 AUDIOBOOK_WEB_PROFILE_DIR이 "
+            "환경변수로 설정돼 있고 이 값과 다르면 시작을 거부한다."
+        ),
+    )
     parser.add_argument("--debug", action="store_true")
     return parser.parse_args()
 
@@ -309,6 +658,19 @@ def main() -> int:
     args = parse_args()
     if args.host not in {"127.0.0.1", "localhost", "::1"} and not args.allow_remote:
         raise SystemExit("Refusing a non-local host without --allow-remote")
+    if args.web_account:
+        from audiobook_maker import WEB_ACCOUNT_PROFILE_BASES
+
+        resolved = str(WEB_ACCOUNT_PROFILE_BASES[args.web_account])
+        existing = os.environ.get("AUDIOBOOK_WEB_PROFILE_DIR")
+        if existing and existing != resolved:
+            raise SystemExit(
+                f"--web-account={args.web_account}는 프로필 경로 {resolved!r}를 뜻하지만, "
+                f"환경변수 AUDIOBOOK_WEB_PROFILE_DIR이 이미 다른 값({existing!r})으로 설정돼 "
+                "있습니다. 둘 중 하나만 지정하거나 서로 맞춰주세요."
+            )
+        os.environ["AUDIOBOOK_WEB_PROFILE_DIR"] = resolved
+        print(f"web-account={args.web_account} -> AUDIOBOOK_WEB_PROFILE_DIR={resolved}", flush=True)
     app = create_app(data_root=args.data_dir, max_upload_mb=args.max_upload_mb)
     url_host = "127.0.0.1" if args.host in {"0.0.0.0", "::", "::1"} else args.host
     url = f"http://{url_host}:{args.port}"

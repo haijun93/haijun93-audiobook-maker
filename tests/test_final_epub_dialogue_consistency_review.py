@@ -9,6 +9,23 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import final_epub_dialogue_consistency_review as dialogue  # noqa: E402
+from final_epub_tone_review import classify_dialogue, sentence_tones  # noqa: E402
+
+
+def test_interrupted_yeoya_connective_is_not_classified_as_casual() -> None:
+    # "들어봐야" is the "-아야/-어야" connective ("must/only if you listen"), cut off
+    # mid-clause by the trailing ellipsis - not a complete casual "-야" sentence.
+    assert classify_dialogue("제 말을 들어봐야….") == "other"
+    assert classify_dialogue("가야...") == "other"
+    # A genuine, complete casual "-야" sentence must still be detected.
+    assert classify_dialogue("그건 내 거야.") == "casual"
+    assert classify_dialogue("가야.") == "casual"
+
+
+def test_interrupted_connective_no_longer_triggers_mixed_tone() -> None:
+    tones = sentence_tones("마르소 선생님, 이건 아니에요. 제 말을 들어봐야….")
+
+    assert tones == {"polite"}
 
 
 def test_second_dialogue_pass_detects_pronoun_and_honorific_conflicts(monkeypatch, tmp_path: Path) -> None:

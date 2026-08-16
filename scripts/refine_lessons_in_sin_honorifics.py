@@ -37,11 +37,11 @@ from translate_epub_with_chatgpt_web_to_study_epub import request_web_translatio
 
 
 DEFAULT_KE = Path(
-    str(Path.home()) + "/Desktop/소설2/[k-e]/Romance_Dark_Romance/Pam Godwin/"
+    str(Path.home()) + "/Desktop/소설2/[k-e]/#Pam Godwin/"
     "[k-e] Lessons in Sin Pam Godwin.epub"
 )
 DEFAULT_K = Path(
-    str(Path.home()) + "/Desktop/소설2/[k]/Romance_Dark_Romance/Pam Godwin/"
+    str(Path.home()) + "/Desktop/소설2/[k]/#Pam Godwin/"
     "[k] Lessons in Sin Pam Godwin.epub"
 )
 DEFAULT_WORK = Path(

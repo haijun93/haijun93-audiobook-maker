@@ -12,7 +12,7 @@ const STRINGS = {
     outputFolder: "결과 폴더", defaultOutput: "기본 위치 사용", recursive: "하위 폴더 포함", scan: "검색",
     jobs: "작업", active: "진행 중", ready: "완료", attention: "확인 필요", emptyTitle: "대기 중인 작업이 없습니다",
     emptyBody: "오디오, 번역 또는 폴더 작업을 등록하세요.", log: "실행 로그", copy: "복사", stop: "중단",
-    download: "다운로드", remove: "삭제", queued: "대기 중", running: "처리 중", cancelling: "중단 중",
+    download: "다운로드", remove: "삭제", queued: "대기 중", running: "처리 중", recovering: "복구 감시 중", cancelling: "중단 중",
     completed: "완료", failed: "실패", cancelled: "취소됨", created: "작업을 등록했습니다", copied: "로그를 복사했습니다",
     apiReady: "API 키 준비됨", apiMissing: "Gemini API 키 필요", browserReady: "Chrome 준비됨",
     browserMissing: "Chrome 또는 로그인 필요", ffmpegMissing: "FFmpeg 확인 필요", calibreMissing: "MOBI에는 Calibre 필요",
@@ -29,6 +29,12 @@ const STRINGS = {
     stageGuidePrep: "인물관계/용어 가이드 준비 중", stageFinalReview: "최종 검수 중(말투·용어 일관성)", stageComplete: "완료",
     progressHistoryTitle: "진행 이력 (30분 간격)",
     batchOverallLabel: "전체 배치 진행률",
+    liveOperations: "실시간 작업", connecting: "연결 중", liveConnected: "실시간 연결됨", liveReconnecting: "재연결 중",
+    runtimeActive: "실행 중", runtimeHealthy: "정상", runtimeRecovering: "자동 복구", runtimeEmpty: "실행 중인 외부 작업 없음",
+    operationsAudit: "30분 운영 감사", auditHealthy: "새 문제 없음", auditNext: "다음 점검", auditFindings: "발견", auditActions: "자동 개선", auditErrors: "신규 오류",
+    external: "외부 실행", cooldown: "제한 대기", pacing: "속도 조절", waiting: "재시도 대기", idle_no_work: "대기 작업 없음", degraded: "자동 진단 중",
+    stalled: "응답 없음", paused: "일시 정지", interrupted: "중단 감지", reconnecting: "프로세스 확인 중",
+    eta: "예상", heartbeatNow: "방금", perHour: "시간당",
   },
   en: {
     brandSub: "Korean Audiobook Maker", newJob: "New job", taskAudio: "Audio", taskTranslation: "Translate",
@@ -43,7 +49,7 @@ const STRINGS = {
     outputFolder: "Output folder", defaultOutput: "Use default location", recursive: "Include subfolders", scan: "Scan",
     jobs: "Jobs", active: "Active", ready: "Ready", attention: "Attention", emptyTitle: "No jobs yet",
     emptyBody: "Add an audio, translation, or folder job.", log: "Run log", copy: "Copy", stop: "Stop",
-    download: "Download", remove: "Delete", queued: "Queued", running: "Processing", cancelling: "Stopping",
+    download: "Download", remove: "Delete", queued: "Queued", running: "Processing", recovering: "Recovering", cancelling: "Stopping",
     completed: "Complete", failed: "Failed", cancelled: "Cancelled", created: "Job added", copied: "Log copied",
     apiReady: "API key ready", apiMissing: "Gemini API key required", browserReady: "Chrome ready",
     browserMissing: "Chrome or login required", ffmpegMissing: "Check FFmpeg", calibreMissing: "Calibre required for MOBI",
@@ -60,13 +66,50 @@ const STRINGS = {
     stageGuidePrep: "Preparing relationship/terminology guide", stageFinalReview: "Final review (tone/terminology consistency)", stageComplete: "Complete",
     progressHistoryTitle: "Progress history (every 30 min)",
     batchOverallLabel: "Overall batch progress",
+    liveOperations: "Live operations", connecting: "Connecting", liveConnected: "Live", liveReconnecting: "Reconnecting",
+    runtimeActive: "Active", runtimeHealthy: "Healthy", runtimeRecovering: "Auto recovery", runtimeEmpty: "No external work is running",
+    operationsAudit: "30-minute operations audit", auditHealthy: "No new issues", auditNext: "Next audit", auditFindings: "Findings", auditActions: "Auto fixes", auditErrors: "New errors",
+    external: "External", cooldown: "Cooldown", pacing: "Pacing", waiting: "Waiting", idle_no_work: "No queued work", degraded: "Diagnosing",
+    stalled: "Unresponsive", paused: "Paused", interrupted: "Interrupted", reconnecting: "Checking process",
+    eta: "ETA", heartbeatNow: "Now", perHour: "per hour",
   },
 };
 
 const VOICES = {
-  gemini_api_tts: ["Sulafat", "Kore", "Aoede", "Charon", "Fenrir", "Leda", "Orus", "Puck", "Zephyr"],
-  gemini_web: ["account_default"],
-  chatgpt_web: ["cove", "fathom", "orbit", "vale", "glimmer", "juniper", "maple", "breeze", "ember"],
+  edge_tts: [
+    { id: "ko-KR-SunHiNeural", name: "선희 (한국어 여성, 부드러움)" },
+    { id: "ko-KR-InJoonNeural", name: "인준 (한국어 남성, 신뢰감)" },
+    { id: "ko-KR-HyunsuMultilingualNeural", name: "현수 (한국어/다국어 남성)" },
+    { id: "en-US-AvaNeural", name: "Ava (English Female, Natural)" },
+    { id: "en-US-AndrewNeural", name: "Andrew (English Male, Warm)" },
+    { id: "en-US-EmmaNeural", name: "Emma (English Female, Crisp)" },
+    { id: "en-US-BrianNeural", name: "Brian (English Male, Deep)" },
+    { id: "en-US-JennyNeural", name: "Jenny (English Female, Storyteller)" },
+    { id: "en-US-GuyNeural", name: "Guy (English Male, News/Narration)" },
+  ],
+  gemini_api_tts: [
+    { id: "Sulafat", name: "Sulafat (기본)" },
+    { id: "Kore", name: "Kore" },
+    { id: "Aoede", name: "Aoede" },
+    { id: "Charon", name: "Charon" },
+    { id: "Fenrir", name: "Fenrir" },
+    { id: "Leda", name: "Leda" },
+    { id: "Orus", name: "Orus" },
+    { id: "Puck", name: "Puck" },
+    { id: "Zephyr", name: "Zephyr" },
+  ],
+  gemini_web: [{ id: "account_default", name: "계정 기본 음성" }],
+  chatgpt_web: [
+    { id: "cove", name: "Cove" },
+    { id: "fathom", name: "Fathom" },
+    { id: "orbit", name: "Orbit" },
+    { id: "vale", name: "Vale" },
+    { id: "glimmer", name: "Glimmer" },
+    { id: "juniper", name: "Juniper" },
+    { id: "maple", name: "Maple" },
+    { id: "breeze", name: "Breeze" },
+    { id: "ember", name: "Ember" },
+  ],
 };
 
 const state = {
@@ -74,6 +117,7 @@ const state = {
   task: "audio", system: {}, jobs: [], selectedId: null, logOffset: 0, logText: "", polling: false,
   submitting: { audio: false, translation: false, batch: false },
   progressHistory: {},
+  runtime: { summary: {}, workflows: [] }, runtimeStream: null, runtimeLastMessage: 0, runtimeConnection: "connecting",
 };
 
 const PROGRESS_HISTORY_INTERVAL_MS = 30 * 60 * 1000;
@@ -149,39 +193,53 @@ function updateSegmentedControls() {
 }
 
 function providerReady(provider) {
+  if (provider === "edge_tts") return true;
   return provider === "gemini_api_tts" ? Boolean(state.system.gemini_api_key) : Boolean(state.system.chrome_available);
 }
 
 function providerStatus(provider) {
   const ready = providerReady(provider);
+  let text = t(ready ? "browserReady" : "browserMissing");
+  if (provider === "edge_tts") {
+    text = t("edgeTtsReady");
+  } else if (provider === "gemini_api_tts") {
+    text = t(ready ? "apiReady" : "apiMissing");
+  }
   return {
     ready,
-    text: provider === "gemini_api_tts" ? t(ready ? "apiReady" : "apiMissing") : t(ready ? "browserReady" : "browserMissing"),
+    text,
   };
 }
 
 function setVoiceOptions(form, select) {
-  const provider = selectedValue(form, "provider", "gemini_web");
+  const provider = selectedValue(form, "provider", "edge_tts");
   const current = select.value;
-  select.replaceChildren(...VOICES[provider].map((name) => {
+  const voiceList = VOICES[provider] || [];
+  select.replaceChildren(...voiceList.map((item) => {
     const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
+    if (typeof item === "object") {
+      option.value = item.id;
+      option.textContent = item.name;
+    } else {
+      option.value = item;
+      option.textContent = item;
+    }
     return option;
   }));
-  if (VOICES[provider].includes(current)) select.value = current;
+  const validValues = voiceList.map(v => typeof v === "object" ? v.id : v);
+  if (validValues.includes(current)) select.value = current;
 }
 
 function updateAudioProviderUI() {
   const form = $("#audio-form");
-  const provider = selectedValue(form, "provider", "gemini_web");
+  const provider = selectedValue(form, "provider", "edge_tts");
   const status = providerStatus(provider);
   $("#audio-provider-state").textContent = status.text;
   $("#audio-provider-state").classList.toggle("warn", !status.ready);
   $("#audio-model-field").hidden = provider !== "gemini_api_tts";
-  $("#audio-visible-field").hidden = provider === "gemini_api_tts";
+  $("#audio-visible-field").hidden = provider === "gemini_api_tts" || provider === "edge_tts";
   if (form.dataset.activeProvider !== provider) {
-    $("#audio-max-chars").value = provider === "gemini_api_tts" ? "2500" : provider === "gemini_web" ? "1600" : "1800";
+    $("#audio-max-chars").value = provider === "edge_tts" ? "4000" : provider === "gemini_api_tts" ? "2500" : provider === "gemini_web" ? "1600" : "1800";
     form.dataset.activeProvider = provider;
   }
   setVoiceOptions(form, $("#audio-voice"));
@@ -230,6 +288,8 @@ function applyLanguage() {
   $$('[data-i18n-placeholder]').forEach((node) => { node.placeholder = t(node.dataset.i18nPlaceholder); });
   $$('[data-lang]').forEach((button) => button.classList.toggle("active", button.dataset.lang === state.language));
   renderJobs();
+  renderRuntime();
+  setRuntimeConnection(state.runtimeConnection);
   updateAudioProviderUI();
   updateTranslationProviderUI();
   updateBatchUI();
@@ -280,7 +340,7 @@ function bindDropZone(zoneSelector, inputSelector, labelSelector, changeCallback
 }
 
 function statusLabel(status) { return t(status) || status; }
-function activeStatus(status) { return ["queued", "running", "cancelling"].includes(status); }
+function activeStatus(status) { return ["queued", "running", "recovering", "cancelling"].includes(status); }
 function attentionStatus(status) { return ["failed", "cancelled"].includes(status); }
 function jobTypeLabel(type) {
   return t({ audio: "audioJob", translation: "translationJob", batch_translation: "batchTranslationJob", batch_audio: "batchAudioJob" }[type] || "audioJob");
@@ -291,6 +351,7 @@ const PIPELINE_STAGE_MAP = {
   translation_attempt_start: "stageWaiting",
   wait_for_response: "stageWaiting",
   translation_request_pacing: "stagePacing",
+  chatgpt_request_pacing: "stagePacing",
   translation_response_received: "stagePolishDone",
   translation_retry_sleep: "stageRetrying",
   translation_temporary_error_cooldown: "stageRetrying",
@@ -335,16 +396,209 @@ function pipelineStageInfo(heartbeat) {
   return { label: t(PIPELINE_STAGE_MAP[stage]) || stage, kind: PIPELINE_STAGE_KIND[stage] || "gemini" };
 }
 
+const RUNTIME_WORKFLOW_LABELS = {
+  study_note_backfill: { ko: "학습노트 백필", en: "Study-note backfill" },
+  epub_translation: { ko: "EPUB 번역", en: "EPUB translation" },
+  audiobook_generation: { ko: "오디오 생성", en: "Audiobook generation" },
+  workflow_runner: { ko: "일괄 워크플로", en: "Batch workflow" },
+};
+
+const RUNTIME_STAGE_LABELS = {
+  startup: { ko: "시작 준비", en: "Starting" },
+  request_notes: { ko: "학습노트 생성", en: "Generating study notes" },
+  wait_for_response: { ko: "응답 수신 중", en: "Receiving response" },
+  prompt_submitted: { ko: "요청 전송 완료", en: "Request submitted" },
+  conversation_rate_limit_wait: { ko: "대화 제한 해제 대기", en: "Conversation cooldown" },
+  conversation_rate_limit_recover_done: { ko: "새 대화에서 재개 준비", en: "Resuming in a fresh conversation" },
+  rate_limit_wait: { ko: "요청 제한 해제 대기", en: "Rate-limit cooldown" },
+  translation_request_pacing: { ko: "다음 번역 요청 대기", en: "Pacing next request" },
+  chatgpt_request_pacing: { ko: "ChatGPT 안전 요청 간격 조절", en: "Pacing ChatGPT requests" },
+  section_attempt_start: { ko: "음성 합성 요청", en: "Requesting speech" },
+  combine_audio: { ko: "오디오 결합 중", en: "Combining audio" },
+  complete: { ko: "완료", en: "Complete" },
+  done: { ko: "완료", en: "Complete" },
+};
+
+const RUNTIME_DIAGNOSIS_LABELS = {
+  conversation_rate_limit: { ko: "현재 대화 요청 제한", en: "Conversation rate limit" },
+  rate_limit: { ko: "서비스 요청 제한", en: "Provider rate limit" },
+  usage_limit: { ko: "계정 사용량 한도", en: "Account usage limit" },
+  temporary_service_error: { ko: "서비스 일시 오류", en: "Temporary service error" },
+  network_error: { ko: "네트워크 연결 오류", en: "Network error" },
+  timeout_or_empty_response: { ko: "응답 시간 초과", en: "Response timeout" },
+  profile_in_use: { ko: "브라우저 프로필 사용 중", en: "Browser profile in use" },
+  session_expired: { ko: "로그인 세션 만료", en: "Session expired" },
+  heartbeat_stale: { ko: "진행 신호 없음", en: "Progress heartbeat stale" },
+  progress_stalled: { ko: "30분간 완료 진전 없음", en: "No checkpoint progress for 30 minutes" },
+  workflow_interrupted: { ko: "작업 중단 감지", en: "Workflow interruption detected" },
+  recovery_wait: { ko: "예약된 복구 대기", en: "Scheduled recovery wait" },
+  provider_error_burst: { ko: "서비스 오류 급증", en: "Provider error burst" },
+  response_format_error_burst: { ko: "응답 형식 오류 반복", en: "Repeated response format errors" },
+  new_errors_observed: { ko: "신규 오류 관찰", en: "New errors observed" },
+  gemini_outage: { ko: "Gemini 일시 장애", en: "Gemini temporary outage" },
+  child_process_failed: { ko: "작업 프로세스 종료", en: "Worker process exited" },
+};
+
+function localizedMapValue(map, key) {
+  return map[key]?.[state.language] || String(key || "").replaceAll("_", " ");
+}
+
+function formatRuntimeDuration(seconds) {
+  const value = Math.max(0, Number(seconds) || 0);
+  if (value < 60) return `${Math.round(value)}${state.language === "ko" ? "초" : "s"}`;
+  if (value < 3600) return `${Math.round(value / 60)}${state.language === "ko" ? "분" : "m"}`;
+  const totalMinutes = Math.round(value / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return state.language === "ko" ? `${hours}시간 ${minutes}분` : `${hours}h ${minutes}m`;
+}
+
+function runtimeHeartbeatText(age) {
+  if (age == null) return "--";
+  if (Number(age) < 5) return t("heartbeatNow");
+  return state.language === "ko" ? `${formatRuntimeDuration(age)} 전` : `${formatRuntimeDuration(age)} ago`;
+}
+
+function runtimeStageText(item) {
+  const stage = RUNTIME_STAGE_LABELS[item.stage]
+    ? localizedMapValue(RUNTIME_STAGE_LABELS, item.stage)
+    : (PIPELINE_STAGE_MAP[item.stage] ? t(PIPELINE_STAGE_MAP[item.stage]) : String(item.stage || "").replaceAll("_", " "));
+  return item.stage_label ? `${stage} · ${item.stage_label}` : stage;
+}
+
+function renderRuntime() {
+  const snapshot = state.runtime || { summary: {}, workflows: [] };
+  const summary = snapshot.summary || {};
+  $("#runtime-active-count").textContent = summary.active || 0;
+  $("#runtime-healthy-count").textContent = summary.healthy || 0;
+  $("#runtime-recovering-count").textContent = summary.recovering || 0;
+  $("#runtime-attention-count").textContent = summary.attention || 0;
+
+  const audit = snapshot.operations_audit || {};
+  const auditNode = $("#runtime-audit");
+  auditNode.hidden = !audit.sequence;
+  if (audit.sequence) {
+    const auditSummary = audit.summary || {};
+    const issues = Number(auditSummary.findings) || 0;
+    const actions = Number(auditSummary.actions_applied) || 0;
+    const newErrors = Number(auditSummary.new_errors) || 0;
+    const nextAt = audit.next_run_at
+      ? new Date(audit.next_run_at).toLocaleTimeString(state.language === "ko" ? "ko-KR" : "en-US", { hour: "2-digit", minute: "2-digit" })
+      : "--";
+    const newest = (audit.findings || []).find((finding) => finding.kind !== "healthy");
+    const headline = newest
+      ? `${newest.title} · ${localizedMapValue(RUNTIME_DIAGNOSIS_LABELS, newest.kind)}`
+      : t("auditHealthy");
+    const providerEfficiency = (audit.provider_efficiency || []).map((metric) => {
+      const provider = String(metric.provider || "").toLowerCase() === "chatgpt" ? "ChatGPT" : "Gemini";
+      const rate = Number(metric.chunks_per_hour || 0).toFixed(1);
+      const errors = Math.round(Number(metric.error_rate || 0) * 100);
+      return state.language === "ko"
+        ? `${provider} ${rate}청크/시간 · 오류 ${errors}%`
+        : `${provider} ${rate} chunks/hour · errors ${errors}%`;
+    }).join(" | ");
+    auditNode.className = `runtime-audit audit-${escapeHtml(audit.status || "healthy")}`;
+    auditNode.innerHTML = `
+      <div><strong>${escapeHtml(t("operationsAudit"))}</strong><span>${escapeHtml(headline)}</span></div>
+      <p><b>${escapeHtml(`${t("auditFindings")} ${issues}`)}</b><b>${escapeHtml(`${t("auditErrors")} ${newErrors}`)}</b><b>${escapeHtml(`${t("auditActions")} ${actions}`)}</b><span>${escapeHtml(`${t("auditNext")} ${nextAt}`)}</span></p>
+      ${providerEfficiency ? `<p><span>${escapeHtml(providerEfficiency)}</span></p>` : ""}`;
+  }
+
+  const accounts = snapshot.accounts || [];
+  const accountList = $("#runtime-accounts");
+  accountList.hidden = accounts.length === 0;
+  accountList.innerHTML = accounts.map((account) => {
+    const status = String(account.status || "waiting");
+    const working = ["running", "external", "reconnecting", "pacing"].includes(status);
+    const stateClass = working ? "running" : (["cooldown", "waiting", "degraded"].includes(status) ? "recovering" : status);
+    const provider = String(account.provider || "").replaceAll("_", " ");
+    const detail = account.message || account.task_id || "";
+    return `
+      <article class="runtime-account">
+        <span class="status-dot ${escapeHtml(stateClass)}" aria-hidden="true"></span>
+        <div><strong>${escapeHtml(account.label || account.id)}</strong><span>${escapeHtml([provider, detail].filter(Boolean).join(" · "))}</span></div>
+        <b class="runtime-status ${escapeHtml(stateClass)}">${escapeHtml(statusLabel(status))}</b>
+      </article>`;
+  }).join("");
+
+  const workflows = snapshot.workflows || [];
+  const list = $("#runtime-list");
+  $("#runtime-empty").hidden = workflows.length > 0;
+  list.hidden = workflows.length === 0;
+  list.innerHTML = workflows.map((item) => {
+    const allowedStatuses = ["running", "recovering", "stalled", "failed", "paused", "interrupted", "reconnecting", "completed"];
+    const allowedHealth = ["healthy", "degraded", "stalled", "failed", "paused"];
+    const status = allowedStatuses.includes(item.status) ? item.status : "running";
+    const health = allowedHealth.includes(item.health) ? item.health : "healthy";
+    const progress = item.progress || {};
+    const completed = progress.completed == null ? "--" : progress.completed;
+    const total = progress.total == null ? "--" : progress.total;
+    const percent = Math.min(100, Math.max(0, Number(progress.percent) || 0));
+    const provider = String(item.provider || "").replaceAll("_", " ");
+    const workflowLabel = localizedMapValue(RUNTIME_WORKFLOW_LABELS, item.workflow);
+    const meta = [workflowLabel, provider, item.pid ? `PID ${item.pid}` : null, item.elapsed].filter(Boolean).join(" · ");
+    const velocity = progress.units_per_hour
+      ? (state.language === "ko" ? `${progress.units_per_hour}개/시간` : `${progress.units_per_hour}/hour`) : "";
+    const eta = progress.eta_seconds != null ? `${t("eta")} ${formatRuntimeDuration(progress.eta_seconds)}` : "";
+    const progressMeta = [velocity, eta].filter(Boolean).join(" · ");
+    const diagnosis = item.diagnosis || null;
+    const recovery = item.recovery || null;
+    const diagnosisTitle = diagnosis ? localizedMapValue(RUNTIME_DIAGNOSIS_LABELS, diagnosis.kind) : "";
+    const diagnosisAction = diagnosis
+      ? (recovery?.automatic_retry
+        ? (state.language === "ko" ? "자동 대응 후 완료 지점부터 재개" : "Auto recovery will resume from the last checkpoint")
+        : (recovery?.action || diagnosis.action || diagnosis.root_cause || ""))
+      : "";
+    const diagnosisHtml = diagnosis ? `
+      <div class="runtime-diagnosis">
+        <strong>${escapeHtml(diagnosisTitle)}</strong>
+        <span>${escapeHtml(diagnosisAction)}</span>
+      </div>` : "";
+    return `
+      <article class="runtime-item health-${health}" data-runtime-id="${escapeHtml(item.id)}">
+        <div class="runtime-item-header">
+          <span class="status-dot ${status}" aria-hidden="true"></span>
+          <div class="runtime-item-title">
+            <strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong>
+            <span>${escapeHtml(meta)}</span>
+          </div>
+          <span class="runtime-status ${status}">${escapeHtml(statusLabel(status))}</span>
+        </div>
+        <div class="runtime-progress-head">
+          <span class="runtime-progress-count">${escapeHtml(`${completed}/${total}`)} · ${percent}%</span>
+          <span class="runtime-progress-meta">${escapeHtml(progressMeta)}</span>
+        </div>
+        <div class="progress-track" role="progressbar" aria-label="${escapeHtml(t("progress"))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><span style="width:${percent}%"></span></div>
+        <div class="runtime-stage" title="${escapeHtml(item.detail || "")}">
+          <span class="runtime-stage-dot" aria-hidden="true"></span>
+          <span class="runtime-stage-main">${escapeHtml(runtimeStageText(item))}</span>
+          <span class="runtime-heartbeat">${escapeHtml(runtimeHeartbeatText(item.heartbeat?.age_seconds))}</span>
+        </div>
+        ${diagnosisHtml}
+      </article>`;
+  }).join("");
+}
+
+function setRuntimeConnection(status) {
+  state.runtimeConnection = status;
+  const signal = $("#runtime-signal");
+  signal.classList.toggle("connected", status === "connected");
+  signal.classList.toggle("reconnecting", status === "reconnecting");
+  $("#runtime-connection").textContent = t(status === "connected" ? "liveConnected" : status === "reconnecting" ? "liveReconnecting" : "connecting");
+}
+
 function renderSummary() {
-  $("#active-count").textContent = state.jobs.filter((job) => activeStatus(job.status)).length;
-  $("#done-count").textContent = state.jobs.filter((job) => job.status === "completed").length;
-  $("#failed-count").textContent = state.jobs.filter((job) => attentionStatus(job.status)).length;
+  const a = $("#active-count"); if (a) a.textContent = state.jobs.filter((job) => activeStatus(job.status)).length;
+  const d = $("#done-count"); if (d) d.textContent = state.jobs.filter((job) => job.status === "completed").length;
+  const f = $("#failed-count"); if (f) f.textContent = state.jobs.filter((job) => attentionStatus(job.status)).length;
 }
 
 function renderJobs() {
   renderSummary();
   const list = $("#job-list");
-  $("#empty-state").hidden = state.jobs.length > 0;
+  const empty = $("#empty-state");
+  if (!list) return;
+  if (empty) empty.hidden = state.jobs.length > 0;
   list.hidden = state.jobs.length === 0;
   list.innerHTML = state.jobs.map((job) => {
     const progress = Number(job.progress) || 0;
@@ -471,7 +725,16 @@ function renderDetail() {
   }
 
   const errorPanel = $("#detail-error");
-  const errorText = job.status === "failed" ? (job.error_detail || job.message || "") : "";
+  const diagnosis = job.diagnosis || (job.batch || {}).diagnosis || null;
+  const recovery = job.recovery || null;
+  const diagnosticText = diagnosis ? [
+    diagnosis.kind,
+    diagnosis.root_cause,
+    (recovery || {}).action || diagnosis.action,
+  ].filter(Boolean).join("\n") : "";
+  const errorText = job.status === "failed"
+    ? (job.error_detail || diagnosticText || job.message || "")
+    : diagnosticText;
   errorPanel.hidden = !errorText;
   $("#detail-error-text").textContent = errorText;
 
@@ -530,6 +793,40 @@ async function refreshJobs() {
     if (state.selectedId) await refreshLog();
   } catch (error) { toast(error.message, true); }
   finally { state.polling = false; }
+}
+
+function applyRuntimeSnapshot(snapshot) {
+  state.runtime = snapshot || { summary: {}, workflows: [] };
+  state.runtimeLastMessage = Date.now();
+  setRuntimeConnection("connected");
+  renderRuntime();
+}
+
+async function refreshRuntime() {
+  try {
+    applyRuntimeSnapshot(await api("/api/runtime"));
+  } catch (_) {
+    setRuntimeConnection("reconnecting");
+  }
+}
+
+function connectRuntimeStream() {
+  if (!("EventSource" in window)) {
+    setInterval(refreshRuntime, 1000);
+    return;
+  }
+  if (state.runtimeStream) state.runtimeStream.close();
+  const stream = new EventSource("/api/runtime/stream");
+  state.runtimeStream = stream;
+  stream.addEventListener("runtime", (event) => {
+    try { applyRuntimeSnapshot(JSON.parse(event.data)); }
+    catch (_) { setRuntimeConnection("reconnecting"); }
+  });
+  stream.onopen = () => setRuntimeConnection("connected");
+  stream.onerror = () => {
+    setRuntimeConnection("reconnecting");
+    if (Date.now() - state.runtimeLastMessage > 4000) refreshRuntime();
+  };
 }
 
 async function refreshLog() {
@@ -653,7 +950,211 @@ async function loadSystem() {
   } catch (error) { toast(error.message, true); }
 }
 
+function setupVoicePreviewButtons() {
+  const setupBtn = (btnId, selectId, playerElId, formId) => {
+    const btn = $(btnId);
+    const select = $(selectId);
+    const player = $(playerElId);
+    const form = $(formId);
+    if (!btn || !select || !player || !form) return;
+
+    btn.addEventListener("click", () => {
+      const provider = selectedValue(form, "provider", "edge_tts");
+      const voice = select.value;
+      if (!voice) return;
+
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = "<span>⏳</span> <span>생성 중...</span>";
+      btn.disabled = true;
+
+      const audioUrl = `/api/tts/preview?provider=${encodeURIComponent(provider)}&voice=${encodeURIComponent(voice)}&_t=${Date.now()}`;
+      player.src = audioUrl;
+      player.style.display = "block";
+      player.play().then(() => {
+        btn.innerHTML = "<span>🔊</span> <span>재생 중...</span>";
+      }).catch((e) => {
+        console.warn("Preview play error:", e);
+      }).finally(() => {
+        setTimeout(() => {
+          btn.innerHTML = originalHtml;
+          btn.disabled = false;
+        }, 1500);
+      });
+
+      player.onended = () => {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+      };
+      player.onerror = () => {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+        toast(t("unknownError"), true);
+      };
+    });
+  };
+
+  setupBtn("#audio-voice-preview-btn", "#audio-voice", "#audio-voice-preview-player", "#audio-form");
+  setupBtn("#batch-voice-preview-btn", "#batch-voice", "#batch-voice-preview-player", "#batch-form");
+}
+
+async function refreshBatchReport() {
+  try {
+    const resp = await fetch("/api/batch-report");
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    // 1. Next Audit Countdown Timer
+    const nextSec = data.next_audit_seconds || 0;
+    const min = Math.floor(nextSec / 60);
+    const sec = nextSec % 60;
+    const timerElem = $("#next-audit-timer");
+    if (timerElem) {
+      timerElem.textContent = `${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+    }
+
+    // 2. Account Health Grid
+    const accGrid = $("#account-health-grid");
+    if (accGrid) {
+      const accounts = data.accounts || {};
+      const accKeys = ["main", "account2", "account3", "chatgpt"];
+      accGrid.innerHTML = accKeys.map((key) => {
+        const acc = accounts[key] || {};
+        const isOk = acc.logged_in;
+        const isWarn = acc.status === "attention" || acc.reason === "session_expired" || !acc.logged_in;
+        const statusClass = isOk ? "status-ok" : isWarn ? "status-warn" : "status-err";
+        const tagClass = isOk ? "ok" : isWarn ? "warn" : "err";
+        const statusText = isOk ? "정상 🟢" : isWarn ? "로그인 필요 🟡" : "오류 🔴";
+        const label = acc.label || key;
+        const msg = acc.message || (isOk ? "로그인 세션 활성" : "세션 재연결 대기");
+
+        return `
+          <div class="account-health-card ${statusClass}">
+            <div class="acc-card-header">
+              <span class="acc-name">${escapeHtml(label)}</span>
+              <span class="acc-status-tag ${tagClass}">${statusText}</span>
+            </div>
+            <div class="acc-card-msg">${escapeHtml(msg)}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    // 3. Active Tasks Container
+    const tasksContainer = $("#active-tasks-container");
+    const countBadge = $("#active-tasks-count");
+    const activeTasks = data.active_tasks || [];
+    if (countBadge) {
+      countBadge.textContent = `${activeTasks.length}권 진행 중`;
+    }
+
+    if (tasksContainer) {
+      if (activeTasks.length === 0) {
+        tasksContainer.innerHTML = `<div class="empty-state-small">현재 활성화된 도서 번역 작업이 없습니다.</div>`;
+      } else {
+        tasksContainer.innerHTML = activeTasks.map((t) => {
+          const pct = t.progress_percent || 0;
+          const labelText = t.label || `진행률 ${pct}%`;
+          const speedText = t.speed_cph ? `${t.speed_cph} chunks/h` : "--";
+          const etaText = t.eta_minutes ? `예상 ${t.eta_minutes}분` : "";
+
+          return `
+            <div class="task-progress-card">
+              <div class="task-card-row-top">
+                <div class="task-card-title">
+                  <span>📖</span>
+                  <span>${escapeHtml(t.title)}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="task-account-badge">${escapeHtml(t.account_id || "scheduler")}</span>
+                  <span class="task-progress-pct-bold">${pct}%</span>
+                </div>
+              </div>
+              <div class="task-progress-bar-wrap">
+                <div class="task-progress-bar-fill" style="width: ${Math.min(100, Math.max(2, pct))}%"></div>
+              </div>
+              <div class="task-card-row-bottom">
+                <span class="task-label-detail">${escapeHtml(labelText)}</span>
+                <div class="task-speed-eta">
+                  <span>⚡ ${speedText}</span>
+                  ${etaText ? `<span>⏱️ ${etaText}</span>` : ""}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    // 4. Completed Timeline (시간대별 번역 완료 작품 및 처리 계정)
+    const timelineContainer = $("#completed-timeline-container");
+    const compCountBadge = $("#completed-timeline-count");
+    const timeline = data.completed_timeline || [];
+    if (compCountBadge) {
+      compCountBadge.textContent = `${timeline.length}권 완료`;
+    }
+
+    if (timelineContainer) {
+      if (timeline.length === 0) {
+        timelineContainer.innerHTML = `<div class="empty-list-text">아직 완료된 도서가 없습니다.</div>`;
+      } else {
+        timelineContainer.innerHTML = timeline.map((t) => {
+          let timeText = "--:--";
+          if (t.completed_at) {
+            try {
+              const d = new Date(t.completed_at);
+              timeText = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+            } catch (e) {}
+          }
+          const accClass = `acc-${t.account_id || "main"}`;
+
+          return `
+            <div class="timeline-card">
+              <div class="timeline-left">
+                <span class="timeline-time-badge">🕒 ${timeText}</span>
+                <span class="timeline-book-title">${escapeHtml(t.title)}</span>
+              </div>
+              <div class="timeline-right">
+                ${t.duration_text ? `<span class="timeline-duration-badge">⏱️ ${escapeHtml(t.duration_text)}</span>` : ""}
+                <span class="account-tag-badge ${accClass}">👤 ${escapeHtml(t.account_label || t.account_id)}</span>
+                <span style="font-size: 11px; font-weight: 700; color: #16a34a;">완료 🏆</span>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    // 5. Audit History
+    const auditList = $("#audit-history-list");
+    if (auditList) {
+      const history = (data.audit_history || []).slice().reverse();
+      if (history.length === 0) {
+        auditList.innerHTML = `<div class="empty-list-text">최근 기록된 감사 이력이 없습니다.</div>`;
+      } else {
+        auditList.innerHTML = history.slice(0, 4).map((h) => {
+          const timeStr = h.timestamp ? new Date(h.timestamp).toLocaleTimeString() : "--";
+          const findings = h.findings || 0;
+          const critical = h.critical || 0;
+          const actions = h.actions_applied || 0;
+          return `
+            <div class="audit-history-item">
+              <div class="audit-history-header">
+                <span>🕒 ${timeStr} 점검</span>
+                <span>조치: ${actions}건</span>
+              </div>
+              <div class="audit-history-findings">발견 문제: ${findings}건 (치명적: ${critical}건)</div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to refresh batch report:", err);
+  }
+}
+
 function bindEvents() {
+  setupVoicePreviewButtons();
   $$('[data-lang]').forEach((button) => button.addEventListener("click", () => {
     state.language = button.dataset.lang;
     localStorage.setItem("audiobook-language", state.language);
@@ -674,12 +1175,34 @@ function bindEvents() {
   $("#batch-form").addEventListener("submit", submitBatch);
   $("#scan-folder").addEventListener("click", scanFolder);
   $("#batch-recursive").addEventListener("change", () => { $("#folder-scan-result").textContent = ""; });
-  $("#refresh-jobs").addEventListener("click", refreshJobs);
-  $("#close-detail").addEventListener("click", () => { state.selectedId = null; renderJobs(); });
-  $("#copy-log").addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(state.logText || ""); toast(t("copied")); }
-    catch (error) { toast(error.message || t("unknownError"), true); }
-  });
+  
+  const refreshBatchBtn = $("#refresh-batch-report");
+  if (refreshBatchBtn) {
+    refreshBatchBtn.addEventListener("click", async () => {
+      refreshBatchBtn.disabled = true;
+      toast("30분 정기 점검을 즉시 시작합니다...");
+      try {
+        await fetch("/api/batch-report/run-check", { method: "POST" });
+        setTimeout(refreshBatchReport, 1500);
+      } finally {
+        setTimeout(() => { refreshBatchBtn.disabled = false; }, 3000);
+      }
+    });
+  }
+
+  const refreshJobsBtn = $("#refresh-jobs");
+  if (refreshJobsBtn) refreshJobsBtn.addEventListener("click", refreshJobs);
+  const refreshRuntimeBtn = $("#refresh-runtime");
+  if (refreshRuntimeBtn) refreshRuntimeBtn.addEventListener("click", refreshRuntime);
+  const closeDetailBtn = $("#close-detail");
+  if (closeDetailBtn) closeDetailBtn.addEventListener("click", () => { state.selectedId = null; renderJobs(); });
+  const copyLogBtn = $("#copy-log");
+  if (copyLogBtn) {
+    copyLogBtn.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(state.logText || ""); toast(t("copied")); }
+      catch (error) { toast(error.message || t("unknownError"), true); }
+    });
+  }
 }
 
 async function init() {
@@ -687,8 +1210,17 @@ async function init() {
   switchTask("audio");
   switchAudioSource("file");
   applyLanguage();
-  await Promise.all([loadSystem(), refreshJobs()]);
-  setInterval(refreshJobs, 2000);
+  await Promise.all([loadSystem(), refreshJobs(), refreshRuntime(), refreshBatchReport()]);
+  connectRuntimeStream();
+  setInterval(refreshBatchReport, 2500);
+  setInterval(refreshJobs, 2500);
+  setInterval(() => {
+    if (Date.now() - state.runtimeLastMessage > 5000) {
+      setRuntimeConnection("reconnecting");
+      refreshRuntime();
+    }
+  }, 3000);
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
