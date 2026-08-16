@@ -282,8 +282,26 @@ class RuntimeMonitor:
             completed=completed,
             total=total,
         )
+        profile_dir = str(
+            metadata.get("web_profile_dir")
+            or command_option(process.command, "web-profile-dir")
+            or ""
+        )
+        account_id = None
+        cmd_str = " ".join(process.command) if isinstance(process.command, (list, tuple)) else str(process.command)
+        if "account2" in profile_dir or "account2" in cmd_str:
+            account_id = "account2"
+        elif "account3" in profile_dir or "account3" in cmd_str:
+            account_id = "account3"
+        elif "chatgpt" in profile_dir or "chatgpt" in cmd_str or "chatgpt" in provider.lower():
+            account_id = "chatgpt"
+        elif "AudiobookStudio" in profile_dir or "main" in cmd_str or "gemini" in provider.lower():
+            account_id = "main"
+
         return {
             "id": workflow_identity(work_dir),
+            "account_id": account_id,
+            "profile_dir": profile_dir,
             "source": "external",
             "pid": process.pid,
             "ppid": process.ppid,
@@ -325,6 +343,16 @@ class RuntimeMonitor:
             for task in scheduler_tasks
             if isinstance(task, dict) and task.get("work_dir")
         }
+        task_account_map: dict[str, str] = {}
+        for task in scheduler_tasks:
+            if isinstance(task, dict) and task.get("work_dir") and task.get("account_id"):
+                try:
+                    wd_key = workflow_identity(Path(str(task["work_dir"])).expanduser().resolve())
+                    task_account_map[wd_key] = str(task["account_id"])
+                    task_account_map[str(task["work_dir"])] = str(task["account_id"])
+                except Exception:
+                    pass
+
         active_ids: set[str] = set()
         workflows: list[dict[str, Any]] = []
         for process in parse_process_table(self.process_reader()):
@@ -333,6 +361,10 @@ class RuntimeMonitor:
                 continue
             payload = self._workflow_payload(process, work_dir, now)
             workflow_id = str(payload["id"])
+            if workflow_id in task_account_map:
+                payload["account_id"] = task_account_map[workflow_id]
+            elif str(work_dir) in task_account_map:
+                payload["account_id"] = task_account_map[str(work_dir)]
             active_ids.add(workflow_id)
             previous = self._known.get(workflow_id, {})
             self._known[workflow_id] = {
@@ -361,6 +393,8 @@ class RuntimeMonitor:
                 self._known.pop(workflow_id, None)
                 continue
             payload = dict(known["payload"])
+            if workflow_id in task_account_map:
+                payload["account_id"] = task_account_map[workflow_id]
             diagnostics = load_workflow_diagnostics(Path(known["work_dir"]))
             if str(diagnostics.get("status") or "") == "complete":
                 payload.update({"status": "completed", "health": "healthy", "process_alive": False})
@@ -398,27 +432,33 @@ class RuntimeMonitor:
             if workflow.get("process_alive") or workflow.get("id") not in managed_inactive_ids
         ]
         def account_sort_weight(item: dict[str, Any]) -> int:
+            acc = str(item.get("account_id") or "").lower()
+            if acc == "main" or "account1" in acc or "gemini1" in acc:
+                return 1
+            if acc == "account2" or "gemini2" in acc:
+                return 2
+            if acc == "account3" or "gemini3" in acc:
+                return 3
+            if acc == "chatgpt":
+                return 4
             raw = (
-                str(item.get("account_id") or "")
+                str(item.get("title") or "")
                 + " "
                 + str(item.get("id") or "")
                 + " "
                 + str(item.get("provider") or "")
-                + " "
-                + str(item.get("title") or "")
-                + " "
-                + str(item.get("profile_dir") or "")
             ).lower()
-            if "account2" in raw or "haijun2be" in raw or "gemini2" in raw:
+            if "beneath the burn" in raw or "account2" in raw:
                 return 2
-            if "account3" in raw or "ngaytot9" in raw or "gemini3" in raw:
+            if "heart of frost" in raw or "account3" in raw:
                 return 3
-            if "chatgpt" in raw:
+            if "how to stop time" in raw or "@my_fiction" in raw or "chatgpt" in raw:
                 return 4
-            if "main" in raw or "haijun93" in raw or "gemini" in raw or "account1" in raw:
+            if "dead of eve" in raw or "main" in raw:
                 return 1
             return 5
 
+        status_order = {"stalled": 0, "failed": 1, "interrupted": 1, "recovering": 2, "running": 3}
         workflows.sort(key=lambda item: (account_sort_weight(item), status_order.get(str(item.get("status")), 4), str(item.get("title"))))
         scheduler_updated_at = parse_timestamp(scheduler.get("updated_at"))
         scheduler_stale = scheduler_updated_at is not None and now - scheduler_updated_at > SCHEDULER_STALE_SECONDS
