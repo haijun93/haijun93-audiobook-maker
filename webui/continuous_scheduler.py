@@ -380,7 +380,8 @@ class ContinuousTranslationScheduler:
                 "--inter-request-delay-sec",
                 max(0.0, float(self.config.get("backfill_inter_request_delay_seconds", 8.0))),
             )
-        if isinstance(overrides, dict):
+        is_web_script = any(name in script_text for name in ("translate_epub", "run_soseol2", "run_k_e", "backfill_study_notes"))
+        if is_web_script and isinstance(overrides, dict):
             # Rechunking changes the meaning of chunk_XXXX.json and invalidates resume caches.
             # Remove the legacy adaptive override while preserving explicit task command options.
             if "max_chars_per_chunk" in overrides:
