@@ -480,6 +480,12 @@ function runtimeStageText(item) {
 
 function getAccountSortOrder(item) {
   if (!item) return 99;
+  const acc = String(item.account_id || item.account || "").toLowerCase().trim();
+  if (acc === "main" || acc === "gemini1" || acc === "account1") return 1;
+  if (acc === "account2" || acc === "gemini2") return 2;
+  if (acc === "account3" || acc === "gemini3") return 3;
+  if (acc === "chatgpt") return 4;
+
   const s = (
     String(item.account_id || "") + " " +
     String(item.account || "") + " " +
@@ -490,10 +496,10 @@ function getAccountSortOrder(item) {
     String(item.profile_dir || "")
   ).toLowerCase();
   
-  if (s.includes("account2") || s.includes("gemini2") || s.includes("haijun2be")) return 2;
-  if (s.includes("account3") || s.includes("gemini3") || s.includes("ngaytot9")) return 3;
-  if (s.includes("chatgpt")) return 4;
-  if (s.includes("main") || s.includes("gemini1") || s.includes("account1") || s.includes("haijun93") || s.includes("gemini")) return 1;
+  if (s.includes("account3") || s.includes("gemini3") || s.includes("ngaytot9") || s.includes("heart of frost")) return 3;
+  if (s.includes("account2") || s.includes("gemini2") || s.includes("haijun2be") || s.includes("demon copperhead") || s.includes("beneath the burn")) return 2;
+  if (s.includes("chatgpt") || s.includes("thousand splendid")) return 4;
+  if (s.includes("main") || s.includes("gemini1") || s.includes("account1") || s.includes("haijun93") || s.includes("auggie") || s.includes("fall risk") || s.includes("gemini")) return 1;
   return 99;
 }
 

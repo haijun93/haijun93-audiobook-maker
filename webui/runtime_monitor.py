@@ -386,6 +386,20 @@ class RuntimeMonitor:
                 except Exception:
                     pass
 
+        scheduler_accounts = scheduler.get("accounts") if isinstance(scheduler.get("accounts"), list) else []
+        pid_account_map: dict[int, str] = {}
+        task_id_account_map: dict[str, str] = {}
+        for acc in scheduler_accounts:
+            if isinstance(acc, dict) and acc.get("id"):
+                acc_id = str(acc["id"])
+                if acc.get("pid"):
+                    try:
+                        pid_account_map[int(acc["pid"])] = acc_id
+                    except (ValueError, TypeError):
+                        pass
+                if acc.get("task_id"):
+                    task_id_account_map[str(acc["task_id"])] = acc_id
+
         active_ids: set[str] = set()
         workflows: list[dict[str, Any]] = []
         for process in parse_process_table(self.process_reader()):
@@ -394,7 +408,9 @@ class RuntimeMonitor:
                 continue
             payload = self._workflow_payload(process, work_dir, now)
             workflow_id = str(payload["id"])
-            if workflow_id in task_account_map:
+            if process.pid in pid_account_map:
+                payload["account_id"] = pid_account_map[process.pid]
+            elif workflow_id in task_account_map:
                 payload["account_id"] = task_account_map[workflow_id]
             elif str(work_dir) in task_account_map:
                 payload["account_id"] = task_account_map[str(work_dir)]
