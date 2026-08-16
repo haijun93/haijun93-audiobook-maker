@@ -5369,13 +5369,13 @@ def wait_for_chatgpt_web_response(
             last_text = normalized
             stable_polls = 0
 
-        required_stable_polls = 8 if section_prefix == "relationship_guide" else 3
+        required_stable_polls = 6 if section_prefix == "relationship_guide" else 2
         generation_active = chatgpt_web_generation_is_active(page)
         send_ready = chatgpt_web_send_is_ready(page)
         actions_ready = chatgpt_web_action_buttons_ready(page)
         strong_completion_signal = send_ready or actions_ready or (not generation_active)
 
-        # 1. Standard completion: text stable + strong completion signal
+        # 1. Standard completion: text stable + strong completion signal (fast 2s detection)
         if (
             last_message_id
             and last_text
@@ -5386,12 +5386,12 @@ def wait_for_chatgpt_web_response(
             clear_chatgpt_web_rate_limit_state()
             return last_message_id, last_text
 
-        # 2. Hard absolute fallback: text has remained 100% unchanged for >= 6 polls (>= 18s).
-        # Even if a stop button / streaming class lingers in DOM, 18s of silence guarantees completion.
+        # 2. Hard absolute fallback: text has remained 100% unchanged for >= 6 polls (6s of silence).
+        # Even if a stop button / streaming class lingers in DOM, 6s of complete stability guarantees completion.
         if (
             last_message_id
             and last_text
-            and stable_polls >= max(6, required_stable_polls + 2)
+            and stable_polls >= max(6, required_stable_polls + 4)
         ):
             record_chatgpt_web_pacing_success()
             clear_chatgpt_web_rate_limit_state()
@@ -5408,7 +5408,7 @@ def wait_for_chatgpt_web_response(
                 )
             raise TimeoutError("ChatGPT 웹 응답 본문이 시작되지 않아 재시도합니다.")
 
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(1000)
 
     raise TimeoutError("ChatGPT 웹 응답 완료를 기다리다 시간 초과되었습니다.")
 

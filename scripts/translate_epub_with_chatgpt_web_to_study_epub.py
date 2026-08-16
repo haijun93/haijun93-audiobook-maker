@@ -2703,19 +2703,35 @@ def wait_for_new_legacy_web_response(
             last_text = normalized
             stable_polls = 0
 
+        required_stable_polls = 6 if section_prefix == "relationship_guide" else 2
+        generation_active = chatgpt_web_generation_is_active(page)
+        send_ready = chatgpt_web_send_is_ready(page)
+        actions_ready = chatgpt_web_action_buttons_ready(page)
+        strong_completion_signal = send_ready or actions_ready or (not generation_active)
+
         if (
             last_message_id
             and last_message_id != previous_message_id
             and last_text
-            and stable_polls >= 3
-            and not chatgpt_web_generation_is_active(page)
+            and stable_polls >= required_stable_polls
+            and strong_completion_signal
         ):
             record_chatgpt_web_pacing_success()
             return last_message_id, last_text
+
+        if (
+            last_message_id
+            and last_message_id != previous_message_id
+            and last_text
+            and stable_polls >= (required_stable_polls + 4)
+        ):
+            record_chatgpt_web_pacing_success()
+            return last_message_id, last_text
+
         if empty_polls >= max_empty_polls:
             raise TimeoutError("웹 번역 응답 본문이 시작되지 않아 재시도합니다.")
 
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(1000)
 
     raise TimeoutError("웹 번역 응답 완료를 기다리다 시간 초과되었습니다.")
 
