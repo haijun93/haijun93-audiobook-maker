@@ -68,6 +68,8 @@ from audiobook_maker import (  # noqa: E402
     record_chatgpt_web_pacing_success,
     send_chatgpt_web_prompt,
     send_gemini_web_prompt,
+    chatgpt_web_send_is_ready,
+    chatgpt_web_action_buttons_ready,
     wait_for_chatgpt_web_response,
     wait_for_gemini_web_response,
 )
