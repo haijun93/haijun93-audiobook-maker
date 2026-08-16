@@ -466,6 +466,34 @@ function runtimeStageText(item) {
   return item.stage_label ? `${stage} · ${item.stage_label}` : stage;
 }
 
+function getAccountSortOrder(item) {
+  if (!item) return 99;
+  const s = (
+    String(item.account_id || "") + " " +
+    String(item.account || "") + " " +
+    String(item.id || "") + " " +
+    String(item.label || "") + " " +
+    String(item.provider || "") + " " +
+    String(item.title || "") + " " +
+    String(item.profile_dir || "")
+  ).toLowerCase();
+  
+  if (s.includes("account2") || s.includes("gemini2") || s.includes("haijun2be")) return 2;
+  if (s.includes("account3") || s.includes("gemini3") || s.includes("ngaytot9")) return 3;
+  if (s.includes("chatgpt")) return 4;
+  if (s.includes("main") || s.includes("gemini1") || s.includes("account1") || s.includes("haijun93") || s.includes("gemini")) return 1;
+  return 99;
+}
+
+function getAccountBadgeInfo(item) {
+  const ord = getAccountSortOrder(item);
+  if (ord === 1) return { short: "제미나이 1", full: "제미나이 1 (haijun93)", cls: "acc-main" };
+  if (ord === 2) return { short: "제미나이 2", full: "제미나이 2 (haijun2be)", cls: "acc-account2" };
+  if (ord === 3) return { short: "제미나이 3", full: "제미나이 3 (ngaytot9)", cls: "acc-account3" };
+  if (ord === 4) return { short: "ChatGPT", full: "ChatGPT (haijun93)", cls: "acc-chatgpt" };
+  return { short: "워커", full: item.account_id || "워커", cls: "acc-main" };
+}
+
 function renderRuntime() {
   const snapshot = state.runtime || { summary: {}, workflows: [] };
   const summary = snapshot.summary || {};
@@ -504,7 +532,7 @@ function renderRuntime() {
       ${providerEfficiency ? `<p><span>${escapeHtml(providerEfficiency)}</span></p>` : ""}`;
   }
 
-  const accounts = snapshot.accounts || [];
+  const accounts = (snapshot.accounts || []).slice().sort((a, b) => getAccountSortOrder(a) - getAccountSortOrder(b));
   const accountList = $("#runtime-accounts");
   accountList.hidden = accounts.length === 0;
   accountList.innerHTML = accounts.map((account) => {
@@ -513,15 +541,16 @@ function renderRuntime() {
     const stateClass = working ? "running" : (["cooldown", "waiting", "degraded"].includes(status) ? "recovering" : status);
     const provider = String(account.provider || "").replaceAll("_", " ");
     const detail = account.message || account.task_id || "";
+    const accBadge = getAccountBadgeInfo(account);
     return `
       <article class="runtime-account">
         <span class="status-dot ${escapeHtml(stateClass)}" aria-hidden="true"></span>
-        <div><strong>${escapeHtml(account.label || account.id)}</strong><span>${escapeHtml([provider, detail].filter(Boolean).join(" · "))}</span></div>
+        <div><strong>${escapeHtml(accBadge.full || account.label || account.id)}</strong><span>${escapeHtml([provider, detail].filter(Boolean).join(" · "))}</span></div>
         <b class="runtime-status ${escapeHtml(stateClass)}">${escapeHtml(statusLabel(status))}</b>
       </article>`;
   }).join("");
 
-  const workflows = snapshot.workflows || [];
+  const workflows = (snapshot.workflows || []).slice().sort((a, b) => getAccountSortOrder(a) - getAccountSortOrder(b));
   const list = $("#runtime-list");
   $("#runtime-empty").hidden = workflows.length > 0;
   list.hidden = workflows.length === 0;
@@ -554,12 +583,16 @@ function renderRuntime() {
         <strong>${escapeHtml(diagnosisTitle)}</strong>
         <span>${escapeHtml(diagnosisAction)}</span>
       </div>` : "";
+    const accBadge = getAccountBadgeInfo(item);
     return `
       <article class="runtime-item health-${health}" data-runtime-id="${escapeHtml(item.id)}">
         <div class="runtime-item-header">
           <span class="status-dot ${status}" aria-hidden="true"></span>
           <div class="runtime-item-title">
-            <strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong>
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+              <span class="account-tag-badge ${accBadge.cls}" style="font-size: 10px; padding: 2px 6px;">👤 ${escapeHtml(accBadge.short)}</span>
+              <strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong>
+            </div>
             <span>${escapeHtml(meta)}</span>
           </div>
           <span class="runtime-status ${status}">${escapeHtml(statusLabel(status))}</span>
@@ -1042,7 +1075,7 @@ async function refreshBatchReport() {
     // 3. Active Tasks Container
     const tasksContainer = $("#active-tasks-container");
     const countBadge = $("#active-tasks-count");
-    const activeTasks = data.active_tasks || [];
+    const activeTasks = (data.active_tasks || []).slice().sort((a, b) => getAccountSortOrder(a) - getAccountSortOrder(b));
     if (countBadge) {
       countBadge.textContent = `${activeTasks.length}권 진행 중`;
     }
@@ -1056,16 +1089,17 @@ async function refreshBatchReport() {
           const labelText = t.label || `진행률 ${pct}%`;
           const speedText = t.speed_cph ? `${t.speed_cph} chunks/h` : "--";
           const etaText = t.eta_minutes ? `예상 ${t.eta_minutes}분` : "";
+          const accBadge = getAccountBadgeInfo(t);
 
           return `
             <div class="task-progress-card">
               <div class="task-card-row-top">
                 <div class="task-card-title">
+                  <span class="account-tag-badge ${accBadge.cls}" style="font-size: 10px; padding: 2px 6px;">👤 ${escapeHtml(accBadge.short)}</span>
                   <span>📖</span>
                   <span>${escapeHtml(t.title)}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
-                  <span class="task-account-badge">${escapeHtml(t.account_id || "scheduler")}</span>
                   <span class="task-progress-pct-bold">${pct}%</span>
                 </div>
               </div>

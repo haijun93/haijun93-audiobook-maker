@@ -397,8 +397,29 @@ class RuntimeMonitor:
             for workflow in workflows
             if workflow.get("process_alive") or workflow.get("id") not in managed_inactive_ids
         ]
-        status_order = {"stalled": 0, "failed": 1, "interrupted": 1, "recovering": 2, "running": 3}
-        workflows.sort(key=lambda item: (status_order.get(str(item["status"]), 4), str(item["title"])))
+        def account_sort_weight(item: dict[str, Any]) -> int:
+            raw = (
+                str(item.get("account_id") or "")
+                + " "
+                + str(item.get("id") or "")
+                + " "
+                + str(item.get("provider") or "")
+                + " "
+                + str(item.get("title") or "")
+                + " "
+                + str(item.get("profile_dir") or "")
+            ).lower()
+            if "account2" in raw or "haijun2be" in raw or "gemini2" in raw:
+                return 2
+            if "account3" in raw or "ngaytot9" in raw or "gemini3" in raw:
+                return 3
+            if "chatgpt" in raw:
+                return 4
+            if "main" in raw or "haijun93" in raw or "gemini" in raw or "account1" in raw:
+                return 1
+            return 5
+
+        workflows.sort(key=lambda item: (account_sort_weight(item), status_order.get(str(item.get("status")), 4), str(item.get("title"))))
         scheduler_updated_at = parse_timestamp(scheduler.get("updated_at"))
         scheduler_stale = scheduler_updated_at is not None and now - scheduler_updated_at > SCHEDULER_STALE_SECONDS
         scheduler_accounts = scheduler.get("accounts") if isinstance(scheduler.get("accounts"), list) else []
