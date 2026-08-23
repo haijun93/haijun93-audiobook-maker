@@ -30,6 +30,7 @@
         - `#Leigh Rivers/` (Full catalog)
         - `#Top 10 dark romance/` (VK Top 10 Dark Romance series)
         - `#apple tv original/` (Apple TV+ Original Novel Adaptations)
+        - `#original books/` (Movie & TV Series Screen Adaptation Novels)
      3. **1:1 Mirroring Rule**: All 4 editions (`[k]`, `[k-e]`, `[study]`, `[e-s]`) must have 100% identical relative folder paths for every book.
 3. **4-Account Isolation & Concurrency**:
    - Four separate browser profiles run simultaneously:
