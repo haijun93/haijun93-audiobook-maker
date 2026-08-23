@@ -68,6 +68,9 @@
 9. **Non-English Source Translation Exclusion & OceanofPDF English Replacement Principle (비영어 원서 번역 금지 및 영문본 자동 대체 원칙)**:
    - Foreign language editions (German, French, Czech, Turkish, Italian, Indonesian, etc.) are STRICTLY PROHIBITED from being queued or translated into Korean, as they destroy the English learning value of `[study]` and `[e-s]` editions.
    - All non-English tasks are automatically skipped, and their official English editions are retrieved directly via `oceanofpdf.com` (`scripts/handle_non_english_books.py`) and placed into standard `소설2/[e]/[Genre]/#[Author]/` directories before entering the translation pipeline.
+10. **Authentic Original TOC & Zero Untranslated Leak Standard (원작 목차 100% 보존 및 영문 누락 원천 차단 표준)**:
+    - **Authentic Original TOC Preservation**: NEVER mechanically index chapter numbers (e.g. `2장, 3장, 5장`). ALWAYS preserve the author's authentic chapter names (Prologue, Chapter Names, Epilogue, etc.) from the English original edition (`[e]`), placing the X-Ray Dramatis Personae at the very top.
+    - **Post-Translation Full Korean Integrity Guard**: Every built `[k]` edition must be strictly verified against untranslated English text leaks. All frontmatter (Title, Copyright, Dedication, Prologue) and backmatter must be 100% translated into authentic Korean without leaving any raw English sentences.
 
 ---
 
