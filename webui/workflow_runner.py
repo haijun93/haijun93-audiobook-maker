@@ -316,6 +316,14 @@ def batch_retry_policy(
     return False, 0, diagnosis
 
 
+def normalize_output_root(root: Path) -> Path:
+    """Ensure root never ends with an edition folder like [k], [k-e], [study], [e-s], [e]."""
+    cur = root.resolve()
+    while cur.name in {"[k]", "[k-e]", "[study]", "[e-s]", "[e]", "xteink"}:
+        cur = cur.parent
+    return cur
+
+
 def translate_one(
     source: Path,
     *,
@@ -326,6 +334,7 @@ def translate_one(
     split_output_dirs: bool,
     provider_fallback_state_dir: Path | None = None,
 ) -> list[dict[str, str]]:
+    output_root = normalize_output_root(output_root)
     title = readable_stem(source)
     english_dir = output_root / "[e]" if split_output_dirs else output_root
     bilingual_dir = output_root / "[k-e]" if split_output_dirs else output_root
