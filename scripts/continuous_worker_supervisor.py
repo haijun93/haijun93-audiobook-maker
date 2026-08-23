@@ -50,9 +50,13 @@ ACCOUNTS = [
 ]
 
 def is_account_in_blackout_schedule(account_id: str) -> bool:
-    """Checks if an account is restricted by time/day schedule.
+    """Checks if an account is restricted by time/day schedule or user disable flag.
     User override: Gemini 1 ('main') allowed during weekdays.
     """
+    if account_id == "chatgpt":
+        flag_p = Path("/Users/hyeokjunkong/Desktop/myproject_python/haijun93-audiobook-maker/.work/chatgpt_disabled.flag")
+        if flag_p.exists():
+            return True
     return False
 
 def log(msg: str):
