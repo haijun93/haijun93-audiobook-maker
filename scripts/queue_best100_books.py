@@ -121,7 +121,7 @@ def build_best100_tasks(existing_config: dict[str, object]) -> list[dict[str, ob
                 "--chunks-per-conversation",
                 "10",
                 "--inter-request-delay-sec",
-                "8",
+                "15",
                 "--heartbeat-file",
                 str(work_dir / "heartbeat.json"),
                 "--web-provider",

@@ -173,3 +173,29 @@ AUDIOBOOK_WEB_PROFILE_DIR="$HOME/Library/Application Support/AudiobookStudio-cha
   - Web UI automatically displays `recovering` or `degraded` if a worker's heartbeat is older than 180 seconds.
 - **Git & Documentation Policy**:
   - Always update `docs/SESSION_HANDOFF_*.md` and sync changes to `/Users/hyeokjunkong/Desktop/소설2/MD collection/` before pushing commits.
+
+---
+
+## 8. Amazon Kindle Genuine Word Wise & X-Ray Master Standard
+
+1. **Zero Truncation Rule**: Never truncate authentic Korean study hints.
+2. **Overhead Ruby Layout**: `<ruby><rb>word</rb><rt class="wordwise-hint">문맥 뜻</rt></ruby>` with dynamic line-height (`1.65` / `1.85`).
+3. **Mandatory Fiction X-Ray Dossier Creation**:
+   - **New Translations**: The assigned worker (Gemini 1/2/3, ChatGPT) directly queries the **Gemini Web / ChatGPT Web interface** to generate authentic 100% Korean X-Ray dossiers (`000-xray-dramatis-personae.xhtml`) as an integrated translation stage (no heuristic guessing, Claude is not used).
+   - **Bulk Retroactive Library Harvest**: Dedicated solely to existing completed files currently in `/Users/hyeokjunkong/Desktop/소설2/`, executed by Claude Web (`scripts/harvest_fiction_xray_with_claude.py`) to avoid interrupting active translation workers.
+   - Sections: 👥 주요 등장인물 도감, 🔗 인물 관계도 및 핵심 갈등, 🗺️ 주요 무대 및 공간적 배경, 🔍 핵심 테마 및 세계관 해설.
+   - Position: Placed as the top entry in `nav.xhtml` `<ol>`, `toc.ncx` `<navMap>`, and `content.opf` spine across all editions (`[k]`, `[k-e]`, `[study]`, `[e-s]`, `[xteink]`).
+
+1. **Zero Truncation Rule (글자 누락 영구 금지)**:
+   - NEVER slice, chop, or truncate Korean contextual meanings (e.g. absolutely no `[:8]` length slicing).
+   - Full authentic expressions (e.g. `~할 여유가 없다`, `발끝으로 살금살금 지나가다`, `갈라진 신발 밑창`) must remain 100% complete and intact.
+2. **Overhead Native HTML5 Ruby Layout**:
+   - In `[study]`, `[e-s]`, and `[ks]`, all AI study notes are positioned directly above words as overhead cloud hints (`ruby-position: over; font-size: 0.58em; color: #0284c7;`) using `<ruby><rb>word</rb><rt class="wordwise-hint">문맥 뜻</rt></ruby>`.
+3. **Dynamic Conditional Line-Height Rule (동적 조건부 줄간격)**:
+   - Sentences WITHOUT Word Wise: Standard `1.65` (100% identical to Korean standard line-height).
+   - Sentences WITH Word Wise: Dynamically expanded to `1.85` (`span.en.has-ww`, `p.has-ww`) for ample breathing space.
+4. **Elimination of Redundant 3rd Line**:
+   - In `[study]` and `[e-s]`, legacy separate 3rd-line `※` notes are completely streamlined into the overhead Word Wise annotations.
+5. **Kindle X-Ray Directory Integration**:
+   - Every book includes the X-Ray Dramatis Personae & Terms directory (`000-xray-dramatis-personae.xhtml`) linked at the top of the Table of Contents.
+

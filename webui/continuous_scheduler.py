@@ -1358,6 +1358,13 @@ class ContinuousTranslationScheduler:
         for account in self._account_specs():
             account_id = str(account["id"])
             account_state = self.state["accounts"][account_id]
+
+            # Gemini 1 (main) Weekday 09:00 - 17:00 Blackout Window (Override: Enabled)
+            # if account_id == "main":
+            #     now_lt = time.localtime(self.wall_clock())
+            #     if 0 <= now_lt.tm_wday <= 4 and (9 <= now_lt.tm_hour < 17):
+            #         account_state.update(...)
+
             if account_id in self.children:
                 continue
             if account_id in occupancy:

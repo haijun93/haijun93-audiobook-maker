@@ -230,7 +230,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cooldown-seconds", type=int, default=900)
     parser.add_argument("--max-chars-per-chunk", type=int, default=6000)
     parser.add_argument("--chunks-per-conversation", type=int, default=10)
-    parser.add_argument("--inter-request-delay-sec", type=float, default=4.0)
+    parser.add_argument("--inter-request-delay-sec", type=float, default=15.0)
     parser.add_argument("--request-timeout-sec", type=int, default=1200)
     parser.add_argument(
         "--web-provider",

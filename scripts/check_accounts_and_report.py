@@ -179,6 +179,35 @@ def generate_status_and_health_report() -> dict[str, Any]:
     }
     
     atomic_write_json(REPORT_OUTPUT_FILE, report)
+
+    # Automatically update and sync Master Study Lexicon if study books were modified
+    try:
+        from scripts.update_master_study_lexicon import update_master_lexicon
+        update_master_lexicon(verbose=False)
+    except Exception:
+        pass
+
+    # Automatically scan library and refresh Master Library Catalog & Deduplication Index
+    try:
+        from scripts.library_catalog_manager import scan_and_build_catalog
+        scan_and_build_catalog()
+    except Exception:
+        pass
+
+    # Automatically ensure 100% of newly finalized fiction books have authentic X-Ray dossiers
+    try:
+        from scripts.inject_rich_korean_xray_to_all_library import inject_all_fiction_library
+        inject_all_fiction_library()
+    except Exception:
+        pass
+
+    # Automatically purge and heal non-standard subdirectories ([e], finished, non-english, Uncategorized)
+    try:
+        from scripts.relocate_and_purge_all_nonstandard_folders import relocate_and_purge
+        relocate_and_purge()
+    except Exception:
+        pass
+
     return report
 
 

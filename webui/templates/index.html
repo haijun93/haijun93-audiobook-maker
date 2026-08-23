@@ -70,6 +70,7 @@
         <button type="button" class="segment active" data-task-tab="audio" role="tab" aria-selected="true" data-i18n="taskAudio">오디오</button>
         <button type="button" class="segment" data-task-tab="translation" role="tab" aria-selected="false" data-i18n="taskTranslation">도서 번역</button>
         <button type="button" class="segment" data-task-tab="batch" role="tab" aria-selected="false" data-i18n="taskBatch">폴더 일괄</button>
+        <button type="button" class="segment" data-task-tab="downloader" role="tab" aria-selected="false">📚 도서 수집</button>
       </div>
 
       <form id="audio-form" class="task-form" data-task-panel="audio" novalidate>
@@ -299,6 +300,64 @@
         <div id="batch-form-error" class="form-error" role="alert" hidden></div>
         <button class="primary-action" id="submit-batch" type="submit"><img class="ui-icon" src="{{ url_for('static', filename='icons/play.svg') }}" alt=""><span data-i18n="startBatch">일괄 작업 시작</span></button>
       </form>
+
+      <!-- Book Downloader Form (OceanofPDF + ReadRobe) -->
+      <form id="downloader-form" class="task-form" data-task-panel="downloader" novalidate hidden>
+        <div class="field-group">
+          <label for="dl-author">작가명 (Author)</label>
+          <input id="dl-author" name="author" type="text" placeholder="예: Freida McFadden, Stephen King, Pepper Winters" value="Freida McFadden" required>
+        </div>
+
+        <div class="field-group">
+          <label for="dl-query">도서명 / 검색어 (선택 사항)</label>
+          <input id="dl-query" name="query" type="text" placeholder="비워두면 작가의 모든 미보유 도서를 자동 검색 및 수집합니다.">
+        </div>
+
+        <div class="field-group">
+          <label>수집 소스 (Engine)</label>
+          <div class="segmented full dl-source-control" role="radiogroup" aria-label="Downloader source">
+            <label class="radio-segment active"><input type="radio" name="dl_source" value="all" checked><span>🌐 통합 자동 (OceanofPDF + ReadRobe)</span></label>
+            <label class="radio-segment"><input type="radio" name="dl_source" value="oceanofpdf"><span>OceanofPDF</span></label>
+            <label class="radio-segment"><input type="radio" name="dl_source" value="readrobe"><span>ReadRobe.com</span></label>
+          </div>
+        </div>
+
+        <div class="check-grid">
+          <label class="check-row"><input id="dl-auto-queue" type="checkbox" name="auto_queue" value="true" checked><span>다운로드 완료 즉시 번역 스케줄러 큐 자동 등록</span></label>
+        </div>
+
+        <div id="downloader-status-box" class="downloader-status-card" style="margin-top: 14px; padding: 14px; background: rgba(30,41,59,0.85); border: 1px solid rgba(56,189,248,0.35); border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="live-signal" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #38bdf8; box-shadow: 0 0 8px #38bdf8;"></span>
+              <strong style="color: #38bdf8; font-size: 13px;">📡 실시간 도서 수집 엔진 모니터링</strong>
+            </div>
+            <span id="dl-badge" style="padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; background: #334155; color: #cbd5e1; transition: all 0.3s ease;">대기 중</span>
+          </div>
+          <div style="font-size: 12px; color: #94a3b8; line-height: 1.6;">
+            <div>대상: <strong id="dl-target" style="color: #f1f5f9; font-weight: 600;">-</strong> &nbsp;|&nbsp; 소스: <span id="dl-source" style="color: #38bdf8; font-weight: 500;">-</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>진행: <span id="dl-detail">대기 중</span></div>
+              <strong id="dl-progress" style="color: #38bdf8; font-size: 12px;"></strong>
+            </div>
+          </div>
+          <div id="dl-progress-track" style="margin-top: 6px; width: 100%; height: 4px; background: #1e293b; border-radius: 2px; overflow: hidden;" hidden>
+            <div id="dl-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #38bdf8, #818cf8); transition: width 0.4s ease;"></div>
+          </div>
+          <div id="dl-logs-box" style="margin-top: 10px; max-height: 120px; overflow-y: auto; background: #0b1120; border: 1px solid #1e293b; border-radius: 6px; padding: 8px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; color: #a5f3fc; line-height: 1.4; white-space: pre-wrap;">[대기 중] 수집 요청 시 실시간 로그가 여기에 표시됩니다.</div>
+
+          <!-- Recent Collected Books Section -->
+          <div style="margin-top: 12px; border-top: 1px solid #334155; padding-top: 10px;">
+            <div style="font-size: 12px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">📥 최근 수집 완료 도서 (서재 자동 등록)</div>
+            <div id="dl-recent-list" style="font-size: 11px; color: #94a3b8; max-height: 100px; overflow-y: auto;">
+              <div style="color: #64748b; font-style: italic;">최근 수집된 도서가 여기에 표시됩니다.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="downloader-form-error" class="form-error" role="alert" hidden style="margin-top: 10px;"></div>
+        <button class="primary-action" id="submit-downloader" type="submit" style="margin-top: 12px;"><img class="ui-icon" src="{{ url_for('static', filename='icons/play.svg') }}" alt=""><span>원서 검색 및 자동 다운로드 시작</span></button>
+      </form>
     </section>
 
     <section class="queue-pane batch-report-pane" aria-labelledby="report-title">
@@ -313,27 +372,82 @@
         </div>
       </div>
 
-      <!-- Account Login Health Grid -->
-      <div class="report-section-block">
-        <div class="block-title">
-          <span class="block-icon">🔑</span>
-          <span>계정별 실시간 로그인 상태</span>
-          <span class="live-dot-pulse" title="실시간 모니터링 중"></span>
+      <!-- Consolidated 4-Account Visual Health & Supervisor Block -->
+      <div class="report-section-block visual-audit-section" style="border: 1px solid rgba(56, 189, 248, 0.25); background: linear-gradient(145deg, rgba(15, 23, 42, 0.85), rgba(30, 41, 59, 0.7)); border-radius: 12px; padding: 14px; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);">
+        <div class="block-title" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="block-icon" style="font-size: 16px;">📸</span>
+            <span style="font-weight: 700; color: #f8fafc; font-size: 14px;">4대 AI 워커 실시간 관제 및 비주얼 감사</span>
+            <span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">3분 주기 스냅샷</span>
+          </div>
+          <span id="visual-audit-updated-at" style="font-size: 11px; color: #94a3b8;">최근 감사: --:--:--</span>
         </div>
-        <div class="account-health-grid" id="account-health-grid">
-          <div class="account-card loading-card">계정 로그인 상태 확인 중...</div>
+        <div class="account-health-grid" id="visual-audit-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 10px;">
+          <div class="account-card loading-card" style="padding: 12px; font-size: 12px; color: #94a3b8;">비주얼 감사 데이터 수신 중...</div>
+        </div>
+        <!-- Collapsible Recent Supervisor Logs -->
+        <details style="background: rgba(2, 6, 23, 0.8); border: 1px solid #1e293b; border-radius: 8px; padding: 6px 10px; font-size: 11px;">
+          <summary style="cursor: pointer; color: #94a3b8; font-weight: 600; outline: none;">📋 24/7 제로-유휴 슈퍼바이저 실시간 관리·감독 로그</summary>
+          <div id="supervisor-log-container" style="margin-top: 8px; font-family: monospace; color: #38bdf8; max-height: 120px; overflow-y: auto; white-space: pre-wrap; font-size: 10.5px; line-height: 1.4;">
+            로그를 불러오는 중...
+          </div>
+        </details>
+      </div>
+
+      <!-- ⚡ Claude Web Authentic Fiction X-Ray Dossier Pipeline Block -->
+      <div class="report-section-block xray-harvest-section" style="border: 1px solid rgba(168, 85, 247, 0.35); background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(46, 16, 101, 0.2)); border-radius: 12px; padding: 14px; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);">
+        <div class="block-title" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="block-icon" style="font-size: 16px;">⚡</span>
+            <span style="font-weight: 700; color: #f8fafc; font-size: 14px;">클로드 웹 기반 정품 X-Ray(등장인물·용어 도감) 수집 파이프라인</span>
+            <span id="xray-live-badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">수집 중 🚀</span>
+          </div>
+          <span id="xray-status-updated-at" style="font-size: 11px; color: #94a3b8;">실시간 연동</span>
+        </div>
+
+        <div class="batch-summary-grid" style="grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
+          <div class="batch-summary-card" style="padding: 10px 12px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+            <span class="summary-card-label" style="font-size: 11px; color: #94a3b8;">📚 총 대상 소설</span>
+            <span class="summary-card-val" id="xray-stat-total" style="font-size: 18px; font-weight: 700; color: #f8fafc;">565권</span>
+          </div>
+          <div class="batch-summary-card active-card" style="padding: 10px 12px; background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 8px;">
+            <span class="summary-card-label" style="font-size: 11px; color: #c084fc;">🏆 수집 완료</span>
+            <span class="summary-card-val text-active" id="xray-stat-completed" style="font-size: 18px; font-weight: 700; color: #c084fc;">--권</span>
+          </div>
+          <div class="batch-summary-card remaining-card" style="padding: 10px 12px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+            <span class="summary-card-label" style="font-size: 11px; color: #94a3b8;">⏳ 남은 대상</span>
+            <span class="summary-card-val text-remaining" id="xray-stat-remaining" style="font-size: 18px; font-weight: 700; color: #fbbf24;">--권</span>
+          </div>
+          <div class="batch-summary-card" style="padding: 10px 12px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+            <span class="summary-card-label" style="font-size: 11px; color: #94a3b8;">📊 수집 진행률</span>
+            <span class="summary-card-val" id="xray-stat-percent" style="font-size: 18px; font-weight: 700; color: #38bdf8;">--%</span>
+          </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div style="width: 100%; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden; margin-bottom: 12px;">
+          <div id="xray-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #c084fc, #38bdf8); transition: width 0.4s ease;"></div>
+        </div>
+
+        <!-- Recent Harvested List -->
+        <div style="background: rgba(2, 6, 23, 0.6); border: 1px solid #1e293b; border-radius: 8px; padding: 10px; margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 11.5px; font-weight: 700; color: #cbd5e1;">📥 최근 수집 및 6대 에디션 자동 탑재된 정품 X-Ray 목록</span>
+            <span style="font-size: 10px; color: #94a3b8;">실시간 웹 검색 그라운딩</span>
+          </div>
+          <div id="xray-recent-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px; max-height: 140px; overflow-y: auto;">
+            <div style="color: #64748b; font-size: 11px; font-style: italic;">수집 데이터를 불러오는 중...</div>
+          </div>
         </div>
       </div>
 
-      <!-- Active Translation Tasks & 4-Stat Summary -->
+      <!-- 3-Stage Master Pipeline KPI Summary Grid -->
       <div class="report-section-block">
         <div class="block-title">
-          <span class="block-icon">⚡</span>
-          <span>실시간 도서 번역 진행 현황</span>
-          <span class="active-count-badge" id="active-tasks-count">0권 진행 중</span>
+          <span class="block-icon">🎯</span>
+          <span>3대 마스터 파이프라인 진행 요약 (24/7 자동 배분)</span>
         </div>
 
-        <!-- 4-Stat Metric Summary Cards Grid -->
         <div class="batch-summary-grid" id="batch-summary-grid">
           <div class="batch-summary-card">
             <span class="summary-card-label">📚 총 작업대상</span>
@@ -344,11 +458,11 @@
             <span class="summary-card-val text-active" id="batch-stat-active">--</span>
           </div>
           <div class="batch-summary-card completed-card">
-            <span class="summary-card-label">🏆 완료</span>
+            <span class="summary-card-label">🏆 완역 보관</span>
             <span class="summary-card-val text-completed" id="batch-stat-completed">--</span>
           </div>
           <div class="batch-summary-card remaining-card">
-            <span class="summary-card-label">⏳ 남은 개수</span>
+            <span class="summary-card-label">⏳ 남은 도서</span>
             <span class="summary-card-val text-remaining" id="batch-stat-remaining">--</span>
           </div>
         </div>
@@ -374,6 +488,24 @@
           </div>
           <div class="postprocess-tasks-container" id="postprocess-tasks-container">
             <div class="empty-state-small">현재 대기/진행 중인 후처리 작업이 없습니다.</div>
+          </div>
+        </div>
+
+        <!-- 3. Scheduled / Pending Translation Queue Section -->
+        <div class="active-sub-block scheduled-queue-sub-block" style="margin-top: 14px;">
+          <div class="sub-block-title" style="justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="sub-block-icon">⏳</span>
+              <span>번역 작업 예정 목록 (우선순위 대기 큐)</span>
+              <span class="scheduled-count-badge" id="scheduled-queue-total" style="background: rgba(99, 102, 241, 0.2); color: #818cf8; font-weight: 700; padding: 2px 8px; border-radius: 9999px; font-size: 0.8rem;">0권 대기 중</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input type="text" id="scheduled-search-input" placeholder="🔍 예정 도서/작가 검색..." style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.15); color: #f8fafc; padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; outline: none; width: 180px;">
+            </div>
+          </div>
+          <div class="scheduled-priority-pills" id="scheduled-priority-pills" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0;"></div>
+          <div class="scheduled-tasks-container" id="scheduled-tasks-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; max-height: 480px; overflow-y: auto; padding-right: 4px;">
+            <div class="empty-state-small">대기 큐 목록을 불러오는 중...</div>
           </div>
         </div>
       </div>

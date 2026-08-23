@@ -484,23 +484,23 @@ function getAccountSortOrder(item) {
   if (acc === "main" || acc === "gemini1" || acc === "account1") return 1;
   if (acc === "account2" || acc === "gemini2") return 2;
   if (acc === "account3" || acc === "gemini3") return 3;
-  if (acc === "chatgpt") return 4;
+  if (acc === "chatgpt" || item.provider === "chatgpt" || String(item.provider || "").toLowerCase().includes("chatgpt")) return 4;
 
   const s = (
     String(item.account_id || "") + " " +
     String(item.account || "") + " " +
     String(item.id || "") + " " +
     String(item.label || "") + " " +
-    String(item.provider || "") + " " +
     String(item.title || "") + " " +
+    String(item.work_dir || "") + " " +
     String(item.profile_dir || "")
   ).toLowerCase();
   
-  if (s.includes("account3") || s.includes("gemini3") || s.includes("ngaytot9") || s.includes("heart of frost")) return 3;
-  if (s.includes("account2") || s.includes("gemini2") || s.includes("haijun2be") || s.includes("demon copperhead") || s.includes("beneath the burn")) return 2;
-  if (s.includes("chatgpt") || s.includes("thousand splendid")) return 4;
-  if (s.includes("main") || s.includes("gemini1") || s.includes("account1") || s.includes("haijun93") || s.includes("auggie") || s.includes("fall risk") || s.includes("gemini")) return 1;
-  return 99;
+  if (s.includes("chatgpt") || s.includes("thousand splendid") || s.includes("the book thief")) return 4;
+  if (s.includes("account3") || s.includes("gemini3") || s.includes("ngaytot9") || s.includes("tomorrow and tomorrow")) return 3;
+  if (s.includes("account2") || s.includes("gemini2") || s.includes("haijun2be") || s.includes("the silent patient")) return 2;
+  if (s.includes("main") || s.includes("gemini1") || s.includes("account1") || s.includes("haijun93") || s.includes("vicious") || s.includes("captive in the dark")) return 1;
+  return 1;
 }
 
 function getAccountBadgeInfo(item) {
@@ -509,7 +509,7 @@ function getAccountBadgeInfo(item) {
   if (ord === 2) return { short: "제미나이 2", full: "제미나이 2 (haijun2be)", cls: "acc-account2" };
   if (ord === 3) return { short: "제미나이 3", full: "제미나이 3 (ngaytot9)", cls: "acc-account3" };
   if (ord === 4) return { short: "ChatGPT", full: "ChatGPT (haijun93)", cls: "acc-chatgpt" };
-  return { short: "워커", full: item.account_id || "워커", cls: "acc-main" };
+  return { short: "제미나이 1", full: "제미나이 1", cls: "acc-main" };
 }
 
 function renderRuntime() {
@@ -1054,6 +1054,83 @@ function setupVoicePreviewButtons() {
   setupBtn("#batch-voice-preview-btn", "#batch-voice", "#batch-voice-preview-player", "#batch-form");
 }
 
+async function refreshVisualAuditStatus() {
+  try {
+    const res = await fetch("/api/supervisor/visual-audits");
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const timeEl = $("#visual-audit-updated-at");
+    if (timeEl && data.updated_at) {
+      timeEl.textContent = `최근 감사: ${data.updated_at.split(" ")[1] || data.updated_at}`;
+    }
+
+    const grid = $("#visual-audit-grid");
+    const statusData = data.status || {};
+    const accounts = statusData.accounts || {};
+
+    if (grid) {
+      const accKeys = Object.keys(accounts);
+      if (accKeys.length === 0) {
+        grid.innerHTML = `<div style="color: #64748b; font-size: 11px; padding: 6px;">슈퍼바이저 비주얼 감사 데이터 수신 대기 중...</div>`;
+      } else {
+        const engineColors = {
+          main: { border: "rgba(56, 189, 248, 0.4)", tagBg: "rgba(56, 189, 248, 0.15)", tagColor: "#38bdf8", name: "Gemini 1 (Main)" },
+          account2: { border: "rgba(168, 85, 247, 0.4)", tagBg: "rgba(168, 85, 247, 0.15)", tagColor: "#c084fc", name: "Gemini 2 (Acc 2)" },
+          account3: { border: "rgba(250, 204, 21, 0.4)", tagBg: "rgba(250, 204, 21, 0.15)", tagColor: "#facc15", name: "Gemini 3 (Acc 3)" },
+          chatgpt: { border: "rgba(16, 185, 129, 0.4)", tagBg: "rgba(16, 185, 129, 0.15)", tagColor: "#34d399", name: "ChatGPT 1 (Web)" },
+        };
+
+        grid.innerHTML = accKeys.map((key) => {
+          const acc = accounts[key] || {};
+          const style = engineColors[key] || engineColors.main;
+          const isActive = acc.status === "active" || acc.status === "running";
+          const isError = acc.stage && (acc.stage.includes("error") || acc.stage.includes("expired"));
+          const statusBadge = isError 
+            ? `<span style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600;">세션 확인 🔴</span>`
+            : isActive 
+              ? `<span style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600;">정상 렌더링 🟢</span>`
+              : `<span style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); font-size: 10px; padding: 2px 6px; border-radius: 4px;">대기/배분 중 ⚪</span>`;
+
+          const bookTitle = acc.book ? escapeHtml(acc.book) : "<span style='color: #64748b; font-style: italic;'>다음 도서 자동 수급 대기 중</span>";
+          const stageText = acc.label && acc.label !== "-" ? escapeHtml(acc.label) : (acc.stage || "대기");
+          const progressMatch = stageText.match(/(\d+)\s*\/\s*(\d+)/);
+          const percent = progressMatch ? Math.min(100, Math.round((Number(progressMatch[1]) / Number(progressMatch[2])) * 100)) : (isActive ? 50 : 0);
+
+          return `
+            <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid ${style.border}; border-radius: 10px; padding: 11px; display: flex; flex-direction: column; gap: 7px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 700; color: ${style.tagColor}; background: ${style.tagBg}; border: 1px solid ${style.border}; padding: 2px 7px; border-radius: 4px; font-size: 11px;">👤 ${escapeHtml(style.name)}</span>
+                ${statusBadge}
+              </div>
+              <div style="font-size: 11.5px; font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${acc.book || ''}">
+                📖 ${bookTitle}
+              </div>
+              ${isActive && progressMatch ? `
+                <div style="width: 100%; height: 4px; background: rgba(51, 65, 85, 0.6); border-radius: 2px; overflow: hidden;">
+                  <div style="width: ${percent}%; height: 100%; background: ${style.tagColor}; transition: width 0.4s ease;"></div>
+                </div>
+              ` : ''}
+              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; color: #94a3b8; background: rgba(2, 6, 23, 0.6); padding: 4px 7px; border-radius: 5px;">
+                <span style="color: ${style.tagColor}; font-weight: 600;">⚡ ${stageText}</span>
+                <span style="color: #64748b;">PID ${acc.pid || "-"}</span>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    const logBox = $("#supervisor-log-container");
+    if (logBox && data.recent_logs && data.recent_logs.length) {
+      logBox.textContent = data.recent_logs.join("\n");
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+  } catch (err) {
+    console.warn("Failed to refresh visual audit status:", err);
+  }
+}
+
 async function refreshBatchReport() {
   try {
     const resp = await fetch("/api/batch-report");
@@ -1274,6 +1351,210 @@ async function refreshBatchReport() {
   }
 }
 
+async function submitDownloader(event) {
+  event.preventDefault();
+  const author = $("#dl-author").value.trim();
+  const query = $("#dl-query").value.trim();
+  const source = selectedValue(event.currentTarget, "dl_source", "all");
+  const autoQueue = $("#dl-auto-queue").checked;
+
+  if (!author && !query) {
+    return showFormError("#downloader-form-error", "작가명 또는 검색어를 입력해주세요.");
+  }
+  showFormError("#downloader-form-error");
+
+  const submitBtn = $("#submit-downloader");
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = "<span>⏳</span> <span>수집 요청 중...</span>";
+
+  try {
+    const resp = await api("/api/downloader/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ author, query, source, auto_queue: autoQueue }),
+    });
+    toast(resp.message || "도서 자동 수집이 시작되었습니다.");
+    refreshDownloaderStatus();
+  } catch (err) {
+    showFormError("#downloader-form-error", err.message || "수집 요청에 실패했습니다.");
+  } finally {
+    setTimeout(() => {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = `<img class="ui-icon" src="/static/icons/play.svg" alt=""><span>원서 검색 및 자동 다운로드 시작</span>`;
+    }, 2000);
+  }
+}
+
+async function refreshDownloaderStatus() {
+  try {
+    const resp = await fetch("/api/downloader/status");
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    const badge = $("#dl-badge");
+    const target = $("#dl-target");
+    const source = $("#dl-source");
+    const detail = $("#dl-detail");
+    const progress = $("#dl-progress");
+    const logsBox = $("#dl-logs-box");
+    const progressTrack = $("#dl-progress-track");
+    const progressBar = $("#dl-progress-bar");
+    const recentList = $("#dl-recent-list");
+
+    const st = data.status || "idle";
+    if (badge) {
+      if (st === "downloading" || st === "searching") {
+        badge.textContent = st === "downloading" ? "다운로드 중 🚀" : "탐색 중 🔍";
+        badge.style.background = "#0284c7";
+        badge.style.color = "#ffffff";
+        badge.style.boxShadow = "0 0 10px rgba(2,132,199,0.5)";
+      } else if (st === "complete") {
+        badge.textContent = "완료 🟢";
+        badge.style.background = "#16a34a";
+        badge.style.color = "#ffffff";
+        badge.style.boxShadow = "none";
+      } else if (st === "error") {
+        badge.textContent = "오류 🔴";
+        badge.style.background = "#dc2626";
+        badge.style.color = "#ffffff";
+        badge.style.boxShadow = "none";
+      } else {
+        badge.textContent = "대기 중 ⚪";
+        badge.style.background = "#334155";
+        badge.style.color = "#cbd5e1";
+        badge.style.boxShadow = "none";
+      }
+    }
+
+    if (target) target.textContent = data.target || "-";
+    if (source) source.textContent = data.source || "-";
+    if (detail) detail.textContent = data.detail || "대기 중";
+    if (progress) progress.textContent = data.progress || "";
+
+    // Progress bar
+    if (progressTrack && progressBar) {
+      if (st === "downloading" || st === "searching") {
+        progressTrack.hidden = false;
+        if (data.progress && data.progress.includes("/")) {
+          const parts = data.progress.split("/").map((p) => parseFloat(p.trim()));
+          if (parts.length === 2 && parts[1] > 0) {
+            const pct = Math.min(100, Math.round((parts[0] / parts[1]) * 100));
+            progressBar.style.width = `${pct}%`;
+          }
+        } else {
+          progressBar.style.width = "40%";
+        }
+      } else if (st === "complete") {
+        progressTrack.hidden = false;
+        progressBar.style.width = "100%";
+      } else {
+        progressTrack.hidden = true;
+      }
+    }
+
+    // Live Logs
+    if (logsBox && data.logs && data.logs.length) {
+      logsBox.textContent = data.logs.join("\n");
+      logsBox.scrollTop = logsBox.scrollHeight;
+    }
+
+    // Recent Collected Books
+    if (recentList) {
+      const recents = data.recent_downloads || [];
+      if (recents.length === 0) {
+        recentList.innerHTML = `<div style="color: #64748b; font-style: italic;">최근 수집된 도서가 여기에 표시됩니다.</div>`;
+      } else {
+        recentList.innerHTML = recents.slice().reverse().map((b) => `
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; border-bottom: 1px solid rgba(51,65,85,0.5); font-size: 11px;">
+            <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%;">
+              <strong style="color: #e2e8f0;">📖 ${escapeHtml(b.title)}</strong>
+              <span style="color: #64748b; margin-left: 4px;">(${escapeHtml(b.source)})</span>
+            </div>
+            <div style="color: #38bdf8; font-size: 10px;">${escapeHtml(b.size || "")}</div>
+          </div>
+        `).join("");
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to refresh downloader status:", err);
+  }
+}
+
+let scheduledQueueData = null;
+
+async function refreshScheduledQueue() {
+  const container = $("#scheduled-tasks-container");
+  const totalBadge = $("#scheduled-queue-total");
+  const pills = $("#scheduled-priority-pills");
+  if (!container) return;
+
+  try {
+    const res = await fetch("/api/queue/scheduled");
+    if (!res.ok) return;
+    const data = await res.json();
+    scheduledQueueData = data;
+
+    if (totalBadge) {
+      totalBadge.textContent = `${(data.total_scheduled || 0).toLocaleString()}권 대기 중`;
+    }
+
+    if (pills && data.priority_summary) {
+      pills.innerHTML = Object.entries(data.priority_summary).map(([k, v]) => `
+        <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 6px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1;">
+          <strong>${escapeHtml(k)}</strong>: <b style="color: #60a5fa;">${v.toLocaleString()}권</b>
+        </span>
+      `).join("");
+    }
+
+    renderScheduledTasksList();
+  } catch (err) {
+    console.warn("Scheduled queue error:", err);
+  }
+}
+
+function renderScheduledTasksList() {
+  const container = $("#scheduled-tasks-container");
+  if (!container || !scheduledQueueData) return;
+
+  const searchInput = $("#scheduled-search-input");
+  const query = (searchInput?.value || "").trim().toLowerCase();
+
+  let tasks = scheduledQueueData.tasks || [];
+  if (query) {
+    tasks = tasks.filter(t => (t.title || "").toLowerCase().includes(query) || (t.input_epub || "").toLowerCase().includes(query));
+  }
+
+  if (tasks.length === 0) {
+    container.innerHTML = `<div class="empty-state-small" style="grid-column: 1 / -1; padding: 20px; text-align: center; color: #64748b;">조건에 일치하는 대기 작업이 없습니다.</div>`;
+    return;
+  }
+
+  container.innerHTML = tasks.map((t, idx) => {
+    const priColor = t.priority >= 1000 ? "#f59e0b" : t.priority >= 950 ? "#ec4899" : t.priority >= 900 ? "#38bdf8" : "#94a3b8";
+    const priBg = t.priority >= 1000 ? "rgba(245, 158, 11, 0.15)" : t.priority >= 950 ? "rgba(236, 72, 153, 0.15)" : t.priority >= 900 ? "rgba(56, 189, 248, 0.15)" : "rgba(148, 163, 184, 0.1)";
+    const priBorder = t.priority >= 1000 ? "rgba(245, 158, 11, 0.3)" : t.priority >= 950 ? "rgba(236, 72, 153, 0.3)" : t.priority >= 900 ? "rgba(56, 189, 248, 0.3)" : "rgba(148, 163, 184, 0.2)";
+
+    return `
+      <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+          <span style="font-size: 0.72rem; font-weight: 800; color: ${priColor}; background: ${priBg}; border: 1px solid ${priBorder}; padding: 2px 6px; border-radius: 4px;">
+            ${escapeHtml(t.priority_badge || `P:${t.priority}`)}
+          </span>
+          <span style="font-size: 0.72rem; color: #94a3b8; background: rgba(15, 23, 42, 0.5); padding: 2px 6px; border-radius: 4px;">
+            ${escapeHtml(t.provider)}
+          </span>
+        </div>
+        <div style="font-weight: 700; font-size: 0.86rem; color: #f1f5f9; line-height: 1.35; margin-top: 2px;">
+          ${escapeHtml(t.title)}
+        </div>
+        <div style="font-size: 0.73rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          📁 ${escapeHtml(t.input_epub)}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
 function bindEvents() {
   setupVoicePreviewButtons();
   $$('[data-lang]').forEach((button) => button.addEventListener("click", () => {
@@ -1285,18 +1566,25 @@ function bindEvents() {
   $$('[data-audio-source-tab]').forEach((button) => button.addEventListener("click", () => switchAudioSource(button.dataset.audioSourceTab)));
   $$('.audio-provider-control input').forEach((input) => input.addEventListener("change", updateAudioProviderUI));
   $$('.translation-provider-control input, .output-control input').forEach((input) => input.addEventListener("change", updateTranslationProviderUI));
-  $$('.batch-operation-control input, .batch-translation-provider-control input, .batch-audio-provider-control input').forEach((input) => input.addEventListener("change", () => {
+  $$('.batch-operation-control input, .batch-translation-provider-control input, .batch-audio-provider-control input, .dl-source-control input').forEach((input) => input.addEventListener("change", () => {
     $("#folder-scan-result").textContent = "";
     updateBatchUI();
+    updateSegmentedControls();
   }));
   bindDropZone("#audio-drop-zone", "#audio-source-file", "#audio-file-label");
   bindDropZone("#translation-drop-zone", "#translation-source-file", "#translation-file-label", updateTranslationProviderUI);
   $("#audio-form").addEventListener("submit", submitAudio);
   $("#translation-form").addEventListener("submit", submitTranslation);
   $("#batch-form").addEventListener("submit", submitBatch);
+  $("#downloader-form").addEventListener("submit", submitDownloader);
   $("#scan-folder").addEventListener("click", scanFolder);
   $("#batch-recursive").addEventListener("change", () => { $("#folder-scan-result").textContent = ""; });
   
+  const searchInput = $("#scheduled-search-input");
+  if (searchInput) {
+    searchInput.addEventListener("input", renderScheduledTasksList);
+  }
+
   const refreshBatchBtn = $("#refresh-batch-report");
   if (refreshBatchBtn) {
     refreshBatchBtn.addEventListener("click", async () => {
@@ -1304,7 +1592,7 @@ function bindEvents() {
       toast("30분 정기 점검을 즉시 시작합니다...");
       try {
         await fetch("/api/batch-report/run-check", { method: "POST" });
-        setTimeout(refreshBatchReport, 1500);
+        setTimeout(() => { refreshBatchReport(); refreshScheduledQueue(); }, 1500);
       } finally {
         setTimeout(() => { refreshBatchBtn.disabled = false; }, 3000);
       }
@@ -1331,9 +1619,13 @@ async function init() {
   switchTask("audio");
   switchAudioSource("file");
   applyLanguage();
-  await Promise.all([loadSystem(), refreshJobs(), refreshRuntime(), refreshBatchReport()]);
+  await Promise.all([loadSystem(), refreshJobs(), refreshRuntime(), refreshBatchReport(), refreshVisualAuditStatus(), refreshDownloaderStatus(), refreshXRayStatus(), refreshScheduledQueue()]);
   connectRuntimeStream();
   setInterval(refreshBatchReport, 2500);
+  setInterval(refreshVisualAuditStatus, 2500);
+  setInterval(refreshDownloaderStatus, 2500);
+  setInterval(refreshXRayStatus, 2500);
+  setInterval(refreshScheduledQueue, 5000);
   setInterval(refreshJobs, 2500);
   setInterval(() => {
     if (Date.now() - state.runtimeLastMessage > 5000) {

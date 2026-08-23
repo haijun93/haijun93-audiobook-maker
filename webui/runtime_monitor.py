@@ -273,13 +273,13 @@ class RuntimeMonitor:
             health_state = str(health.get("state") or "healthy")
 
         metadata = diagnostics.get("metadata") if isinstance(diagnostics.get("metadata"), dict) else {}
+        explicit_provider = command_option(process.command, "web-provider") or command_option(process.command, "provider")
         provider = str(
             metadata.get("provider")
-            or command_option(process.command, "web-provider")
-            or command_option(process.command, "provider")
+            or explicit_provider
             or command_option(process.command, "translation-provider")
             or command_option(process.command, "audio-provider")
-            or ""
+            or "gemini"
         )
         workflow = str(diagnostics.get("workflow") or MONITORED_SCRIPTS[process.script_name])
         velocity = progress_velocity(
@@ -292,15 +292,25 @@ class RuntimeMonitor:
             or command_option(process.command, "web-profile-dir")
             or ""
         )
-        account_id = None
-        cmd_str = " ".join(process.command) if isinstance(process.command, (list, tuple)) else str(process.command)
-        if "account2" in profile_dir or "account2" in cmd_str:
+        account_id = "main"
+        env_prof = ""
+        try:
+            import psutil
+            p_proc = psutil.Process(process.pid)
+            env_prof = p_proc.environ().get("AUDIOBOOK_WEB_PROFILE_DIR", "")
+        except Exception:
+            pass
+
+        full_cmd_str = " ".join(process.command) if isinstance(process.command, (list, tuple)) else str(process.command)
+        check_str = f"{profile_dir} {env_prof} {full_cmd_str}".lower()
+        
+        if "audiobookstudio-account2" in check_str or "account2" in env_prof:
             account_id = "account2"
-        elif "account3" in profile_dir or "account3" in cmd_str:
+        elif "audiobookstudio-account3" in check_str or "account3" in env_prof:
             account_id = "account3"
-        elif "chatgpt" in profile_dir or "chatgpt" in cmd_str or "chatgpt" in provider.lower():
+        elif "audiobookstudio-chatgpt" in check_str or "chatgpt" in env_prof or "--web-provider chatgpt" in full_cmd_str or provider.lower() == "chatgpt":
             account_id = "chatgpt"
-        elif "AudiobookStudio" in profile_dir or "main" in cmd_str or "gemini" in provider.lower():
+        else:
             account_id = "main"
 
         stage = str(heartbeat.get("stage") or diagnostics.get("current_stage") or "starting")

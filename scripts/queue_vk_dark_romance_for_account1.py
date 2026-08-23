@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / ".work" / "continuous_scheduler" / "config.json"
 STATUS_PATH = ROOT / ".work" / "continuous_scheduler" / "status.json"
 SOURCE_DIR = Path("/Users/hyeokjunkong/Desktop/소설2/new books from vk")
+LIBRARY_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 DEST_CATEGORY = "#Top 10 dark romance"
 
 VK_DARK_BOOKS = [
@@ -46,27 +47,32 @@ def main() -> int:
     status_tasks = status_data.get("tasks", [])
     status_tasks_by_id = {t["id"]: t for t in status_tasks if isinstance(t, dict)}
 
-    base_priority = -200
+    # Ultra high priority so Gemini Account 1 takes it immediately
+    base_priority = -1000
 
-    # Build updated task dictionary
     task_specs = {}
     for idx, (author, title, stem, rank) in enumerate(VK_DARK_BOOKS, 1):
         task_id = f"vk-dark-{idx:02d}-{slugify(title)}"
-        work_dir = Path(f"/Users/hyeokjunkong/Desktop/소설2/_chatgpt_translate_work/vk_dark__{slugify(stem)}")
-        
-        # Sources in root output dirs
-        src_ke = f"/Users/hyeokjunkong/Desktop/소설2/[k-e]/[k-e] {stem}.epub"
-        src_k = f"/Users/hyeokjunkong/Desktop/소설2/[k]/[k] {stem}.epub"
-        
-        # Target destinations in #Top 10 dark romance
-        dest_ke = f"/Users/hyeokjunkong/Desktop/소설2/[k-e]/{DEST_CATEGORY}/[k-e] {stem}.epub"
-        dest_k = f"/Users/hyeokjunkong/Desktop/소설2/[k]/{DEST_CATEGORY}/[k] {stem}.epub"
-        
-        deployments = [
-            {"source": src_ke, "destination": dest_ke},
-            {"source": src_k, "destination": dest_k},
+        work_dir = LIBRARY_ROOT / "_chatgpt_translate_work" / f"vk_dark__{slugify(stem)}"
+        input_epub = SOURCE_DIR / f"{stem}.epub"
+
+        # If not exact match, search in SOURCE_DIR
+        if not input_epub.exists():
+            matches = list(SOURCE_DIR.glob(f"*{title}*.epub"))
+            if matches:
+                input_epub = matches[0]
+
+        bilingual_output = LIBRARY_ROOT / "[k-e]" / DEST_CATEGORY / f"[k-e] {stem}.epub"
+        study_output = LIBRARY_ROOT / "[study]" / DEST_CATEGORY / f"[study] {stem}.epub"
+        korean_output = LIBRARY_ROOT / "[k]" / DEST_CATEGORY / f"[k] {stem}.epub"
+        english_study_output = LIBRARY_ROOT / "[e-s]" / DEST_CATEGORY / f"[e-s] {stem}.epub"
+
+        completion_paths = [
+            str(bilingual_output),
+            str(korean_output),
+            str(study_output),
+            str(english_study_output),
         ]
-        completion_paths = [dest_ke, dest_k]
 
         task_spec = {
             "id": task_id,
@@ -79,21 +85,46 @@ def main() -> int:
             "work_dir": str(work_dir),
             "command": [
                 "{python}",
-                "scripts/run_soseol2_chatgpt_k_e_batch.py",
-                "--source-dir",
-                str(SOURCE_DIR),
-                "--only",
+                "scripts/translate_epub_with_chatgpt_web_to_study_epub.py",
+                "--input-epub",
+                str(input_epub),
+                "--output-epub",
+                str(bilingual_output),
+                "--study-output-epub",
+                str(study_output),
+                "--work-dir",
+                str(work_dir),
+                "--book-title-ko",
                 stem,
-                "--watch-new-seconds",
-                "0",
-                "--web-provider",
-                "{provider}",
+                "--max-chars-per-chunk",
+                "6000",
+                "--request-timeout-sec",
+                "1200",
                 "--web-max-attempts",
                 "3",
+                "--chunks-per-conversation",
+                "10",
                 "--inter-request-delay-sec",
-                "8"
+                "15",
+                "--heartbeat-file",
+                str(work_dir / "heartbeat.json"),
+                "--web-provider",
+                "{provider}",
             ],
-            "deploy": deployments,
+            "post_commands": [
+                [
+                    "{python}",
+                    "scripts/make_korean_only_epubs.py",
+                    str(LIBRARY_ROOT / "[k-e]" / DEST_CATEGORY),
+                    "--overwrite",
+                ],
+                [
+                    "{python}",
+                    "scripts/make_english_study_epubs.py",
+                    str(LIBRARY_ROOT / "[study]" / DEST_CATEGORY),
+                    "--overwrite",
+                ],
+            ],
             "completion_paths": completion_paths,
         }
         task_specs[task_id] = task_spec
@@ -113,7 +144,7 @@ def main() -> int:
     config["tasks"] = new_tasks
     CONFIG_PATH.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    # Update status.json
+    # Update status.json (clean slate: reset retry_wait / error so scheduler runs immediately)
     if status_data:
         updated_status_tasks = []
         status_seen = set()
@@ -126,19 +157,21 @@ def main() -> int:
                 "providers": ["gemini"],
                 "preferred_accounts": ["main"],
                 "work_dir": spec["work_dir"],
-                "status": st.get("status") if st.get("status") in {"running", "completed"} else "pending",
-                "attempts": st.get("attempts", 0),
-                "stall_restarts": st.get("stall_restarts", 0),
+                "status": "pending",
+                "attempts": 0,
+                "stall_restarts": 0,
                 "priority": spec["priority"],
                 "order": idx,
-                "primary_complete": st.get("primary_complete", False),
-                "account_id": st.get("account_id"),
-                "pid": st.get("pid"),
-                "started_at": st.get("started_at"),
-                "last_seen_at": st.get("last_seen_at"),
-                "next_attempt_at": st.get("next_attempt_at"),
-                "error": st.get("error"),
-                "terminating_stale": st.get("terminating_stale", False),
+                "primary_complete": False,
+                "account_id": None,
+                "pid": None,
+                "started_at": None,
+                "last_seen_at": None,
+                "next_attempt_at": "2026-08-16T00:00:00+00:00",
+                "error": None,
+                "failure_kind": None,
+                "last_exit_code": None,
+                "terminating_stale": False,
             })
             updated_status_tasks.append(st)
             status_seen.add(task_id)
@@ -151,9 +184,9 @@ def main() -> int:
         status_data["tasks"] = updated_status_tasks
         STATUS_PATH.write_text(json.dumps(status_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"Successfully configured 10 VK Dark Romance books to auto-deploy into '{DEST_CATEGORY}'!")
+    print(f"Successfully configured 10 VK Dark Romance books with PRIORITY -1000!")
     for idx, (author, title, stem, rank) in enumerate(VK_DARK_BOOKS, 1):
-        print(f"  {rank} {title} -> {DEST_CATEGORY}/[k-e], [k]")
+        print(f"  {rank} {title} -> {DEST_CATEGORY}")
 
     return 0
 

@@ -129,6 +129,14 @@ def convert_css(data: bytes) -> bytes:
     # 남겨 학습 노트가 계속 눈에 띄게 한다.
     text = re.sub(r"\n?span\.en\s*\{[^}]*\}\s*", "\n", text, flags=re.S)
     text = re.sub(r"\n?p\.pair\s*\{[^}]*\}\s*", "\n", text, flags=re.S)
+    text = re.sub(r"p\s*\{[^}]*\}", "p { margin: 0 0 0.5em; text-indent: 0; }", text)
+    if "letter-spacing" not in text:
+        text = text.replace("line-height: 1.58;", "line-height: 1.65;\n  letter-spacing: -0.03em;\n  overflow-wrap: break-word;")
+        text = text.replace("line-height: 1.65;", "line-height: 1.65;\n  letter-spacing: -0.03em;\n  overflow-wrap: break-word;")
+    if "blockquote" not in text:
+        text += "\nblockquote { margin: 1.2em 0 1.2em 1.2em; padding-left: 0.8em; border-left: 3px solid rgba(148, 163, 184, 0.4); font-style: italic; opacity: 0.92; }\n"
+    if "ruby" not in text:
+        text += "\nruby { ruby-position: over; -webkit-ruby-position: over; ruby-align: center; }\nrt, rt.wordwise-hint { font-size: 0.58em; color: #0284c7; font-weight: 600; font-family: \"Amazon Ember\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Apple SD Gothic Neo\", sans-serif; user-select: none; }\n"
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.encode("utf-8")
 
@@ -162,11 +170,10 @@ def convert_opf(data: bytes, source_name: str) -> bytes:
 
 
 def output_name(input_name: str) -> str:
-    if input_name.startswith("[study] "):
-        return "[e-s] " + input_name[len("[study] ") :]
-    if input_name.startswith("[study]"):
-        return "[e-s]" + input_name[len("[study]") :]
-    return "[e-s] " + input_name
+    s = input_name
+    while re.match(r"^\[[^\]]+\]\s*", s):
+        s = re.sub(r"^\[[^\]]+\]\s*", "", s)
+    return f"[e-s] {s}".strip()
 
 
 def convert_epub(input_path: Path, output_path: Path, overwrite: bool) -> dict[str, int]:
@@ -267,21 +274,25 @@ def main() -> int:
         output_dir = output_root / relative_dir
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / output_name(input_path.name)
-        stats = convert_epub(input_path, output_path, args.overwrite)
-        if stats["skipped"]:
+        try:
+            stats = convert_epub(input_path, output_path, args.overwrite)
+            if stats["skipped"]:
+                skipped += 1
+                print(f"SKIP {output_path}")
+                continue
+            converted += 1
+            total_pairs += stats["pairs"]
+            total_notes += stats["notes_kept"]
+            total_ko_removed += stats["ko_removed"]
+            print(
+                f"OK   {output_path} "
+                f"(english paragraphs: {stats['pairs']}, "
+                f"study notes kept: {stats['notes_kept']}, "
+                f"korean spans removed: {stats['ko_removed']})"
+            )
+        except Exception as e:
             skipped += 1
-            print(f"SKIP {output_path}")
-            continue
-        converted += 1
-        total_pairs += stats["pairs"]
-        total_notes += stats["notes_kept"]
-        total_ko_removed += stats["ko_removed"]
-        print(
-            f"OK   {output_path} "
-            f"(english paragraphs: {stats['pairs']}, "
-            f"study notes kept: {stats['notes_kept']}, "
-            f"korean spans removed: {stats['ko_removed']})"
-        )
+            print(f"WARN Error converting {input_path.name}: {e}")
 
     print(
         f"Done. converted={converted}, skipped={skipped}, "

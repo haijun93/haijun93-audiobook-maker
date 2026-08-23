@@ -193,6 +193,14 @@ def convert_css(data: bytes) -> bytes:
     # 스타일 자체가 필요 없다 - 노트 span은 convert_xhtml()이 이미 본문에서 제거하므로,
     # 여기서는 이제 쓰이지 않는 CSS 규칙만 정리한다.
     text = re.sub(r"\n?span\.study-note\s*\{[^}]*\}\s*", "\n", text, flags=re.S)
+    text = re.sub(r"p\s*\{[^}]*\}", "p { margin: 0 0 0.5em; text-indent: 0; }", text)
+    if "letter-spacing" not in text:
+        text = text.replace("line-height: 1.58;", "line-height: 1.65;\n  letter-spacing: -0.03em;\n  overflow-wrap: break-word;")
+        text = text.replace("line-height: 1.65;", "line-height: 1.65;\n  letter-spacing: -0.03em;\n  overflow-wrap: break-word;")
+    if "blockquote" not in text:
+        text += "\nblockquote { margin: 1.2em 0 1.2em 1.2em; padding-left: 0.8em; border-left: 3px solid rgba(148, 163, 184, 0.4); font-style: italic; opacity: 0.92; }\n"
+    if ".scene-break" not in text:
+        text += "\n.scene-break { text-align: center; margin: 1.8em 0; color: #94a3b8; letter-spacing: 0.6em; font-size: 0.9em; }\n"
     text = text.replace("Kindle EPUB", "한국어판")
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.encode("utf-8")
@@ -227,11 +235,10 @@ def convert_opf(data: bytes, source_name: str) -> bytes:
 
 
 def output_name(input_name: str) -> str:
-    if input_name.startswith("[k-e] "):
-        return "[k] " + input_name[len("[k-e] ") :]
-    if input_name.startswith("[k-e]"):
-        return "[k]" + input_name[len("[k-e]") :]
-    return "[k] " + input_name
+    s = input_name
+    while re.match(r"^\[[^\]]+\]\s*", s):
+        s = re.sub(r"^\[[^\]]+\]\s*", "", s)
+    return f"[k] {s}".strip()
 
 
 def uses_structured_pairs(input_path: Path) -> bool:

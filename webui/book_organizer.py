@@ -99,6 +99,13 @@ CURATED_GENRE_BY_TITLE: dict[str, str] = {
     "the man who died twice|osman richard": "Mystery_Thriller_Crime",
     "when to rob a bank and 131 more warped suggestions and well intended rants|d levitt steven": "Business_Economics",
     "the safekeep|der van wouden yael": "Historical_Fiction",
+    "divine rivals|rebecca ross": "Romance_Contemporary",
+    "ruthless vows|rebecca ross": "Romance_Contemporary",
+    "the five star weekend|elin hilderbrand": "Romance_Contemporary",
+    "the five-star weekend|elin hilderbrand": "Romance_Contemporary",
+    "five star summer|ella monroe": "Romance_Contemporary",
+    "godel escher bach an eternal golden braid|douglas r hofstadter": "Science_Nature_Technology",
+    "the selfish gene|richard dawkins": "Science_Nature_Technology",
 }
 
 # 키워드는 순서대로 검사하며 먼저 매칭되는 장르를 사용한다.
@@ -173,7 +180,7 @@ CATEGORY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # CATEGORY_KEYWORDS 자체에서는 빼지 않고, subject 채점 단계에서만 걸러낸다.
 _SUBJECT_SCORING_EXCLUDED_KEYWORDS = frozenset({"fiction", "a novel"})
 
-DEFAULT_GENRE = "Uncategorized"
+DEFAULT_GENRE = "Literary_General_Fiction"
 
 # Goodreads에는 공개 API가 없고(2020년 종료) 스크레이핑은 이용 약관에 어긋나므로,
 # 같은 목적(장르/서가 분류)을 위해 Open Library와 Google Books의 공개 subject/category

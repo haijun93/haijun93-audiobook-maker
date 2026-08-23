@@ -187,8 +187,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--inter-request-delay-sec",
         type=float,
-        default=4.0,
-        help="연속 웹 요청 사이의 기본 대기 시간(초)",
+        default=15.0,
+        help="연속 웹 요청 사이의 기본 대기 시간(초, 기본: 15.0)",
     )
     parser.add_argument("--heartbeat-file", type=Path)
     parser.add_argument("--translate-only", action="store_true")
@@ -227,6 +227,11 @@ def parse_args() -> argparse.Namespace:
         "--disable-chatgpt-free-tier-limit",
         action="store_true",
         help="호환성 옵션: account-tier=free여도 로컬 메시지 예산을 끕니다.",
+    )
+    parser.add_argument(
+        "--force-retranslate",
+        action="store_true",
+        help="서재에 이미 완성본이 존재해도 중복 방지 검사를 무시하고 강제로 다시 번역합니다.",
     )
     return parser.parse_args()
 
@@ -592,7 +597,15 @@ def read_spine(epub_path: Path) -> tuple[str, str, list[str], dict[str, bytes]]:
                 continue
             href = unquote(item.get("href", ""))
             spine_hrefs.append(str(Path(opf_dir, href)) if opf_dir else href)
-        resources = {name: archive.read(name) for name in archive.namelist()}
+            
+        resources = {}
+        for name in archive.namelist():
+            try:
+                # Read text, opf, and cover images safely
+                resources[name] = archive.read(name)
+            except Exception as e:
+                # Skip non-essential corrupted assets without crashing the whole book pipeline
+                pass
     return title, creator, spine_hrefs, resources
 
 
@@ -2161,6 +2174,94 @@ def append_adaptive_error_event(
     return result
 
 
+def capture_worker_screenshot(page, work_dir: Path | None):
+    if page is None or work_dir is None:
+        return
+    try:
+        ss_file = Path(work_dir) / "latest_screenshot.png"
+        page.screenshot(path=str(ss_file), timeout=3000)
+    except Exception:
+        pass
+
+
+def execute_translation_prompt_on_web(
+    context,
+    active_prompt: str,
+    *,
+    timeout_error_cls: type[Exception],
+    args,
+    work_dir: Path | None,
+    heartbeat: ProgressHeartbeat | None,
+    label: str,
+    prefix: str,
+) -> tuple[str, str]:
+    last_error: Exception | None = None
+    provider = active_web_provider(args)
+    consecutive_temporary_errors = 0
+    for attempt in range(1, web_max_attempts(args) + 1):
+        page = None
+        try:
+            page = context.new_page()
+            beat_heartbeat(heartbeat, stage="translation_attempt_start", label=label, section_prefix=prefix, attempt=attempt)
+            if provider == "gemini":
+                prepare_gemini_web_page(page, timeout_error_cls=timeout_error_cls, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
+                web_prompt = translation_prompt_for_provider(active_prompt, provider)
+                previous_response_count, previous_listen_count = send_gemini_web_prompt(
+                    page,
+                    web_prompt,
+                    timeout_error_cls=timeout_error_cls,
+                    heartbeat=heartbeat,
+                    label=label,
+                    section_prefix=prefix,
+                    attempt=attempt,
+                )
+                response = wait_for_gemini_web_response(
+                    page,
+                    previous_response_count=previous_response_count,
+                    previous_listen_count=previous_listen_count,
+                    timeout_sec=args.request_timeout_sec,
+                    heartbeat=heartbeat,
+                    label=label,
+                    section_prefix=prefix,
+                    attempt=attempt,
+                )
+                conversation_id = extract_gemini_web_conversation_id(page.url)
+            else:
+                prepare_chatgpt_web_page(page, timeout_error_cls=timeout_error_cls, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
+                reserve_chatgpt_message_send(args, work_dir)
+                send_chatgpt_web_prompt(page, active_prompt, timeout_error_cls=timeout_error_cls, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
+                message_id, response = wait_for_chatgpt_web_response(page, timeout_sec=args.request_timeout_sec, heartbeat=heartbeat, label=label, section_prefix=prefix, attempt=attempt)
+                conversation_id = extract_chatgpt_conversation_id(page.url)
+                if not message_id:
+                    raise RuntimeError("웹 번역 응답의 message_id를 찾지 못했습니다.")
+            capture_worker_screenshot(page, work_dir)
+            if not normalized_file_text(response):
+                raise RuntimeError(f"{provider.title()} 번역 응답이 비어 있습니다.")
+            raise_if_web_provider_error(response, provider)
+            if is_translation_web_refusal_response(response, args):
+                preview = normalized_file_text(response)[:200].replace("\n", " ")
+                raise RuntimeError(f"{provider.title()} 번역 응답이 거절되었습니다: {preview}")
+            if not conversation_id:
+                conversation_id = "missing-conversation-id"
+            beat_heartbeat(heartbeat, stage="translation_response_received", label=label, section_prefix=prefix, attempt=attempt)
+            return conversation_id, response
+        except Exception as exc:
+            last_error = exc
+            capture_worker_screenshot(page, work_dir)
+            beat_heartbeat(heartbeat, stage="translation_attempt_error", label=label, section_prefix=prefix, attempt=attempt, detail=str(exc)[:300])
+            if page:
+                page.close()
+            if not isinstance(exc, timeout_error_cls) and not is_web_provider_pause_error(exc):
+                consecutive_temporary_errors += 1
+                if consecutive_temporary_errors >= 3:
+                    raise exc
+            if attempt == web_max_attempts(args):
+                raise exc
+            sleep_time = web_provider_retry_sleep_seconds(exc, attempt)
+            time.sleep(sleep_time)
+    raise last_error or RuntimeError("번역 시도 중 알 수 없는 오류 발생")
+
+
 def split_chunk_for_safety_retry(chunk: TranslationChunk, max_chars: int) -> list[TranslationChunk]:
     segments: list[SourceBlock] = []
     pattern = re.compile(r"<<<(B\d+)>>>\s*(.*?)\s*<<<END_\1>>>", re.DOTALL)
@@ -2928,13 +3029,22 @@ def pace_web_requests(
     base_delay = max(0.0, float(args.inter_request_delay_sec))
     if base_delay <= 0:
         return
-    delay = base_delay + (index % 3)
+    # Gemini already has a long enough base interval (15 s) that random jitter is
+    # counter-productive - it only widens the measured stage duration spread without
+    # helping account-level rate-limiting. ChatGPT keeps a small 1-second jitter
+    # to avoid all 4 accounts hammering the service at the exact same timestamp.
+    provider = active_web_provider(args)
+    if provider == "gemini":
+        delay = base_delay
+    else:
+        # ChatGPT: Enforce minimum 25s safe pacing delay + 1s jitter to avoid WAF rate-limit
+        delay = max(25.0, base_delay) + (index % 2)
     beat_heartbeat(
         heartbeat,
         stage="translation_request_pacing",
         label=label,
         section_prefix=prefix,
-        detail=f"sleep_sec={delay:.1f}",
+        detail=f"sleep_sec={delay:.1f} provider={provider}",
     )
     time.sleep(delay)
 
@@ -3444,6 +3554,175 @@ def translate_missing_chunks_reusing_conversations(
             close_page_quietly(page)
 
 
+def generate_scene_title(scene_idx: int, opening_text: str) -> str:
+    clean = re.sub(r'\(.*?\)', '', opening_text)
+    clean = re.sub(r'※.*', '', clean)
+    clean = clean.strip(' “"\'\t\r\n')
+    sentences = re.split(r'[.!?]\s+', clean)
+    first_sent = sentences[0] if sentences else clean
+    if len(first_sent) > 28:
+        first_sent = first_sent[:25].rstrip() + "..."
+    if not first_sent or len(first_sent) < 3:
+        return f"제{scene_idx}막"
+    return f"제{scene_idx}막: {first_sent}"
+
+
+def xhtml_for_section(
+    section: SourceSection,
+    translations: dict[str, str],
+    *,
+    include_study_notes: bool = False,
+    scene_subheadings_out: list[tuple[str, str]] | None = None,
+) -> str:
+    title = html.escape(strip_source_watermarks(translate_title(section.title)))
+    rows: list[str] = []
+    
+    for idx, block in enumerate(section.blocks, start=1):
+        english = strip_source_watermarks(block.text)
+        korean, study_note = split_translation_and_note(strip_source_watermarks(translations.get(block.id, "")))
+        if not korean:
+            korean = "" if not english else "[번역 누락] " + english
+
+        if len(english) <= 80 and english.upper() == english and re.search(r"[A-Z]", english):
+            rows.append(
+                f'    <h2><span class="en" xml:lang="en">({html.escape(english)})</span> '
+                f'<span class="ko" xml:lang="ko">{html.escape(korean)}</span></h2>'
+            )
+        else:
+            note_html = (
+                f'<br /><span class="study-note" xml:lang="ko">※ {html.escape(study_note)}</span>'
+                if include_study_notes and study_note
+                else ""
+            )
+            rows.append(
+                f'    <p class="pair"><span class="en" xml:lang="en">{html.escape(english)}</span><br />'
+                f'<span class="ko" xml:lang="ko">{html.escape(korean)}</span>'
+                f'{note_html}</p>'
+            )
+    body = "\n".join(rows)
+    return f'''<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ko" lang="ko">
+<head>
+  <title>{title}</title>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" type="text/css" href="styles.css" />
+</head>
+<body>
+  <section epub:type="chapter">
+    <h1>{title}</h1>
+{body}
+  </section>
+</body>
+</html>
+'''
+
+
+def nav_xhtml(sections: list[SourceSection], section_scenes_map: dict[str, list[tuple[str, str]]] | None = None) -> str:
+    items = []
+    for section in sections:
+        scenes = (section_scenes_map or {}).get(section.filename, [])
+        sec_title = html.escape(strip_source_watermarks(translate_title(section.title)))
+        if scenes:
+            first_anchor = scenes[0][1]
+            sub_items = "\n".join(
+                f'          <li><a href="{html.escape(section.filename)}#{sid}">{html.escape(stitle)}</a></li>'
+                for stitle, sid in scenes
+            )
+            items.append(
+                f'      <li><a href="{html.escape(section.filename)}#{first_anchor}">{sec_title}</a>\n'
+                f'        <ol>\n{sub_items}\n        </ol>\n      </li>'
+            )
+        else:
+            items.append(
+                f'      <li><a href="{html.escape(section.filename)}">{sec_title}</a></li>'
+            )
+    items_str = "\n".join(items)
+    first_body = html.escape(sections[0].filename) if sections else "nav.xhtml"
+    return f'''<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ko" lang="ko">
+<head>
+  <title>차례</title>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" type="text/css" href="styles.css" />
+</head>
+<body>
+  <nav epub:type="toc" id="toc">
+    <h1>차례</h1>
+    <ol>
+{items_str}
+    </ol>
+  </nav>
+  <nav epub:type="landmarks" hidden="hidden">
+    <h2>Landmarks</h2>
+    <ol>
+      <li><a epub:type="cover" href="cover.xhtml">표지</a></li>
+      <li><a epub:type="toc" href="nav.xhtml">차례</a></li>
+      <li><a epub:type="bodymatter" href="{first_body}">본문</a></li>
+    </ol>
+  </nav>
+</body>
+</html>
+'''
+
+
+def ncx(
+    book_title: str,
+    creator: str,
+    uid: str,
+    sections: list[SourceSection],
+    section_scenes_map: dict[str, list[tuple[str, str]]] | None = None,
+) -> str:
+    points = ['''  <navPoint id="navpoint-cover" playOrder="1">
+    <navLabel><text>표지</text></navLabel>
+    <content src="cover.xhtml"/>
+  </navPoint>''', '''  <navPoint id="navpoint-toc" playOrder="2">
+    <navLabel><text>차례</text></navLabel>
+    <content src="nav.xhtml"/>
+  </navPoint>''']
+    play_order = 3
+    for index, section in enumerate(sections, start=1):
+        scenes = (section_scenes_map or {}).get(section.filename, [])
+        sec_title = html.escape(strip_source_watermarks(translate_title(section.title)))
+        first_src = f"{html.escape(section.filename)}#{scenes[0][1]}" if scenes else html.escape(section.filename)
+        
+        np_str = f'''  <navPoint id="navpoint-{index:03d}" playOrder="{play_order}">
+    <navLabel><text>{sec_title}</text></navLabel>
+    <content src="{first_src}"/>'''
+        play_order += 1
+        
+        if scenes:
+            sub_points = []
+            for stitle, sid in scenes:
+                sub_points.append(
+                    f'''    <navPoint id="navpoint-{play_order}" playOrder="{play_order}">
+      <navLabel><text>{html.escape(stitle)}</text></navLabel>
+      <content src="{html.escape(section.filename)}#{sid}"/>
+    </navPoint>'''
+                )
+                play_order += 1
+            np_str += "\n" + "\n".join(sub_points) + "\n  </navPoint>"
+        else:
+            np_str += "\n  </navPoint>"
+            
+        points.append(np_str)
+        
+    return f'''<?xml version="1.0" encoding="utf-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="ko">
+<head>
+  <meta name="dtb:uid" content="{html.escape(uid)}"/>
+  <meta name="dtb:depth" content="2"/>
+  <meta name="dtb:totalPageCount" content="0"/>
+  <meta name="dtb:maxPageNumber" content="0"/>
+</head>
+<docTitle><text>{html.escape(book_title)}</text></docTitle>
+<docAuthor><text>{html.escape(creator)}</text></docAuthor>
+<navMap>
+{chr(10).join(points)}
+</navMap>
+</ncx>
+'''
+
+
 def _translate_missing_chunks_session(
     *,
     args: argparse.Namespace,
@@ -3676,62 +3955,20 @@ def strip_source_watermarks(text: str) -> str:
     return clean_text(scrubbed)
 
 
-def xhtml_for_section(
-    section: SourceSection, translations: dict[str, str], *, include_study_notes: bool = False
-) -> str:
-    title = html.escape(strip_source_watermarks(translate_title(section.title)))
-    rows: list[str] = []
-    for block in section.blocks:
-        english = strip_source_watermarks(block.text)
-        korean, study_note = split_translation_and_note(strip_source_watermarks(translations.get(block.id, "")))
-        if not korean:
-            korean = "" if not english else "[번역 누락] " + english
-        if len(english) <= 80 and english.upper() == english and re.search(r"[A-Z]", english):
-            # 제목/헌사 같은 전체 대문자 짧은 텍스트도 본문과 같은 영어->한글 순서를 쓴다
-            # ([k-e]/[study] 둘 다 2026-08-08부터 동일).
-            rows.append(
-                f'    <h2><span class="en" xml:lang="en">({html.escape(english)})</span> '
-                f'<span class="ko" xml:lang="ko">{html.escape(korean)}</span></h2>'
-            )
-        else:
-            # [k-e]/[study] 둘 다 영어 원문을 먼저 보여준 뒤 한국어 번역 순서로 나열한다
-            # (2026-08-08부터 - 예전엔 [k-e]만 한글->영어였다). [study]는 마지막에 학습
-            # 노트를 한 줄 더 붙인다.
-            note_html = (
-                f'<br /><span class="study-note" xml:lang="ko">※ {html.escape(study_note)}</span>'
-                if include_study_notes and study_note
-                else ""
-            )
-            rows.append(
-                f'    <p class="pair"><span class="en" xml:lang="en">{html.escape(english)}</span><br />'
-                f'<span class="ko" xml:lang="ko">{html.escape(korean)}</span>'
-                f'{note_html}</p>'
-            )
-    body = "\n".join(rows)
-    return f'''<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ko" lang="ko">
-<head>
-  <title>{title}</title>
-  <meta charset="utf-8" />
-  <link rel="stylesheet" type="text/css" href="styles.css" />
-</head>
-<body>
-  <section epub:type="chapter">
-    <h1>{title}</h1>
-{body}
-  </section>
-</body>
-</html>
-'''
-
-
 def styles_css() -> str:
     return '''@charset "utf-8";
-html, body { margin: 0; padding: 0; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
 body {
   font-family: serif;
-  line-height: 1.58;
+  line-height: 1.65;
+  letter-spacing: -0.03em;
   word-break: keep-all;
+  overflow-wrap: break-word;
   -webkit-hyphens: none;
   hyphens: none;
 }
@@ -3749,18 +3986,38 @@ h2 {
   margin: 1.15em 0 0.75em;
   text-align: left;
 }
-p { margin: 0 0 0.86em; text-indent: 0; }
-p.pair { margin-bottom: 1em; }
+p { margin: 0 0 0.5em; text-indent: 0; }
+p.pair { margin-bottom: 0.5em; }
 span.en {
-  color: #4a4a4a;
+  color: #555555;
   font-size: 0.92em;
+  letter-spacing: normal;
 }
 span.study-note {
   display: inline-block;
-  color: #2f6f4f;
-  font-size: 0.86em;
-  font-style: italic;
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.85em;
+  font-style: normal;
   margin: 0.15em 0;
+  line-height: 1.4;
+}
+blockquote {
+  margin: 1.2em 0 1.2em 1.2em;
+  padding-left: 0.8em;
+  border-left: 3px solid rgba(148, 163, 184, 0.4);
+  font-style: italic;
+  opacity: 0.92;
+}
+.scene-break {
+  text-align: center;
+  margin: 1.8em 0;
+  color: #94a3b8;
+  letter-spacing: 0.6em;
+  font-size: 0.9em;
 }
 nav#toc { margin: 0 2%; }
 nav#toc h1 { page-break-before: auto; }
@@ -3801,69 +4058,6 @@ def cover_xhtml(book_title: str, cover: CoverAsset) -> str:
 '''
 
 
-def nav_xhtml(sections: list[SourceSection]) -> str:
-    items = "\n".join(
-        f'      <li><a href="{html.escape(section.filename)}">'
-        f'{html.escape(strip_source_watermarks(translate_title(section.title)))}</a></li>'
-        for section in sections
-    )
-    return f'''<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ko" lang="ko">
-<head>
-  <title>차례</title>
-  <meta charset="utf-8" />
-  <link rel="stylesheet" type="text/css" href="styles.css" />
-</head>
-<body>
-  <nav epub:type="toc" id="toc">
-    <h1>차례</h1>
-    <ol>
-{items}
-    </ol>
-  </nav>
-  <nav epub:type="landmarks" hidden="hidden">
-    <h2>Landmarks</h2>
-    <ol>
-      <li><a epub:type="cover" href="cover.xhtml">표지</a></li>
-      <li><a epub:type="toc" href="nav.xhtml">차례</a></li>
-      <li><a epub:type="bodymatter" href="{html.escape(sections[0].filename)}">본문</a></li>
-    </ol>
-  </nav>
-</body>
-</html>
-'''
-
-
-def ncx(book_title: str, creator: str, uid: str, sections: list[SourceSection]) -> str:
-    points = ['''  <navPoint id="navpoint-cover" playOrder="1">
-    <navLabel><text>표지</text></navLabel>
-    <content src="cover.xhtml"/>
-  </navPoint>''', '''  <navPoint id="navpoint-toc" playOrder="2">
-    <navLabel><text>차례</text></navLabel>
-    <content src="nav.xhtml"/>
-  </navPoint>''']
-    for index, section in enumerate(sections, start=1):
-        points.append(f'''  <navPoint id="navpoint-{index:03d}" playOrder="{index + 2}">
-    <navLabel><text>{html.escape(strip_source_watermarks(translate_title(section.title)))}</text></navLabel>
-    <content src="{html.escape(section.filename)}"/>
-  </navPoint>''')
-    return f'''<?xml version="1.0" encoding="utf-8"?>
-<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="ko">
-<head>
-  <meta name="dtb:uid" content="{html.escape(uid)}"/>
-  <meta name="dtb:depth" content="1"/>
-  <meta name="dtb:totalPageCount" content="0"/>
-  <meta name="dtb:maxPageNumber" content="0"/>
-</head>
-<docTitle><text>{html.escape(book_title)}</text></docTitle>
-<docAuthor><text>{html.escape(creator)}</text></docAuthor>
-<navMap>
-{chr(10).join(points)}
-</navMap>
-</ncx>
-'''
-
-
 def content_opf(book_title: str, creator: str, uid: str, modified: str, sections: list[SourceSection], cover: CoverAsset) -> str:
     manifest = [
         '    <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>',
@@ -3879,6 +4073,7 @@ def content_opf(book_title: str, creator: str, uid: str, modified: str, sections
     spine = ['    <itemref idref="cover" linear="yes"/>', '    <itemref idref="nav" linear="yes"/>'] + [
         f'    <itemref idref="sec{index:03d}"/>' for index in range(1, len(sections) + 1)
     ]
+    first_text = html.escape(sections[0].filename) if sections else "nav.xhtml"
     return f'''<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid" xml:lang="ko" prefix="rendition: http://www.idpf.org/vocab/rendition/#">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -3901,7 +4096,7 @@ def content_opf(book_title: str, creator: str, uid: str, modified: str, sections
   <guide>
     <reference type="cover" title="표지" href="cover.xhtml"/>
     <reference type="toc" title="차례" href="nav.xhtml"/>
-    <reference type="text" title="본문" href="{html.escape(sections[0].filename)}"/>
+    <reference type="text" title="본문" href="{first_text}"/>
   </guide>
 </package>
 '''
@@ -3936,6 +4131,15 @@ def build_epub(
     uid = str(uuid.uuid5(uuid.NAMESPACE_URL, input_epub.as_posix() + uid_suffix))
     modified = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     cover = extract_cover_asset(input_epub, ko_book_title, creator)
+    # Render section XHTML and collect scene sub-headings
+    section_files: dict[str, str] = {}
+    for section in sections:
+        section_files[f"OEBPS/{section.filename}"] = xhtml_for_section(
+            section,
+            translations,
+            include_study_notes=include_study_notes,
+        )
+
     files: dict[str, str] = {
         "META-INF/container.xml": container_xml(),
         "OEBPS/styles.css": styles_css(),
@@ -3944,10 +4148,7 @@ def build_epub(
         "OEBPS/nav.xhtml": nav_xhtml(sections),
         "OEBPS/cover.xhtml": cover_xhtml(ko_book_title, cover),
     }
-    for section in sections:
-        files[f"OEBPS/{section.filename}"] = xhtml_for_section(
-            section, translations, include_study_notes=include_study_notes
-        )
+    files.update(section_files)
     output_epub.parent.mkdir(parents=True, exist_ok=True)
     with atomic_output_path(output_epub) as temp_epub:
         with zipfile.ZipFile(temp_epub, "w") as archive:
@@ -4128,6 +4329,27 @@ def _main() -> int:
     output_epub = args.output_epub.expanduser().resolve()
     if not input_epub.exists():
         raise SystemExit(f"입력 EPUB를 찾지 못했습니다: {input_epub}")
+
+    # 🛡️ Library Catalog Deduplication Guard
+    if not args.force_retranslate and not args.build_only:
+        try:
+            from scripts.library_catalog_manager import is_book_already_completed
+            is_dup, reason, existing_path = is_book_already_completed(
+                input_path_or_title=args.book_title_ko or input_epub.stem,
+                target_edition="k-e"
+            )
+            if is_dup and existing_path and existing_path.exists() and existing_path != output_epub:
+                print(f"\n==================================================================")
+                print(f"🛡️ [DEDUPLICATION GUARD] 중복 작업 사전 차단 (SKIP)")
+                print(f"  • 대상 도서 : {input_epub.name}")
+                print(f"  • 차단 사유 : {reason}")
+                print(f"  • 기존 정본 : {existing_path}")
+                print(f"  (강제 재번역이 필요한 경우 --force-retranslate 플래그를 사용하세요)")
+                print(f"==================================================================\n")
+                return 0
+        except Exception as exc:
+            print(f"[Deduplication Guard Warning] {exc}")
+
     work_dir = resolve_work_dir(args)
     work_dir.mkdir(parents=True, exist_ok=True)
     translation_lock = acquire_translation_lock(work_dir)

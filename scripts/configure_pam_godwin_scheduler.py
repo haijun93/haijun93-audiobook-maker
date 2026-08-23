@@ -123,7 +123,7 @@ def make_vk_task(
             "--web-max-attempts",
             "3",
             "--inter-request-delay-sec",
-            "8",
+            "15",
         ],
         "completion_paths": [
             str(library_root / "[k-e]" / f"[k-e] {stem}.epub"),
@@ -182,7 +182,7 @@ def make_pam_general_task(
             "--chunks-per-conversation",
             "10",
             "--inter-request-delay-sec",
-            "8",
+            "15",
             "--heartbeat-file",
             str(work_dir / "heartbeat.json"),
             "--web-provider",
@@ -286,7 +286,7 @@ def build_config(*, library_root: Path, scratch_root: Path, state_dir: Path) -> 
                     # 전 300/450/900초였던 건 실제로는 세션 만료를 rate limit으로 오진한 결과).
                     # Gemini 계정 기본 간격(8~12초)에 맞춰 대폭 단축하되 ChatGPT 웹 UI가 더
                     # 불안정했던 이력을 고려해 약간의 여유를 둔다.
-                    "AUDIOBOOK_CHATGPT_MIN_REQUEST_INTERVAL_SEC": "20",
+                    "AUDIOBOOK_CHATGPT_MIN_REQUEST_INTERVAL_SEC": "15",
                     "AUDIOBOOK_CHATGPT_PENALTY_REQUEST_INTERVAL_SEC": "60",
                     "AUDIOBOOK_CHATGPT_MAX_REQUEST_INTERVAL_SEC": "240",
                     "AUDIOBOOK_CHATGPT_PACING_RECOVERY_SUCCESS_COUNT": "3",

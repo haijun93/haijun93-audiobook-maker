@@ -1,0 +1,251 @@
+{
+  "total_books": 676,
+  "new_version_count": 484,
+  "old_version_count": 192,
+  "old_version_by_genre": {
+    "#Author": [
+      "01_AN_INSIDE_JOB_by_Daniel_Silva",
+      "02_THE_ENCHANTED_GREENHOUSE_by_Sarah_Beth_Durst",
+      "03. The Girl on the Train - Paula Hawkins",
+      "03_UNCOMFORTABLE_CONVERSATIONS_WITH_A_JEW_by_Emmanuel_Acho_and_Noa_Tishby",
+      "03_WICKED_by_Gregory_Maguire",
+      "04_BITS_AND_PIECES_by_Whoopi_Goldberg",
+      "04_ONE_GOLDEN_SUMMER_by_Carley_Fortune",
+      "06_CAUGHT_UP_by_Navessa_Allen",
+      "06_THE_AGE_OF_GRIEVANCE_by_Frank_Bruni",
+      "06_THE_HOUSE_OF_CROSS_by_James_Patterson",
+      "07_A_WITCH_39_S_GUIDE_TO_MAGICAL_INNKEEPING_by_Sangu_Mandanna",
+      "07_THE_GOD_OF_THE_WOODS_by_Liz_Moore",
+      "08_BRAIDING_SWEETGRASS_by_Robin_Wall_Kimmerer",
+      "09_NO_GOING_BACK_by_Kristi_Noem",
+      "09_THE_FROZEN_RIVER_by_Ariel_Lawhon",
+      "09_THREE_SHATTERED_SOULS_by_Mai_Corland",
+      "10_LIGHTS_OUT_by_Navessa_Allen",
+      "12_QUICKSILVER_by_Callie_Hart",
+      "13_SMALL_THINGS_LIKE_THESE_by_Claire_Keegan",
+      "14_TO_DIE_FOR_by_David_Baldacci",
+      "15_ALL_THE_COLORS_OF_THE_DARK_by_Chris_Whitaker",
+      "15_COUNTING_MIRACLES_by_Nicholas_Sparks",
+      "15_KNIFE_by_Salman_Rushdie",
+      "1_You-Caroline_Kepnes",
+      "2_Hidden_Bodies-Caroline_Kepnes",
+      "2_Hidden_Bodies_-_You_-_Caroline_Kepnes",
+      "3_You_Love_Me_-_You_-_Caroline_Kepnes",
+      "4_For_You_And_Only_You-Caroline_Kepnes",
+      "A_Curse_for_True_Love_-_Stephanie_Garber",
+      "A_court_of_frost_and_starlight_-_Sarah_j_mass",
+      "A_short_history_of_nearly_everything_-_Bill_Bryson",
+      "Allen_Levi_-_Theo_of_Golden",
+      "Atomic_Habits_-_James_Clear",
+      "Better_Off_Red_Vampire_Sorority_Sisters_1_-_Rebekah_Weatherspoon",
+      "Better_then_the_movies_-_Lynn_painter",
+      "Bill_Bryson_-_A_Short_History_of_Nearly_Everything",
+      "Broken_Process_The_Code_3_-_Bethany_Jadin",
+      "Crooked_Kingdom__Book_2_-_Leigh_Bardugo",
+      "Dead_of_Eve_-_Pam_Godwin",
+      "Does_it_hurt_-_Hd_carlton",
+      "Dominate_Deliver_8_-_Pam_Godwin",
+      "Dominic_O_39_Brien_How_to_Develop_a_Brilliant_Memo",
+      "Elledges_Nontrivial_Trivia_-_Jonn_Elledge",
+      "Falls_Boys_Hellbent_1_-_Penelope_Douglas",
+      "For_You_And_Only_You_-_Caroline_Kepnes",
+      "Guns_Germs_and_Steel_The_Fates_of_Human_Societies",
+      "Heart_of_Frost_and_Scars_-_Pam_Godwin",
+      "Heated_Rivalry_Rachel_Reid_my_fiction_books",
+      "Hidden_Agenda_The_Code_2_-_Bethany_Jadin",
+      "Initial_Meeting_-_NM_Sanchez",
+      "It_ends_with_us_-_Colleen_hover",
+      "Moonwalking_With_Einstein__The_Art_and_Sci_-_Joshua_Foer",
+      "Obedience_-_Lizzie_B_Brown-1",
+      "Obedience_volume_2_-_Lizzy_b_brown",
+      "Onyx_Storm_-_Rebecca_Yarros",
+      "Patricia_Cornwell_-_Kay_Scarpetta_01_-_Postmortem_1990",
+      "Patricia_Cornwell_-_Kay_Scarpetta_02_-_Body_Of_Evidence_1991",
+      "Patricia_Cornwell_-_Kay_Scarpetta_03_-_All_That_Remains_1992",
+      "Patricia_Cornwell_-_Kay_Scarpetta_04_-_Cruel_and_Unusual_1993",
+      "Patricia_Cornwell_-_Kay_Scarpetta_05_-_the_Body_Farm_1994",
+      "Patricia_Cornwell_-_Kay_Scarpetta_06_-_from_Potter_39_s_Field_1995",
+      "Patricia_Cornwell_-_Kay_Scarpetta_07_-_Cause_Of_Death_1996",
+      "Patricia_Cornwell_-_Kay_Scarpetta_08_-_Unnatural_Exposure_v5_0__epub",
+      "Patricia_Cornwell_-_Kay_Scarpetta_09_-_Point_of_Origin_v5_0__epub",
+      "Pinborough_Sarah_-_Mayhem_2013_Jo_Fletcher_Books",
+      "Pinborough_Sarah_-_The_Death_House_2015_Orion_9780575097063",
+      "Prisoners_of_Geography_Ten_Maps_-_Tim_Marshall",
+      "Rival_Fall_Away_2_-_Penelope_Douglas",
+      "Robot_Series_0_1_I_Robot_-_Isaac_Asimov",
+      "Robot_Series_0_2_The_Rest_of_the_Robots_-_Isaac_Asimov",
+      "Robot_Series_0_3_The_Complete_Robot",
+      "Robot_Series_0_4_Robot_Dreams",
+      "Robot_Series_0_5_Robot_Visions_-_Isaac_Asimov",
+      "Robot_Series_0_6_The_Positronic_Man_-_Isaac_Asimov",
+      "Robot_Series_1_The_Caves_of_Steel_-_Isaac_Asimov",
+      "Robot_Series_2_The_Naked_Sun_-_Isaac_Asimov",
+      "Robot_Series_3_The_Robots_of_Dawn_-_Isaac_Asimov",
+      "Sarah_Pinborough_-_Cross_Her_Heart",
+      "Seafire_by_Natalie_C_Parker",
+      "Still_beating_-_Jeniffer_hartmann",
+      "The_Correspondent_Virginia_Evans__my_fiction_books",
+      "The_Darkest_Road",
+      "The_Deal_Off-Campus__1_by_Elle_Kennedy",
+      "The_Devil_in_the_White_City_-_Erik_Larson",
+      "The_Diary_of_a_Young_Girl_Anne_Frank",
+      "The_Divorce___40_Freida_McFadden__41_",
+      "The_First_Time_I_Saw_Him_Laura_Dave_my_fiction_books",
+      "The_Gift_-_Freida_McFadden",
+      "The_Intruder_-_Freida_McFadden",
+      "The_Princess_Saves_Herself_In_This_One",
+      "The_Psyching_-_Freida_McFadden",
+      "The_Rise_and_Fall_of_the_Third_Reich__A_Hi_-_William_L_Shirer",
+      "The_Rituals_-_Shantel_Tessier",
+      "The_Tale_of_Despereaux",
+      "The_True_Confessions_Of_Charlotte_Doyle",
+      "Theo_of_Golden_Allen_Levi_my_fiction_books",
+      "Thirteen_Reasons_Why_-_Jay_Asher",
+      "Unbroken_A_World_War_II_Story_Of_Survival_Res",
+      "Unlimited_Memory__How_to_Use_Advanced_Lear_-_Kevin_Horsley",
+      "Unshackle_Deliver_7_-_Pam_Godwin",
+      "Vanquish_Deliver_2_-_Pam_Godwin",
+      "Verity_-_Collen_hoover",
+      "Vested_Interest_The_Code_1_-_Bethany_Jadin",
+      "Wicked_Sanctuary_A_Dark_Irish_Mafia_Age_Gap_Romance_The_McCarthy_Family_Legacy__Jane_Henry__z-library_sk_1lib_sk_z-lib_sk",
+      "[e]Never Lie",
+      "_Readrobe.com_Acotar_-_Sarah_jmaas",
+      "beauty-sarah-pinborough",
+      "charm-sarah-pinborough",
+      "harry_lorayne_the_memory_book",
+      "make_it_stick_The_Science_of_Successful_Learning_Peter_C_Brown_Henry_L_Roediger_III_etc",
+      "memory-craft-improve-your-memory-using-the-most-powerful-methods-from-around-the-world",
+      "poison-sarah-pinborough",
+      "retranslated_bilingual2"
+    ],
+    "#Freida McFadden": [
+      "Baby City Freida McFadden (3.73)",
+      "Boyfriend Freida McFadden (4.03)",
+      "Brain Damage Freida McFadden",
+      "Do You Remember Freida McFadden",
+      "Never Lie Freida McFadden (4.08)",
+      "Suicide Med Freida McFadden",
+      "The Crash Freida McFadden (0.00)",
+      "The Devil Wears Scrubs Freida McFadden (3.43)",
+      "The Inmate Freida McFadden (4.00)",
+      "The Teacher Freida McFadden (3.89)",
+      "The Tenant Freida McFadden (4.00)",
+      "Want to Know a Secret Freida McFadden"
+    ],
+    "#Pam Godwin": [
+      "Heart of Frost and Scars (Frozen Fate Book 3) Pam Godwin_dup",
+      "Three is a War Tangled Lies 3 Pam Godwin (4.06)_dup"
+    ],
+    "Dark_Romance/H D Carlton": [
+      "Haunting adelline H D Carlton"
+    ],
+    "Dark_Romance/Penelope Douglas": [
+      "Next to Never Penelope Douglas (4.01)",
+      "Pirate Girls (Hellbent Book 2) Penelope Douglas (0.00)",
+      "Quiet Ones (Hellbent Book 3) Penelope Douglas (3.89)"
+    ],
+    "Fantasy_Science_Fiction": [
+      "The Book of Doors Gareth Brown (4.02)",
+      "The Hitchhiker's Guide to the Galaxy Douglas Adams",
+      "The Tainted Cup Robert Jackson Bennett (4.29)",
+      "The War of the Worlds H G Wells (3.83)"
+    ],
+    "Fantasy_Science_Fiction/Isaac Asimov": [
+      "Robot Series 04 Robot Visions Isaac Asimov"
+    ],
+    "Fantasy_Science_Fiction/Kristen Ciccarelli": [
+      "Heartless Hunter Kristen Ciccarelli (4.08)"
+    ],
+    "Historical_Fiction": [
+      "1984 George Orwell (4.03)",
+      "Consuelo George Sand (5.00)",
+      "Land Maggie O'Farrell (3.98)",
+      "Land Pak Kyongni (3.89)",
+      "Perfume The Story of a Murderer Patrick Suskind (4.04)",
+      "Zorba the Greek Nikos Kazantzakis (4.46)"
+    ],
+    "Literary_General_Fiction": [
+      "A History of the World in 10 12 Chapters Julian Barnes",
+      "A Man Called Ove A Novel Fredrik Backman (4.46)",
+      "Demian Hermann Hesse (4.14)",
+      "Eleven Minutes Paulo Coelho (4.00)",
+      "Fangirl Down Tessa Bailey (3.77)",
+      "How We Think Marius Ostrowski (3.75)",
+      "Lectures Shin Young - bok (3.77)",
+      "Make It Stick Peter C Brown Henry L Roediger III Mark A McDaniel",
+      "Make It Stick Peter C Brown Henry L Roediger III Mark A McDaniel 2 (4.40)",
+      "News of the World Paulette Jiles (4.08)",
+      "The Alchemist Paulo Coelho (4.09)",
+      "The Pilgrimage Paulo Coelho (3.71)",
+      "The Stranger Albert Camus (4.13)"
+    ],
+    "Literary_General_Fiction/General Authors": [
+      "Never Lie Unknown (4.08)"
+    ],
+    "Literary_General_Fiction/Kat Stoddard": [
+      "Wasp's Nest Kat Stoddard (3.92)"
+    ],
+    "Literary_General_Fiction/Sarah J. Maas": [
+      "A Court of Mist and Fury Sarah J Maas (4.63)",
+      "A Court of Silver Flames Sarah J Maas (4.09)",
+      "A Court of Thorns and Roses Sarah J Maas (4.15)",
+      "A Court of Wings and Ruin Sarah J Maas (4.46)"
+    ],
+    "Literary_General_Fiction/Stephanie Garber": [
+      "Once Upon a Broken Heart Stephanie Garber (4.50)",
+      "The Ballad of Never After Stephanie Garber (3.67)"
+    ],
+    "Mystery_Thriller_Crime": [
+      "First Lie Wins Ashley Elston (3.99)",
+      "My Dark Vanessa Kate Elizabeth Russell (4.09)",
+      "The Cuckoo's Calling Robert Galbraith; J.K. Rowling"
+    ],
+    "Mystery_Thriller_Crime/Caroline Kepnes": [
+      "You Series 00 Complete Series Caroline Kepnes"
+    ],
+    "Mystery_Thriller_Crime/Jesse Q. Sutanto": [
+      "Vera Wong's Guide to Snooping (on a Dead Man) Jesse Q. Sutanto (4.19)"
+    ],
+    "Mystery_Thriller_Crime/John Grisham": [
+      "The Firm John Grisham (3.68)"
+    ],
+    "Mystery_Thriller_Crime/Patricia Cornwell": [
+      "Kay Scarpetta 01 Postmortem Patricia Cornwell (4.33)",
+      "Kay Scarpetta 02 Body Of Evidence Patricia Cornwell (4.02)",
+      "Kay Scarpetta 04 Cruel and Unusual Patricia Cornwell (3.00)"
+    ],
+    "Mystery_Thriller_Crime/Paula Hawkins": [
+      "03. The Girl on the Train Paula Hawkins Paula Hawkins",
+      "걸 온 더 트레인 Paula Hawkins"
+    ],
+    "Non_Fiction_Memoir": [
+      "Limitless Jim Kwik (4.07)",
+      "Remember Lisa Genova (4.20)",
+      "The Boy the Mole the Fox and the Horse The Animated Story Charlie Mackesy (4.45)",
+      "What If Randall Munroe (4.20)",
+      "the Psychology of money Morgan Housel (4.27)"
+    ],
+    "Romance": [
+      "All the Little Lights Jamie McGuire (3.96)",
+      "Bonus Epilogue Tears of Tess (Monsters in the Dark Book 5) Winters, Pepper",
+      "Heart Talk Cleo Wade (4.24)",
+      "Shadows of Fury R NIMES (4.16)",
+      "Vicious Reign Monica Kayne (4.26)"
+    ],
+    "Romance/Abby Jimenez": [
+      "Say You'll Remember Me Abby Jimenez (3.97)"
+    ],
+    "Romance/Ali Hazelwood": [
+      "Bride Ali Hazelwood (3.99)",
+      "The Love Hypothesis Ali Hazelwood (4.00)"
+    ],
+    "Romance/Rebecca Yarros": [
+      "Fourth Wing Special Edition Rebecca Yarros (0.00)",
+      "Iron Flame Rebecca Yarros (5.00)"
+    ],
+    "non-english": [
+      "The Help - Kathryn Stockett (4.47)",
+      "The Time-Block Planner - Cal Newport (4.15)"
+    ]
+  }
+}
