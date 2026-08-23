@@ -29,14 +29,16 @@ def heal_korean_only_book(ke_path: Path) -> tuple[bool, str, str]:
     """Generates pure [k] from [k-e] with zero leftover bilingual tags."""
     try:
         rel = ke_path.relative_to(LIB_ROOT / "[k-e]")
-        target_k = LIB_ROOT / "[k]" / rel
+        k_filename = re.sub(r"^\[(?:k-e|study|e-s|e|k)\]\s*", "", ke_path.name)
+        k_filename = f"[k] {k_filename}".strip()
+        target_k = LIB_ROOT / "[k]" / rel.parent / k_filename
         target_k.parent.mkdir(parents=True, exist_ok=True)
         
         make_korean_epub(ke_path, target_k, overwrite=True)
         
         # Sync to Google Drive
         try:
-            gdrive_dest = GDRIVE_ROOT / "[k]" / rel
+            gdrive_dest = GDRIVE_ROOT / "[k]" / rel.parent / k_filename
             if gdrive_dest.parent.exists():
                 shutil.copy2(target_k, gdrive_dest)
         except Exception:
@@ -50,13 +52,15 @@ def heal_english_study_book(study_path: Path) -> tuple[bool, str, str]:
     """Generates pure [e-s] from [study] with zero leftover span.ko tags."""
     try:
         rel = study_path.relative_to(LIB_ROOT / "[study]")
-        target_es = LIB_ROOT / "[e-s]" / rel
+        es_filename = re.sub(r"^\[(?:k-e|study|e-s|e|k)\]\s*", "", study_path.name)
+        es_filename = f"[e-s] {es_filename}".strip()
+        target_es = LIB_ROOT / "[e-s]" / rel.parent / es_filename
         target_es.parent.mkdir(parents=True, exist_ok=True)
         
         make_english_study_epub(study_path, target_es, overwrite=True)
         
         # Sync to Xteink
-        xteink_es = LIB_ROOT / "[xteink]/[e-s]" / rel
+        xteink_es = LIB_ROOT / "[xteink]/[e-s]" / rel.parent / es_filename
         if xteink_es.parent.exists():
             shutil.copy2(target_es, xteink_es)
             
