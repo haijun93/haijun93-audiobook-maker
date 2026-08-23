@@ -208,6 +208,23 @@ def generate_status_and_health_report() -> dict[str, Any]:
     except Exception:
         pass
 
+    # Automatically validate and heal any incomplete task schemas in scheduler queue
+    try:
+        if CONFIG_FILE.exists():
+            cfg = json.loads(CONFIG_FILE.read_text())
+            tasks = cfg.get("tasks", [])
+            from scripts.continuous_worker_supervisor import validate_and_heal_task_fields
+            healed = False
+            for t in tasks:
+                orig = json.dumps(t, sort_keys=True)
+                validate_and_heal_task_fields(t)
+                if json.dumps(t, sort_keys=True) != orig:
+                    healed = True
+            if healed:
+                atomic_write_json(CONFIG_FILE, cfg)
+    except Exception:
+        pass
+
     return report
 
 

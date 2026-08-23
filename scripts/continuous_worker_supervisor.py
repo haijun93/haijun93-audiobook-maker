@@ -194,22 +194,51 @@ def is_robot_series_work(text: str) -> bool:
         return True
     return any(r in t_lower for r in ["i, robot", "i robot", "the complete robot", "the rest of the robots", "robot dreams", "robot visions", "the robots of dawn", "caves of steel", "naked sun", "robot series"])
 
+_COMPLETED_TASK_IDS = set()
+_QUARANTINED_TASK_IDS = set()
+_FAILED_DISPATCH_COUNTS = defaultdict(int)
+_CONFIG_LOAD_TIME = 0.0
+
+def validate_and_heal_task_fields(t: dict) -> dict:
+    """Ensures all essential fields exist with canonical paths before dispatch."""
+    tid = t.get("id", "task")
+    tid_clean = re.sub(r'[^a-zA-Z0-9_]', '', tid)
+    
+    if not t.get("work_dir"):
+        t["work_dir"] = str(DESKTOP_LIB_ROOT / f"_translation_work_{tid_clean}")
+        
+    in_epub = t.get("input_epub", "")
+    fname = Path(in_epub).name if in_epub else f"{tid}.epub"
+    
+    if not t.get("output_epub"):
+        t["output_epub"] = str(DESKTOP_LIB_ROOT / "[k-e]" / "Literary_General_Fiction" / f"[k-e] {fname}")
+        
+    if not t.get("study_output_epub"):
+        t["study_output_epub"] = str(DESKTOP_LIB_ROOT / "[study]" / "Literary_General_Fiction" / f"[study] {fname}")
+        
+    if not t.get("book_title_ko"):
+        t["book_title_ko"] = t.get("title", fname.replace(".epub", ""))
+        
+    return t
+
 def get_next_available_task(active_task_ids: set, active_titles: set = None, provider: str = None) -> dict | None:
-    global _CONFIG_CACHE, _CONFIG_MTIME, _COMPLETED_TASK_IDS
+    global _CONFIG_CACHE, _CONFIG_MTIME, _COMPLETED_TASK_IDS, _QUARANTINED_TASK_IDS, _CONFIG_LOAD_TIME
     if not CONFIG_PATH.exists():
         return None
-    if active_titles is None:
-        active_titles = set()
     try:
-        curr_mtime = CONFIG_PATH.stat().st_mtime
-        if _CONFIG_CACHE is None or curr_mtime != _CONFIG_MTIME:
+        now = time.time()
+        if _CONFIG_CACHE is None or (now - _CONFIG_LOAD_TIME > 60):
             cfg = json.loads(CONFIG_PATH.read_text())
             tasks = cfg.get("tasks", [])
             _CONFIG_CACHE = sorted(tasks, key=lambda t: t.get("priority", 0), reverse=True)
-            _CONFIG_MTIME = curr_mtime
+            _CONFIG_LOAD_TIME = now
 
         for t in _CONFIG_CACHE:
             tid = t.get("id")
+            if tid in _QUARANTINED_TASK_IDS:
+                continue
+                
+            validate_and_heal_task_fields(t)
             title = t.get("book_title_ko") or t.get("title") or ""
             clean_title = title.split(" (")[0].strip().lower()
             clean_key = re.sub(r'[^a-zA-Z0-9가-힣]', '', clean_title)
@@ -302,7 +331,12 @@ def dispatch_task_to_account(account: dict, task: dict):
     env = os.environ.copy()
     env["AUDIOBOOK_WEB_PROFILE_DIR"] = account["profile_dir"]
     
-    work_dir = Path(task["work_dir"])
+    w_dir_str = task.get("work_dir")
+    if not w_dir_str:
+        tid_clean = re.sub(r'[^a-zA-Z0-9_]', '', task.get("id", "task"))
+        w_dir_str = str(DESKTOP_LIB_ROOT / f"_translation_work_{tid_clean}")
+        task["work_dir"] = w_dir_str
+    work_dir = Path(w_dir_str)
     work_dir.mkdir(parents=True, exist_ok=True)
     heartbeat_file = work_dir / "heartbeat.json"
     
@@ -493,12 +527,20 @@ def supervise_loop():
                     log(f"⚡ [IDLE DETECTED] {acc['name']} is idle! Searching 3-Stage queue (provider={acc.get('provider')})...")
                     task = get_next_available_task(active_task_ids, active_titles, provider=acc.get("provider"))
                     if task:
-                        dispatch_task_to_account(acc, task)
-                        active_task_ids.add(task.get("id"))
-                        t_title = (task.get("book_title_ko") or task.get("title") or "").split(" (")[0].strip().lower()
-                        if t_title:
-                            active_titles.add(t_title)
-                        time.sleep(4) # Stagger browser launches
+                        tid = task.get("id")
+                        try:
+                            dispatch_task_to_account(acc, task)
+                            active_task_ids.add(tid)
+                            t_title = (task.get("book_title_ko") or task.get("title") or "").split(" (")[0].strip().lower()
+                            if t_title:
+                                active_titles.add(t_title)
+                            time.sleep(4) # Stagger browser launches
+                        except Exception as d_err:
+                            log(f"❌ [DISPATCH ERROR] Failed to dispatch task '{tid}': {d_err}")
+                            _FAILED_DISPATCH_COUNTS[tid] += 1
+                            if _FAILED_DISPATCH_COUNTS[tid] >= 3:
+                                log(f"⚠️ [AUTO-QUARANTINE] Task '{tid}' failed 3 consecutive dispatches. Quarantining to prevent worker deadlock!")
+                                _QUARANTINED_TASK_IDS.add(tid)
                         active_workers = get_running_workers()
                         
             # 2. Stalled Worker Hang-Detector & Auto-Healer (Heartbeat Watchdog)
