@@ -106,6 +106,20 @@ CURATED_GENRE_BY_TITLE: dict[str, str] = {
     "five star summer|ella monroe": "Romance_Contemporary",
     "godel escher bach an eternal golden braid|douglas r hofstadter": "Science_Nature_Technology",
     "the selfish gene|richard dawkins": "Science_Nature_Technology",
+    "pachinko|min jin lee": "#apple tv original",
+    "the complete foundation trilogy|asimov isaac": "#apple tv original",
+    "wool|hugh howey": "#apple tv original",
+    "shift|hugh howey": "#apple tv original",
+    "dust|hugh howey": "#apple tv original",
+    "presumed innocent|scott turow": "#apple tv original",
+    "black bird|james keene": "#apple tv original",
+    "the shining girls|lauren beukes": "#apple tv original",
+    "the last thing he told me|laura dave": "#apple tv original",
+    "slow horses|mick herron": "#apple tv original",
+    "lessons in chemistry|bonnie garmus": "#apple tv original",
+    "dark matter|blake crouch": "#apple tv original",
+    "defending jacob|william landay": "#apple tv original",
+    "disclaimer|renee knight": "#apple tv original",
 }
 
 # 키워드는 순서대로 검사하며 먼저 매칭되는 장르를 사용한다.

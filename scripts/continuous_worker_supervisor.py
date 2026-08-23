@@ -9,6 +9,7 @@ Features:
 """
 
 import os, sys, time, json, psutil, subprocess, shutil, re
+from collections import defaultdict
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent

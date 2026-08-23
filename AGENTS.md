@@ -24,11 +24,12 @@
         - `Historical_Fiction/#Author/` (`#Mark Sullivan`, `#Kristin Hannah`, `#Diana Gabaldon`)
         - `Dark_Romance/#Author/`
         - `Nonfiction_History_Politics/#Author/`, `Business_Economics/#Author/`, `Biography_Memoir/#Author/`, `Young_Adult_Children/#Author/`
-     2. **Full-Catalogue Author Collections**: Only dedicated complete-works series reside at edition roots:
+     2. **Full-Catalogue & Dedicated Franchise Collections**: Only dedicated complete-works series reside at edition roots:
         - `#Freida McFadden/` (Full catalog)
         - `#Pam Godwin/` (Full catalog)
         - `#Leigh Rivers/` (Full catalog)
         - `#Top 10 dark romance/` (VK Top 10 Dark Romance series)
+        - `#apple tv original/` (Apple TV+ Original Novel Adaptations)
      3. **1:1 Mirroring Rule**: All 4 editions (`[k]`, `[k-e]`, `[study]`, `[e-s]`) must have 100% identical relative folder paths for every book.
 3. **4-Account Isolation & Concurrency**:
    - Four separate browser profiles run simultaneously:
