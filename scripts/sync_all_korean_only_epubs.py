@@ -30,14 +30,29 @@ k_root = lib_root / "[k]"
 gdrive_root = Path("/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books")
 
 
+def sanitize_rel_parent(rel_parent: Path) -> Path:
+    parts = list(rel_parent.parts)
+    clean_parts = []
+    for part in parts:
+        part_clean = part.strip()
+        if part_clean in {"[e]", "finished", "non-english", "Uncategorized", "non_english"}:
+            continue
+        if part_clean:
+            clean_parts.append(part_clean)
+    if not clean_parts:
+        return Path("Literary_General_Fiction")
+    return Path(*clean_parts)
+
+
 def sync_single_book(ke_path: Path) -> tuple[str, str]:
     if not ke_path.exists() or ke_path.name.startswith("._"):
         return ke_path.name, "skipped_dotfile"
         
     rel = ke_path.relative_to(ke_root)
+    clean_parent = sanitize_rel_parent(rel.parent)
     # Output path in [k]
     k_filename = output_name(ke_path.name)
-    k_path = k_root / rel.parent / k_filename
+    k_path = k_root / clean_parent / k_filename
     
     if k_path.exists():
         return ke_path.name, "already_exists"
@@ -49,7 +64,7 @@ def sync_single_book(ke_path: Path) -> tuple[str, str]:
             return ke_path.name, "convert_skipped"
             
         # Copy to GDrive
-        gdrive_k_path = gdrive_root / "[k]" / rel.parent / k_filename
+        gdrive_k_path = gdrive_root / "[k]" / clean_parent / k_filename
         gdrive_k_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(k_path, gdrive_k_path)
         

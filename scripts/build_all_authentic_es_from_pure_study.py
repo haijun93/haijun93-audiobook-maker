@@ -62,9 +62,24 @@ span.study-note {
 }
 """
 
+def sanitize_rel_parent(rel_parent: Path) -> Path:
+    parts = list(rel_parent.parts)
+    clean_parts = []
+    for part in parts:
+        part_clean = part.strip()
+        if part_clean in {"[e]", "finished", "non-english", "Uncategorized", "non_english"}:
+            continue
+        if part_clean:
+            clean_parts.append(part_clean)
+    if not clean_parts:
+        return Path("Literary_General_Fiction")
+    return Path(*clean_parts)
+
+
 def derive_es_from_study(study_epub_str: str) -> dict:
     ep = Path(study_epub_str)
     rel_p = ep.relative_to(study_dir)
+    clean_parent = sanitize_rel_parent(rel_p.parent)
     
     # Determine target filename and prefix
     is_pure_new = ep.name.startswith("[study]") and not ep.name.startswith("[study-]")
@@ -73,7 +88,7 @@ def derive_es_from_study(study_epub_str: str) -> dict:
     else:
         target_name = ep.name.replace("[study-] ", "[e-s-] ").replace("[study-]", "[e-s-]")
         
-    out_epub = es_dir / rel_p.parent / target_name
+    out_epub = es_dir / clean_parent / target_name
     out_epub.parent.mkdir(parents=True, exist_ok=True)
     
     try:
