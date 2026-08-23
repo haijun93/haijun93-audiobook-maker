@@ -92,7 +92,7 @@ CURATED_GENRE_BY_TITLE: dict[str, str] = {
     "the rebel witch|ciccarelli kristen": "Fantasy_Science_Fiction",
     "mad mabel|hepworth sally": "Mystery_Thriller_Crime",
     "wind and truth|brandon sanderson": "Fantasy_Science_Fiction",
-    "the lord of the rings|jrr tolkien": "Fantasy_Science_Fiction",
+    "the lord of the rings|jrr tolkien": "#original books",
     "whistler|ann patchett": "Literary_General_Fiction",
     "would like to meet|rachel winters": "Romance",
     "the impossible fortune|osman richard": "Mystery_Thriller_Crime",
