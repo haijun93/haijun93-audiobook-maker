@@ -4480,16 +4480,25 @@ def _main() -> int:
         if str(study_cleanup.get("status") or "").startswith("error:"):
             raise RuntimeError(f"[study] EPUB 워터마크 삭제 검증에 실패했습니다: {study_cleanup['status']}")
         
-        # Enforce Pre-Publishing Master Quality Gate
+        # Enforce 2-Tier Master Dual Inspector Protocol (Rule 12)
         try:
+            # Tier 1: Master Quality Inspector
             from audiobook_studio.master_quality_inspector import inspect_epub_quality
             insp = inspect_epub_quality(study_output_epub, "[study]")
             if not insp.passed:
-                print(f"⚠️ [PRE-PUBLISH QUALITY GATE WARNING] Issues detected in {study_output_epub.name}: {insp.errors}")
+                print(f"⚠️ [TIER-1 INSPECTOR WARNING] Issues detected in {study_output_epub.name}: {insp.errors}")
             else:
-                print(f"🛡️ [PRE-PUBLISH QUALITY GATE] 100% Passed for {study_output_epub.name}!")
+                print(f"🛡️ [TIER-1 MASTER INSPECTOR] 100% Passed for {study_output_epub.name}!")
+
+            # Tier 2: Ultimate Integrity Sentinel (Senior Inspector)
+            from audiobook_studio.ultimate_integrity_sentinel import conduct_ultimate_integrity_audit, format_sentinel_report
+            sentinel_rep = conduct_ultimate_integrity_audit(study_output_epub, "[study]")
+            if not sentinel_rep.passed:
+                print(f"🚨 [TIER-2 SENTINEL REJECTION] Critical flaws in {study_output_epub.name}: {sentinel_rep.critical_flaws}")
+            else:
+                print(f"🏛️ [TIER-2 ULTIMATE SENTINEL] Digital Seal Granted (100% Absolute Integrity): {study_output_epub.name}!")
         except Exception as e:
-            print(f"⚠️ Quality inspection hook notice: {e}")
+            print(f"⚠️ Dual Inspector hook notice: {e}")
             
         beat_heartbeat(heartbeat, stage="study_epub_complete", detail=str(study_output_epub))
         study_result = {"path": str(study_output_epub)}

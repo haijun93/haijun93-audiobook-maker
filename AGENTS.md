@@ -84,6 +84,19 @@
       4. 🚫 **Zero Untranslated Leak Gate**: 한글 번역 영역(`span.ko`) 내 영문 원문 단순 복사 0건 검증 (100% 순수 완역 보장).
       5. 🎯 **TOEIC 700+ to 990 Vocab Gate**: 중학교 기초 단어 루비 포함 0건, 글자 잘림(Truncation) 0건, Overhead Ruby 표준 준수.
       6. 🛡️ **XML Well-Formedness Gate**: EPUB 내부 모든 XHTML/XML 파일 파서 파싱 에러 0건.
+12. **Mandatory 2-Tier Master Dual Inspector Protocol (2인 상호 교차 검수 의무화 무결성 원칙)**:
+    - **Tier-1 Master Inspector (`master_quality_inspector.py`)**:
+      - 1차 구조, 기본 XML 문법, 표지, 3중 TOC, X-Ray 도감, 1차 기초 단어 소거 및 즉각적 자동 자가치유(Auto-Healing) 수행.
+    - **Tier-2 Ultimate Integrity Sentinel (`ultimate_integrity_sentinel.py` - 수석 검수관)**:
+      - 제1검수관을 통과한 파일에 대해 단 0.001%의 결함도 허용하지 않는 **7대 무관용 무결성 심층 정밀 검증(Zero-Tolerance Deep Verification)** 집행:
+        1. 🔬 **Bi-Text Parity**: 영한 문단 1:1 대칭 및 문장 누락 제로 검증.
+        2. 🚫 **Absolute Zero-Leak**: `span.ko` 내 비-한글 원시 영문 잔류 0건 (1건이라도 발견 시 즉시 탈락).
+        3. 🎯 **Lexicon Purity**: TOEIC 700+ to 990 엄선 어휘 순도 100%, 말줄임표(`...`) 잘림 0건.
+        4. 📑 **TOC-Spine Sync**: `nav.xhtml`, `toc.ncx`, `<spine>` 간 깨진 링크 0건.
+        5. 🖼️ **HD Cover Gate**: 고화질 표지(>15KB), `000-cover.xhtml` 및 OPF 속성 100% 선언.
+        6. 👥 **X-Ray Quad-Section**: 등장인물, 관계도, 공간배경, 핵심테마 4대 섹션 100% 한글 수록.
+        7. 🛡️ **W3C Strict XML**: EPUB 내부 모든 문서의 엄격한 W3C XML 파싱 에러 0건.
+      - **Digital Integrity Seal**: 제1검수관과 제2수석검수관의 2단계 인증을 모두 획득한 완벽한 전자책만이 서재에 최종 출판 및 동기화된다.
 
 ---
 
