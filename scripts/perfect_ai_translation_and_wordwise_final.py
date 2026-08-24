@@ -134,7 +134,8 @@ COMPLETE_TRANSLATION_MAP = {
     
     # Playlist & Sneak Peek
     "Tainted Love": "오염된 사랑 (Tainted Love)",
-    "“Q. Q!”": "“Q. Q!”",
+    "“Q. Q!”": "“큐. 큐!”",
+    "“Q. Q! ”": "“큐. 큐!”",
     "Q": "Q"
 }
 
@@ -212,7 +213,9 @@ def parse_authentic_notes(note_str: str) -> list[tuple[str, str]]:
             if w and m and not re.search(r'[가-힣]', w):
                 if is_valid_toeic_700_plus_target(w):
                     m_clean = re.sub(r'^\(.*?\)\s*', '', m).strip()
-                    pairs.append((w, m_clean or m))
+                    m_clean = re.sub(r'[\.\s…]+$', '', m_clean).strip()
+                    if m_clean:
+                        pairs.append((w, m_clean))
     return pairs
 
 def annotate_authentic(en_text: str, note_str: str) -> tuple[str, bool]:
