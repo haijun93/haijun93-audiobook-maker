@@ -42,6 +42,10 @@
 4. **Pure AI Translation & AI-Generated Study Notes Principle (절대 불변 원칙)**:
    - ALWAYS and ONLY use authentic AI (Gemini, ChatGPT) contextual translation and AI-generated TOEIC 700+ study notes (`※ 단어 - 문맥 뜻`).
    - NEVER mechanically inject external static dictionary databases (e.g. KALDIC, static wordbooks) or overwrite authentic AI context translations with arbitrary dictionary matching. All library content must come directly from authentic AI LLM comprehension of the text.
+   - **TOEIC 700+ to 990 Target Standard (토익 700점~만점 도약 타깃 어휘 엄선 원칙)**:
+     - 중학교/초급 수준의 평이한 기본 단어(예: `happy, afraid, hell, words, smile, dinner, travel, ticket, teeth, friend, room, hand, look, voice` 등)는 학습정보 및 Word Wise 루비 힌트로의 추출을 엄격히 금지한다.
+     - 오직 토익 700점대 학습자가 만점(990점)을 달성하는 데 실질적으로 필요한 **고급 어휘(`plummet, musty, threshold, flicker, unfixable, subjugate...`), 고급 숙어/구동사(`bleed dry, cross the threshold...`), 다의어의 특수 문맥 뜻**만을 선별 추출한다.
+     - 고난도 어휘가 없는 평이한 문장은 억지로 단어를 쥐어짜내지 않고 학습 노트를 과감히 생략하여 시각적 피로도를 최소화하고 학습 효율을 극대화한다.
 5. **Korean Original Literature Handling Principle**:
    - Pure Korean original works (e.g. Pak Kyongni 『Land/토지』, Shin Young-bok 『Lectures/강의』, etc.) are authentic Korean literature and must NEVER be queued for English-to-Korean translation/retranslation. They are preserved in their original form as Korean masterpieces.
 6. **ChatGPT Dark Romance Exclusion Principle (ChatGPT 다크로맨스 번역 제외 원칙)**:
