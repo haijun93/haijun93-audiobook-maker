@@ -392,15 +392,15 @@ def run_master_build():
 
     # Build TOC & Nav
     nav_items = [
-        '        <li><a href="000-cover.xhtml">표지 (Cover)</a></li>',
-        '        <li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감 (Dramatis Personae)</a></li>'
+        '      <li><a href="000-cover.xhtml">표지 (Cover)</a></li>',
+        '      <li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감 (Dramatis Personae)</a></li>'
     ]
     ncx_items = [
-        '''    <navPoint id="navPoint-1" playOrder="1">
+        '''    <navPoint id="nav_1" playOrder="1">
       <navLabel><text>표지 (Cover)</text></navLabel>
       <content src="000-cover.xhtml"/>
     </navPoint>''',
-        '''    <navPoint id="navPoint-2" playOrder="2">
+        '''    <navPoint id="nav_2" playOrder="2">
       <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감 (Dramatis Personae)</text></navLabel>
       <content src="000-xray-dramatis-personae.xhtml"/>
     </navPoint>'''
@@ -410,39 +410,50 @@ def run_master_build():
     for idx in range(len(sections)):
         t = CHAPTER_NAMES.get(idx, f"제{idx+1}장")
         href = f"chapter_{idx:03d}.xhtml"
-        nav_items.append(f'        <li><a href="{href}">{t}</a></li>')
-        ncx_items.append(f'''    <navPoint id="navPoint-{order}" playOrder="{order}">
-      <navLabel><text>{t}</text></navLabel>
+        escaped_t = html.escape(t)
+        nav_items.append(f'      <li><a href="{href}">{escaped_t}</a></li>')
+        ncx_items.append(f'''    <navPoint id="nav_{order}" playOrder="{order}">
+      <navLabel><text>{escaped_t}</text></navLabel>
       <content src="{href}"/>
     </navPoint>''')
         order += 1
         
     nav_html = f'''<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="ko" xml:lang="ko">
 <head>
   <title>목차 (Table of Contents)</title>
+  <meta charset="utf-8" />
   <link rel="stylesheet" type="text/css" href="styles.css" />
 </head>
 <body>
-  <nav epub:type="toc" id="toc">
+  <nav epub:type="toc" id="toc" role="doc-toc">
     <h1>목차 (Table of Contents)</h1>
     <ol>
 {chr(10).join(nav_items)}
+    </ol>
+  </nav>
+  <nav epub:type="landmarks" hidden="">
+    <h2>Landmarks</h2>
+    <ol>
+      <li><a epub:type="cover" href="000-cover.xhtml">표지</a></li>
+      <li><a epub:type="toc" href="nav.xhtml">목차</a></li>
+      <li><a epub:type="bodymatter" href="chapter_002.xhtml">본문 시작</a></li>
     </ol>
   </nav>
 </body>
 </html>'''.encode("utf-8")
 
     toc_ncx = f'''<?xml version="1.0" encoding="utf-8"?>
-<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="ko">
   <head>
     <meta name="dtb:uid" content="urn:uuid:tears-of-tess-pepper-winters"/>
-    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:depth" content="2"/>
     <meta name="dtb:totalPageCount" content="0"/>
     <meta name="dtb:maxPageNumber" content="0"/>
   </head>
-  <docTitle><text>Tears of Tess - Pepper Winters</text></docTitle>
+  <docTitle><text>Tears of Tess</text></docTitle>
+  <docAuthor><text>Pepper Winters</text></docAuthor>
   <navMap>
 {chr(10).join(ncx_items)}
   </navMap>
