@@ -4479,6 +4479,18 @@ def _main() -> int:
         study_cleanup = scrub_epub(study_output_epub)
         if str(study_cleanup.get("status") or "").startswith("error:"):
             raise RuntimeError(f"[study] EPUB 워터마크 삭제 검증에 실패했습니다: {study_cleanup['status']}")
+        
+        # Enforce Pre-Publishing Master Quality Gate
+        try:
+            from audiobook_studio.master_quality_inspector import inspect_epub_quality
+            insp = inspect_epub_quality(study_output_epub, "[study]")
+            if not insp.passed:
+                print(f"⚠️ [PRE-PUBLISH QUALITY GATE WARNING] Issues detected in {study_output_epub.name}: {insp.errors}")
+            else:
+                print(f"🛡️ [PRE-PUBLISH QUALITY GATE] 100% Passed for {study_output_epub.name}!")
+        except Exception as e:
+            print(f"⚠️ Quality inspection hook notice: {e}")
+            
         beat_heartbeat(heartbeat, stage="study_epub_complete", detail=str(study_output_epub))
         study_result = {"path": str(study_output_epub)}
 

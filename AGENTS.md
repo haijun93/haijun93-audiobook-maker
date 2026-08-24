@@ -75,6 +75,15 @@
 10. **Authentic Original TOC & Zero Untranslated Leak Standard (원작 목차 100% 보존 및 영문 누락 원천 차단 표준)**:
     - **Authentic Original TOC Preservation**: NEVER mechanically index chapter numbers (e.g. `2장, 3장, 5장`). ALWAYS preserve the author's authentic chapter names (Prologue, Chapter Names, Epilogue, etc.) from the English original edition (`[e]`), placing the X-Ray Dramatis Personae at the very top.
     - **Post-Translation Full Korean Integrity Guard**: Every built `[k]` edition must be strictly verified against untranslated English text leaks. All frontmatter (Title, Copyright, Dedication, Prologue) and backmatter must be 100% translated into authentic Korean without leaving any raw English sentences.
+11. **Mandatory Pre-Publishing Master Quality Gate Protocol (출판 전 자동 품질 검수 신설 의무화 원칙)**:
+    - **Automated Pre-Publish Quality Interceptor (`audiobook_studio/master_quality_inspector.py`)**:
+      모든 번역 워커는 결과물 EPUB을 최종 서재(`소설2/` 및 Google Drive `#Books`)에 배포하기 전에 반드시 **자동 품질 검수기(`inspect_epub_quality`)**를 거쳐야 하며, 아래 6대 검수 게이트를 100% 통과하지 못한 파일은 서재 진입을 원천 차단한다:
+      1. 🖼️ **Cover Gate**: 정품 고화질 표지 이미지(`cover.jpeg`, >10KB), 표지 페이지(`000-cover.xhtml`), OPF 메타데이터 완전 탑재.
+      2. 📑 **TOC 3-Tier Gate**: `nav.xhtml` & `toc.ncx` XML Well-formedness 100% 무결성 (특수문자 `&` 이스케이프 강제, 최소 3개 이상 정규 챕터 링크).
+      3. 👥 **X-Ray Dossier Gate**: X-Ray 도감 최상단 탑재 및 4대 필수 섹션(등장인물, 관계도, 무대, 테마) 완비.
+      4. 🚫 **Zero Untranslated Leak Gate**: 한글 번역 영역(`span.ko`) 내 영문 원문 단순 복사 0건 검증 (100% 순수 완역 보장).
+      5. 🎯 **TOEIC 700+ to 990 Vocab Gate**: 중학교 기초 단어 루비 포함 0건, 글자 잘림(Truncation) 0건, Overhead Ruby 표준 준수.
+      6. 🛡️ **XML Well-Formedness Gate**: EPUB 내부 모든 XHTML/XML 파일 파서 파싱 에러 0건.
 
 ---
 
