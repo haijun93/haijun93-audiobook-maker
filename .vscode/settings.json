@@ -1,6 +1,5 @@
 {
-    "python.defaultInterpreterPath": "/Users/hyeokjunkong/Desktop/myproject_python/haijun93-audiobook-maker/.venv311/bin/python",
-    "python.pythonPath": "/Users/hyeokjunkong/Desktop/myproject_python/haijun93-audiobook-maker/.venv311/bin/python",
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv311/bin/python",
     "python.terminal.activateEnvironment": true,
     "python.terminal.activateEnvInCurrentTerminal": true,
     "python.analysis.extraPaths": [
