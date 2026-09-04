@@ -4,10 +4,8 @@ Audiobook Studio - Native macOS Desktop GUI App (Standalone WebKit Window)
 크롬 브라우저 창이 아닌 순수 macOS 전용 독립형 GUI 윈도우로 실행
 """
 
-import os
 import subprocess
 import sys
-import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -48,7 +46,7 @@ def ensure_backend_services():
             stdout=open(ROOT / ".work" / "web_app.stdout.log", "a"),
             stderr=open(ROOT / ".work" / "web_app.stderr.log", "a"),
         )
-        
+
     # 2. Start scheduler if not running
     if not is_scheduler_running():
         (ROOT / ".work" / "continuous_scheduler").mkdir(parents=True, exist_ok=True)
@@ -61,7 +59,7 @@ def ensure_backend_services():
             stdout=open(SCHEDULER_STATE_DIR / "scheduler.stdout.log", "a"),
             stderr=open(SCHEDULER_STATE_DIR / "scheduler.stderr.log", "a"),
         )
-        
+
     # Wait until web server responds
     for _ in range(30):
         if is_web_server_running():
@@ -91,7 +89,7 @@ class DesktopAppAPI:
 def main():
     ensure_backend_services()
     api = DesktopAppAPI()
-    
+
     # Create native Cocoa/WebKit window (always on top enabled for unobstructed monitoring)
     window = webview.create_window(
         title="Audiobook Studio - 통합 관리 대시보드 (Native GUI)",
@@ -103,7 +101,7 @@ def main():
         on_top=True,
         text_select=True,
     )
-    
+
     webview.start(debug=False)
 
 

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import shutil
 import sys
@@ -142,7 +141,7 @@ def download_from_page(context, page, detail_url: str, download_dir: Path, timeo
     if form.count() > 0:
         btn = form.first.locator("input[type='image'], input[type='submit'], button")
         before_files = set(download_dir.iterdir()) if download_dir.exists() else set()
-        
+
         try:
             # 1. Try popup tab download capture
             new_page = None

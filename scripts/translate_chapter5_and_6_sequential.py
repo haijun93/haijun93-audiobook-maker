@@ -8,8 +8,6 @@ and replaces span.ko with pure authentic Korean literature.
 from __future__ import annotations
 
 import io
-import re
-import shutil
 import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -117,12 +115,12 @@ def apply_full_sequential_translation():
     print("==================================================================")
     print("🌟 APPLYING 100% FULL SEQUENTIAL TRANSLATION TO CHAPTER 5 & 6")
     print("==================================================================")
-    
+
     with zipfile.ZipFile(KE_EPUB, "r") as src_zip:
         processed_files = {}
         for item in src_zip.infolist():
             content = src_zip.read(item.filename)
-            
+
             if item.filename == "OEBPS/chapter05.xhtml":
                 soup = BeautifulSoup(content.decode("utf-8"), "html.parser")
                 pairs = soup.find_all(class_=lambda c: c and "pair" in c)
@@ -131,7 +129,7 @@ def apply_full_sequential_translation():
                     if ko_span and i < len(CH5_KOREAN_PARAGRAPHS):
                         ko_span.string = CH5_KOREAN_PARAGRAPHS[i]
                 processed_files[item.filename] = str(soup).encode("utf-8")
-                
+
             elif item.filename == "OEBPS/chapter06.xhtml":
                 soup = BeautifulSoup(content.decode("utf-8"), "html.parser")
                 pairs = soup.find_all(class_=lambda c: c and "pair" in c)
@@ -140,21 +138,21 @@ def apply_full_sequential_translation():
                     if ko_span and i < len(CH6_KOREAN_PARAGRAPHS):
                         ko_span.string = CH6_KOREAN_PARAGRAPHS[i]
                 processed_files[item.filename] = str(soup).encode("utf-8")
-                
+
             else:
                 processed_files[item.filename] = content
-                
+
     # 1. Update [k-e]
     ke_buf = io.BytesIO()
     with zipfile.ZipFile(ke_buf, "w", zipfile.ZIP_DEFLATED) as dst_zip:
         for fname, data in processed_files.items():
             dst_zip.writestr(fname, data)
     KE_EPUB.write_bytes(ke_buf.getvalue())
-    
+
     # 2. Update [study]
     study_path = LIB_ROOT / "[study]" / "#Top 10 dark romance" / "[study] Tears of Tess - Pepper Winters.epub"
     study_path.write_bytes(ke_buf.getvalue())
-    
+
     # 3. Update [k] (Pure Korean)
     k_buf = io.BytesIO()
     with zipfile.ZipFile(k_buf, "w", zipfile.ZIP_DEFLATED) as dst_k:
@@ -169,10 +167,10 @@ def apply_full_sequential_translation():
                 dst_k.writestr(fname, str(soup).encode("utf-8"))
             else:
                 dst_k.writestr(fname, data)
-                
+
     k_path = LIB_ROOT / "[k]" / "#Top 10 dark romance" / "[k] Tears of Tess - Pepper Winters.epub"
     k_path.write_bytes(k_buf.getvalue())
-    
+
     # 4. Update [e-s]
     es_buf = io.BytesIO()
     with zipfile.ZipFile(es_buf, "w", zipfile.ZIP_DEFLATED) as dst_es:
@@ -185,16 +183,16 @@ def apply_full_sequential_translation():
                 dst_es.writestr(fname, str(soup).encode("utf-8"))
             else:
                 dst_es.writestr(fname, data)
-                
+
     es_path = LIB_ROOT / "[e-s]" / "#Top 10 dark romance" / "[e-s] Tears of Tess - Pepper Winters.epub"
     es_path.write_bytes(es_buf.getvalue())
-    
+
     # 5. Overwrite SD Card [k]
     sd_k_target = SD_ROOT / "[k]" / "#Top 10 dark romance" / "[k] Tears of Tess - Pepper Winters.epub"
     if SD_ROOT.exists():
         sd_k_target.write_bytes(k_path.read_bytes())
         print(f"💾 MicroSD Card [k] updated: {sd_k_target}")
-        
+
     print("🎉 FULL SEQUENTIAL TRANSLATION APPLIED SUCCESSFULLY!")
 
 if __name__ == "__main__":

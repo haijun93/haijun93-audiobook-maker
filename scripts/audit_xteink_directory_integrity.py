@@ -18,19 +18,19 @@ def audit_xteink():
 
     subdirs = [p for p in XTEINK_DIR.iterdir() if p.is_dir()]
     print("Top-level subdirectories:", [d.name for d in subdirs])
-    
+
     all_epubs = list(XTEINK_DIR.rglob("*.epub"))
     print(f"Total EPUBs in [xteink]: {len(all_epubs)}")
-    
+
     mismatched = []
     by_category = {}
-    
+
     for f in all_epubs:
         rel = f.relative_to(XTEINK_DIR)
         parts = rel.parts
         top_folder = parts[0] if len(parts) > 1 else ""
         fname = f.name
-        
+
         # Check if file name matches directory
         if top_folder == "[study]" and not fname.startswith("[study]"):
             mismatched.append((str(rel), f"In '[study]' folder but filename starts with '{fname.split()[0]}'"))
@@ -42,9 +42,9 @@ def audit_xteink():
             mismatched.append((str(rel), f"Misplaced outside [study]/[e-s] (under '{top_folder}')"))
             by_category.setdefault("outside_standard_dirs", []).append(str(rel))
 
-    print(f"\n==================================================")
+    print("\n==================================================")
     print(f"🚨 Total Mismatched/Misplaced files in [xteink]: {len(mismatched)}")
-    print(f"==================================================")
+    print("==================================================")
     for cat, items in by_category.items():
         print(f"  • {cat}: {len(items)} files")
         for it in items[:10]:

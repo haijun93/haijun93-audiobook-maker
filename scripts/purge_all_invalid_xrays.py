@@ -18,6 +18,12 @@ import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
 
+WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
+if str(WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_ROOT))
+
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
+
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 
 INVALID_NAME_TOKENS = {
@@ -42,7 +48,7 @@ def is_invalid_xray(xray_content: str) -> bool:
     # 1. Check template signatures
     if any(sig in xray_content for sig in TEMPLATE_SIGNATURES):
         return True
-        
+
     # 2. Check character names
     soup = BeautifulSoup(xray_content, "html.parser")
     name_elements = soup.select(".xray-entity-name")
@@ -54,10 +60,15 @@ def is_invalid_xray(xray_content: str) -> bool:
         words = name_text.split()
         if len(words) == 1 and words[0] in INVALID_NAME_TOKENS:
             return True
-            
+
     return False
 
 def strip_xray_from_epub(epub_path: Path) -> bool:
+    # X-Ray is globally forbidden now; do not preserve any dossier based on a
+    # heuristic distinction between “authentic” and “invalid” content.
+    return purge_xray_from_epub(epub_path)
+
+    # Legacy implementation retained below only for historical reference.
     tmp_file = None
     try:
         with zipfile.ZipFile(epub_path, "r") as zin:
@@ -65,26 +76,26 @@ def strip_xray_from_epub(epub_path: Path) -> bool:
             xray_names = [n for n in in_names if "000-xray" in n]
             if not xray_names:
                 return False
-                
+
             xray_data = zin.read(xray_names[0]).decode("utf-8", errors="replace")
             if not is_invalid_xray(xray_data):
                 # Valid authentic AI dossier -> Keep!
                 return False
-                
+
             fd, tmp_path_str = tempfile.mkstemp(suffix=".epub", dir=epub_path.parent)
             os.close(fd)
             tmp_file = Path(tmp_path_str)
-            
+
             with zipfile.ZipFile(tmp_file, "w") as zout:
                 zout.comment = zin.comment
                 if "mimetype" in in_names:
                     zout.writestr(zipfile.ZipInfo("mimetype"), zin.read("mimetype"), compress_type=zipfile.ZIP_STORED)
-                    
+
                 for name in in_names:
                     if name == "mimetype" or "000-xray" in name:
                         continue
                     data = zin.read(name)
-                    
+
                     if name.endswith("nav.xhtml"):
                         nav_str = data.decode("utf-8", errors="replace")
                         nav_str = re.sub(r"<li><a href=\"[^\"]*000-xray[^\"]*\">.*?</a></li>\s*", "", nav_str)
@@ -98,9 +109,9 @@ def strip_xray_from_epub(epub_path: Path) -> bool:
                         opf_str = re.sub(r"<item[^>]*id=\"xray-dir\"[^>]*/>\s*", "", opf_str)
                         opf_str = re.sub(r"<itemref[^>]*idref=\"xray-dir\"[^>]*/>\s*", "", opf_str)
                         data = opf_str.encode("utf-8")
-                        
+
                     zout.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
-                    
+
         tmp_file.replace(epub_path)
         return True
     except Exception:
@@ -113,7 +124,7 @@ def purge_all():
     print("==================================================================", flush=True)
     print("🧹 DEEP PURGING ALL INVALID / PRONOUN-FILLED X-RAY DOSSIERS", flush=True)
     print("==================================================================", flush=True)
-    
+
     target_dirs = [
         LIB_ROOT / "[k]",
         LIB_ROOT / "[k-e]",
@@ -122,21 +133,21 @@ def purge_all():
         LIB_ROOT / "[xteink]" / "[study]",
         LIB_ROOT / "[xteink]" / "[e-s]",
     ]
-    
+
     all_epubs = []
     for d in target_dirs:
         if d.exists():
             all_epubs.extend(d.rglob("*.epub"))
-            
+
     print(f"📚 Scanning {len(all_epubs):,} books across library...\n", flush=True)
-    
+
     purged_cnt = 0
     for idx, epub_p in enumerate(all_epubs, 1):
         if strip_xray_from_epub(epub_p):
             purged_cnt += 1
         if idx % 500 == 0 or idx == len(all_epubs):
             print(f"   -> Processed {idx:,} / {len(all_epubs):,} (Purged {purged_cnt:,} invalid X-Rays)", flush=True)
-            
+
     elapsed = time.time() - t0
     print("\n==================================================================", flush=True)
     print(f"🎉 COMPLETED in {elapsed:.1f}s! Purged {purged_cnt:,} invalid X-Rays from library!", flush=True)

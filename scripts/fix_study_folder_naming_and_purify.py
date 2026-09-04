@@ -22,7 +22,7 @@ def fix_study_folder():
     print("==================================================================")
     print("🧹 FIXING [study] FOLDER PREFIXES & PURIFYING MISPLACED FILES")
     print("==================================================================")
-    
+
     if not STUDY_ROOT.exists():
         print("❌ [study] root does not exist!")
         return
@@ -30,14 +30,14 @@ def fix_study_folder():
     # 1. Rename or replace misnamed files in local [study]
     renamed_count = 0
     deleted_duplicates = 0
-    
+
     for f in list(STUDY_ROOT.rglob("*.epub")):
         fname = f.name
         if not fname.startswith("[study] "):
             clean_stem = re.sub(r"^\[(k-e|k|e-s|e|ks|study_)\]\s*", "", fname)
             correct_name = f"[study] {clean_stem}"
             correct_path = f.parent / correct_name
-            
+
             if correct_path.exists():
                 # If correct [study] already exists, delete the stray misnamed file
                 try:
@@ -68,7 +68,7 @@ def fix_study_folder():
                 except Exception:
                     pass
         print(f"  🗑️ Google Drive: Deleted {g_deleted:,} misnamed files.")
-        
+
         # Sync renamed files to Google Drive
         for f in STUDY_ROOT.rglob("*.epub"):
             if f.name.startswith("[study] "):

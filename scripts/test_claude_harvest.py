@@ -2,9 +2,7 @@
 """Single book test for Claude Web X-Ray Harvester with screenshots."""
 
 import json
-import os
 import re
-import sys
 import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright
@@ -36,7 +34,7 @@ def test_harvest_book(title: str, author: str):
     print(f"\n🧪 Testing Claude Web X-Ray for: '{title}' by {author}...")
     cookies = get_claude_cookies()
     print(f"🔑 Loaded {len(cookies)} cookies from Chrome.")
-    
+
     with sync_playwright() as p:
         browser = p.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE_DIR),
@@ -46,17 +44,17 @@ def test_harvest_book(title: str, author: str):
         )
         if cookies:
             browser.add_cookies(cookies)
-            
+
         page = browser.new_page()
         page.set_viewport_size({"width": 1280, "height": 900})
-        
+
         print("🌐 Navigating to https://claude.ai/new ...")
         page.goto("https://claude.ai/new", wait_until="domcontentloaded", timeout=45000)
         time.sleep(3)
-        
+
         # Take screenshot of new chat page
         page.screenshot(path=str(SCREENSHOT_DIR / "01_new_chat.png"))
-        
+
         prompt = f"""다음 소설에 대한 킨들 X-Ray(등장인물 도감 및 해설)을 100% 한국어로 작성해줘:
 - 소설 제목: {title}
 - 작가: {author}
@@ -88,34 +86,34 @@ def test_harvest_book(title: str, author: str):
             page.screenshot(path=str(SCREENSHOT_DIR / "error_no_editor.png"))
             browser.close()
             return None
-            
+
         editor.click()
         page.keyboard.insert_text(prompt)
         time.sleep(1)
-        
+
         page.screenshot(path=str(SCREENSHOT_DIR / "02_prompt_typed.png"))
-        
+
         send_btn = page.locator("button[aria-label=\"메시지 보내기\"], button[aria-label*=\"Send\"], button.bg-accent-main-000").first
         if send_btn.count() == 0 or send_btn.is_disabled():
             print("❌ Send button not clickable!")
             page.screenshot(path=str(SCREENSHOT_DIR / "error_send_disabled.png"))
             browser.close()
             return None
-            
+
         send_btn.click()
         print("🚀 Clicked Send button! Waiting for generation...")
-        
+
         # Wait for generation to complete
         start_t = time.time()
         completed = False
         parsed_json = None
-        
+
         while time.time() - start_t < 70:
             time.sleep(3)
             # Check if stop button is gone
             stop_btn = page.locator("button[aria-label*=\"중지\"], button[aria-label*=\"Stop\"]")
             is_generating = stop_btn.count() > 0 and stop_btn.is_visible()
-            
+
             # Check assistant messages
             assistant_msgs = page.locator("[data-message-author-role=\"assistant\"], .font-claude-message, pre code")
             if assistant_msgs.count() > 0:
@@ -132,13 +130,13 @@ def test_harvest_book(title: str, author: str):
                                     break
                         except Exception:
                             pass
-                            
+
             if completed:
                 break
-                
+
         page.screenshot(path=str(SCREENSHOT_DIR / "03_response_received.png"))
         browser.close()
-        
+
         if parsed_json:
             print(f"🎉 SUCCESS! Received valid dossier with {len(parsed_json.get('characters', []))} characters:")
             for c in parsed_json.get("characters", [])[:4]:

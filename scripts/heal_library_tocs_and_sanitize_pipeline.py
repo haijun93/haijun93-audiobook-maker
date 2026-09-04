@@ -13,7 +13,6 @@ from __future__ import annotations
 import io
 import json
 import re
-import shutil
 import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -55,19 +54,19 @@ def heal_epub_toc(epub_p: Path):
             nav_f = next((n for n in z.namelist() if "nav" in n.lower() or "toc.xhtml" in n.lower()), None)
             if not nav_f:
                 return False
-                
+
             soup = BeautifulSoup(z.read(nav_f), "html.parser")
             a_tags = soup.find_all("a")
             if not a_tags:
                 return False
-                
+
             # Check if has jumping mechanical numbers
             nums = []
             for a in a_tags:
                 m = re.search(r'^(\d+)장$', a.get_text().strip())
                 if m:
                     nums.append(int(m.group(1)))
-                    
+
             if len(nums) >= 3 and (nums[0] != 1 or any(nums[i+1] - nums[i] > 1 for i in range(len(nums)-1))):
                 # Re-index chapters cleanly as 1장, 2장, 3장...
                 chapter_idx = 1
@@ -76,7 +75,7 @@ def heal_epub_toc(epub_p: Path):
                     if re.search(r'^\d+장$', txt):
                         a.string = f"제{chapter_idx}장"
                         chapter_idx += 1
-                        
+
                 with zipfile.ZipFile(temp_buf, "w", zipfile.ZIP_DEFLATED) as dst_zip:
                     for item in z.infolist():
                         if item.filename == nav_f:
@@ -93,7 +92,7 @@ def main():
     print("==================================================================")
     print("🛠️ HEALING LIBRARY TOCS & SANITIZING PIPELINE")
     print("==================================================================")
-    
+
     # 1. Heal all jumping TOCs across [k], [k-e], [study]
     healed_count = 0
     for ed in ["[k]", "[k-e]", "[study]"]:
@@ -101,21 +100,21 @@ def main():
             if heal_epub_toc(ep):
                 healed_count += 1
                 print(f"  ✨ Healed TOC in {ed}: {ep.name}")
-                
+
     print(f"\n🎉 Total Broken TOCs Cleaned & Re-indexed: {healed_count:,} instances")
-    
+
     # 2. Re-queue severely incomplete translations
     cfg_p = Path(".work/continuous_scheduler/config.json")
     if cfg_p.exists():
         cfg = json.loads(cfg_p.read_text())
         tasks = cfg.get("tasks", [])
-        
+
         re_queue_titles = [
             ("The Cuckoo's Calling", "쿠쿠스 콜링 - 로버트 갤브레이스 (J.K. 롤링)"),
             ("Vera Wong's Guide to Snooping", "베라 왕의 살인 사건 안내서 - 제시 Q. 수탄토"),
             ("The Silkworm", "실크웜 - 로버트 갤브레이스 (J.K. 롤링)")
         ]
-        
+
         existing_keys = {t.get("input_epub", "") for t in tasks}
         added = 0
         for kw, title_ko in re_queue_titles:
@@ -137,7 +136,7 @@ def main():
                     tasks.insert(0, new_task)
                     added += 1
                     print(f"  🚀 Re-queued Priority 3000 task: {title_ko}")
-                    
+
         if added:
             cfg["tasks"] = tasks
             cfg_p.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))

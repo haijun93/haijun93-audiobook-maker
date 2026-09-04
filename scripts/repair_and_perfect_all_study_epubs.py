@@ -55,14 +55,14 @@ def is_english(text: str) -> bool:
 def extract_study_notes(en_text: str, lexicon: dict[str, str], max_notes: int = 5) -> str:
     if not en_text or len(en_text) < 15:
         return ""
-    
+
     words = re.findall(r"\b[a-zA-Z]{3,}\b", en_text.lower())
     if not words:
         return ""
-    
+
     matched = []
     seen = set()
-    
+
     # 1. Multi-word phrases in lexicon
     en_lower = en_text.lower()
     for phrase, definition in lexicon.items():
@@ -71,7 +71,7 @@ def extract_study_notes(en_text: str, lexicon: dict[str, str], max_notes: int = 
             seen.add(phrase)
             if len(matched) >= max_notes:
                 break
-                
+
     # 2. Single words
     if len(matched) < max_notes:
         for w in words:
@@ -80,7 +80,7 @@ def extract_study_notes(en_text: str, lexicon: dict[str, str], max_notes: int = 
                 seen.add(w)
                 if len(matched) >= max_notes:
                     break
-                    
+
     if matched:
         return " 💡 " + " | ".join(matched)
     return ""
@@ -89,14 +89,14 @@ def repair_single_study_epub(epub_path_str: str, ke_path_str: str) -> tuple[bool
     epub_path = Path(epub_path_str)
     ke_path = Path(ke_path_str) if ke_path_str else None
     lexicon = get_lexicon()
-    
+
     stats = {
         "en_en_fixed": 0,
         "notes_injected": 0,
         "missing_ko_fixed": 0,
         "total_paras": 0
     }
-    
+
     try:
         # Load fallback KE map if exists
         ke_map = {}
@@ -117,28 +117,28 @@ def repair_single_study_epub(epub_path_str: str, ke_path_str: str) -> tuple[bool
         tmp_dir = Path(tempfile.mkdtemp(prefix="study_repair_"))
         with zipfile.ZipFile(epub_path, "r") as z:
             z.extractall(tmp_dir)
-            
+
         html_files = list(tmp_dir.glob("**/*.xhtml")) + list(tmp_dir.glob("**/*.html")) + list(tmp_dir.glob("**/*.htm"))
         modified_any = False
-        
+
         for hpath in html_files:
             content = hpath.read_text(encoding="utf-8", errors="ignore")
             if "class=\"pair\"" not in content and "class='pair'" not in content and "<p class=\"pair\"" not in content:
                 continue
-                
+
             soup = BeautifulSoup(content, "html.parser")
             pairs = soup.find_all(class_=lambda c: c and "pair" in c)
             file_modified = False
-            
+
             for p in pairs:
                 stats["total_paras"] += 1
                 en_span = p.find("span", class_="en")
                 ko_span = p.find("span", class_="ko")
                 study_span = p.find("span", class_="study-note")
-                
+
                 en_txt = en_span.get_text(strip=True) if en_span else ""
                 ko_txt = ko_span.get_text(strip=True) if ko_span else ""
-                
+
                 # 1. Fix Missing KO Span
                 if not ko_span:
                     ko_span = soup.new_tag("span", **{"class": "ko"})
@@ -151,7 +151,7 @@ def repair_single_study_epub(epub_path_str: str, ke_path_str: str) -> tuple[bool
                     stats["missing_ko_fixed"] += 1
                     file_modified = True
                     ko_txt = ko_span.get_text(strip=True)
-                    
+
                 # 2. Fix EN + EN Errors (Ko span contains English)
                 if is_english(ko_txt) and len(ko_txt) > 15:
                     if en_txt in ke_map:
@@ -182,7 +182,7 @@ def repair_single_study_epub(epub_path_str: str, ke_path_str: str) -> tuple[bool
                         ko_span.string = re.sub(r'(?i)chapter\s*(\d+)', r'제\1장', ko_txt)
                         stats["en_en_fixed"] += 1
                         file_modified = True
-                        
+
                 # 3. Ensure Study Note is Present and Rich
                 study_txt = study_span.get_text(strip=True) if study_span else ""
                 if not study_span or not study_txt or len(study_txt) < 10:
@@ -197,11 +197,11 @@ def repair_single_study_epub(epub_path_str: str, ke_path_str: str) -> tuple[bool
                         study_span.append(note_soup)
                         stats["notes_injected"] += 1
                         file_modified = True
-                        
+
             if file_modified:
                 hpath.write_text(str(soup), encoding="utf-8")
                 modified_any = True
-                
+
         if modified_any:
             # Repack EPUB
             epub_tmp = tmp_dir.parent / f"{epub_path.stem}_repaired.epub"
@@ -217,9 +217,9 @@ def repair_single_study_epub(epub_path_str: str, ke_path_str: str) -> tuple[bool
                         if str(rel_z) == "mimetype":
                             continue
                         z_out.write(fp, str(rel_z))
-                        
+
             shutil.move(str(epub_tmp), str(epub_path))
-            
+
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return (True, epub_path.name, stats)
     except Exception as e:
@@ -230,14 +230,14 @@ def main():
     lib_root = next(p for p in desktop.iterdir() if "소설2" in unicodedata.normalize("NFC", p.name))
     study_dir = lib_root / "[study]"
     ke_dir = lib_root / "[k-e]"
-    
+
     epubs = sorted(study_dir.glob("**/*.epub"))
     print("==================================================================")
     print(f"🚀 Repairing & Perfecting {len(epubs)} [study] EPUBs...")
-    print(f"   • Enforcing 3-Part: <span class='en'> + <span class='ko'> + <span class='study-note'>")
-    print(f"   • Eliminating 'EN + EN' errors & Injecting Master Study Notes")
+    print("   • Enforcing 3-Part: <span class='en'> + <span class='ko'> + <span class='study-note'>")
+    print("   • Eliminating 'EN + EN' errors & Injecting Master Study Notes")
     print("==================================================================")
-    
+
     tasks = []
     for ep in epubs:
         rel = ep.relative_to(study_dir)
@@ -249,12 +249,12 @@ def main():
                 ke_match = kp
                 break
         tasks.append((str(ep), str(ke_match) if ke_match else ""))
-        
+
     total_en_fixed = 0
     total_notes_injected = 0
     total_missing_ko_fixed = 0
     success_count = 0
-    
+
     with ProcessPoolExecutor(max_workers=8) as ex:
         futures = [ex.submit(repair_single_study_epub, t[0], t[1]) for t in tasks]
         for idx, fut in enumerate(as_completed(futures), 1):
@@ -270,7 +270,7 @@ def main():
                 print(f"[{idx:3d}/{len(tasks)}] ❌ Error on {name}: {st.get('error')}")
 
     print("\n==================================================================")
-    print(f"🎉 [study] Comprehensive Repair Complete!")
+    print("🎉 [study] Comprehensive Repair Complete!")
     print(f"   • Total Books Repaired: {success_count}/{len(tasks)}")
     print(f"   • Total 'EN + EN' Errors Fixed: {total_en_fixed:,}")
     print(f"   • Total TOEIC Study Notes Injected: {total_notes_injected:,}")

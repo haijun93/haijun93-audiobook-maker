@@ -32,7 +32,7 @@ TARGET_TERMS = [
     ("벙커 시대", "차폐 시대", "엄체 시대"),
     ("방송 시대", "브로드캐스트 시대"),
     ("은하 시대", "갤럭시 시대"),
-    
+
     # Characters
     ("청신", "쳉신", "챙신", "정신"),
     ("윈톈밍", "윤천명", "윈티엔밍", "윈티안밍"),
@@ -48,24 +48,24 @@ TARGET_TERMS = [
 ]
 
 def audit_epub(epub_path: Path):
-    print(f"\n==================================================================")
+    print("\n==================================================================")
     print(f"📖 Auditing EPUB: {epub_path.name}")
-    print(f"==================================================================")
-    
+    print("==================================================================")
+
     if not epub_path.exists():
         print("  ❌ File does not exist.")
         return
-        
+
     full_text = []
     with zipfile.ZipFile(epub_path, "r") as z:
         for name in z.namelist():
             if name.endswith((".xhtml", ".html", ".htm")):
                 soup = BeautifulSoup(z.read(name), "html.parser")
                 full_text.append(soup.get_text())
-                
+
     content = " ".join(full_text)
     print(f"  • Total text length: {len(content):,} characters")
-    
+
     term_counts = {}
     for group in TARGET_TERMS:
         group_counts = {}
@@ -75,7 +75,7 @@ def audit_epub(epub_path: Path):
                 group_counts[term] = cnt
         if group_counts:
             term_counts[" / ".join(group)] = group_counts
-            
+
     for grp_name, counts in term_counts.items():
         print(f"  🔍 [{grp_name}]")
         for term, c in sorted(counts.items(), key=lambda x: x[1], reverse=True):

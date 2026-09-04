@@ -50,7 +50,7 @@ def clean_single_study_epub(epub_path_str: str) -> dict:
     modified = False
     purged_notes_count = 0
     total_pairs = 0
-    
+
     # Determine pure name: replace [study-] with [study]
     if ep.name.startswith("[study-]"):
         pure_name = ep.name.replace("[study-] ", "[study] ").replace("[study-]", "[study] ")
@@ -58,23 +58,23 @@ def clean_single_study_epub(epub_path_str: str) -> dict:
     else:
         pure_name = ep.name
         final_path = ep
-        
+
     try:
         tmp_dir = Path(tempfile.mkdtemp(prefix="purge_study_"))
         with zipfile.ZipFile(ep, "r") as z:
             z.extractall(tmp_dir)
-            
+
         htmls = list(tmp_dir.glob("**/*.xhtml")) + list(tmp_dir.glob("**/*.html")) + list(tmp_dir.glob("**/*.htm"))
-        
+
         for h in htmls:
             content = h.read_text(encoding="utf-8", errors="ignore")
             if "class=\"pair\"" not in content and "<p class=\"pair\"" not in content:
                 continue
-                
+
             soup = BeautifulSoup(content, "html.parser")
             pairs = soup.find_all(class_=lambda c: c and "pair" in c)
             h_mod = False
-            
+
             for p in pairs:
                 total_pairs += 1
                 note_s = p.find("span", class_="study-note")
@@ -85,7 +85,7 @@ def clean_single_study_epub(epub_path_str: str) -> dict:
                         if cp.search(nt):
                             is_contam = True
                             nt = cp.sub('', nt)
-                            
+
                     if is_contam:
                         nt = re.sub(r';\s*;+', ';', nt)
                         nt = re.sub(r'※\s*;+', '※ ', nt)
@@ -95,11 +95,11 @@ def clean_single_study_epub(epub_path_str: str) -> dict:
                         note_s.string = nt
                         purged_notes_count += 1
                         h_mod = True
-                        
+
             if h_mod:
                 h.write_text(str(soup), encoding="utf-8")
                 modified = True
-                
+
         # Package into final clean epub
         epub_tmp = tmp_dir.parent / f"{ep.stem}_purged.epub"
         with zipfile.ZipFile(epub_tmp, "w", zipfile.ZIP_DEFLATED) as z_out:
@@ -112,14 +112,14 @@ def clean_single_study_epub(epub_path_str: str) -> dict:
                     rel_z = fp.relative_to(tmp_dir)
                     if str(rel_z) == "mimetype": continue
                     z_out.write(fp, str(rel_z))
-                    
+
         # Remove old [study-] file if renamed
         if final_path != ep and ep.exists():
             ep.unlink()
-            
+
         shutil.move(str(epub_tmp), str(final_path))
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        
+
         return {
             "name": pure_name,
             "old_path": epub_path_str,
@@ -145,23 +145,23 @@ def main():
     desktop = Path("/Users/hyeokjunkong/Desktop")
     lib_root = next(p for p in desktop.iterdir() if "소설2" in unicodedata.normalize("NFC", p.name))
     gdrive_root = Path("/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books")
-    
+
     study_dir = lib_root / "[study]"
     gdrive_study = gdrive_root / "[study]"
-    
+
     print("==================================================================")
     print("🚀 PARALLEL POLLUTION PURGE & PURE [study] RESTORATION (515 BOOKS)")
     print("==================================================================")
-    
+
     epubs = sorted(study_dir.glob("**/*.epub"))
     print(f"Total Study EPUBs found: {len(epubs):,}")
-    
+
     tasks = [str(p) for p in epubs]
-    
+
     total_purged_spans = 0
     total_cleaned_books = 0
     total_inspected_pairs = 0
-    
+
     with ProcessPoolExecutor(max_workers=8) as ex:
         futures = [ex.submit(clean_single_study_epub, t) for t in tasks]
         for fut in as_completed(futures):
@@ -178,8 +178,8 @@ def main():
     # Clean old [study-] on GDrive
     for gd_p in list(gdrive_study.glob("**/[study-]*")):
         try: gd_p.unlink()
-        except: pass
-        
+        except Exception:
+            pass
     # Copy fresh [study]
     clean_local = list(study_dir.glob("**/*.epub"))
     for p in clean_local:
@@ -188,7 +188,7 @@ def main():
         gd_dest.parent.mkdir(parents=True, exist_ok=True)
         if not gd_dest.exists() or gd_dest.stat().st_size != p.stat().st_size or gd_dest.stat().st_mtime < p.stat().st_mtime:
             shutil.copy2(str(p), str(gd_dest))
-            
+
     print("\n==================================================================")
     print("🎉 100% PURE [study] LIBRARY RESTORATION COMPLETED!")
     print("==================================================================")
@@ -196,7 +196,7 @@ def main():
     print(f"• Total Pairs Inspected       : {total_inspected_pairs:,} pairs")
     print(f"• Contaminated Spans Purged   : {total_purged_spans:,} spans")
     print(f"• Pure '[study]' Books in Lib : {len(list(study_dir.glob('**/*.epub'))):,} books")
-    print(f"• Google Drive Synchronized   : 100% Clean [study] Match")
+    print("• Google Drive Synchronized   : 100% Clean [study] Match")
     print("==================================================================")
 
 if __name__ == "__main__":

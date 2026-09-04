@@ -33,7 +33,7 @@ def audit_single_k_epub(ep_path: Path) -> tuple[Path, float, int, int, list[tupl
                     ko_p += ch_ko
                     if ch_total > 5 and (ch_ko / ch_total) < 0.6:
                         untrans_chapters.append((name, ch_ko, ch_total))
-            
+
             pct = round(ko_p / total_p * 100, 1) if total_p > 0 else 0
             return ep_path, pct, ko_p, total_p, untrans_chapters
     except Exception as e:
@@ -43,10 +43,10 @@ def main():
     print("==================================================================")
     print("🔍 AUDITING ALL [k] KOREAN-ONLY EPUBS IN LIBRARY")
     print("==================================================================")
-    
+
     epubs = sorted(list(K_ROOT.rglob("*.epub")))
     print(f"📚 Total [k] EPUBs to audit: {len(epubs)}\n")
-    
+
     problem_books = []
     with ProcessPoolExecutor(max_workers=8) as ex:
         futs = [ex.submit(audit_single_k_epub, p) for p in epubs]
@@ -55,9 +55,9 @@ def main():
             if pct < 90 or len(chs) > 0:
                 problem_books.append((ep_path, pct, ko_p, tot_p, chs))
 
-    print(f"\n==================================================")
+    print("\n==================================================")
     print(f"🚨 Audit Results: Found {len(problem_books)} books with Korean flaws:")
-    print(f"==================================================")
+    print("==================================================")
     for ep, pct, ko_p, tot_p, chs in sorted(problem_books, key=lambda x: x[1]):
         rel_path = ep.relative_to(K_ROOT)
         print(f"\n📕 [{pct:>5.1f}%] {rel_path}")

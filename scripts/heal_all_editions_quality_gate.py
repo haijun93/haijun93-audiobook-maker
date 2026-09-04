@@ -13,10 +13,7 @@ from __future__ import annotations
 
 import html
 import io
-import json
-import os
 import re
-import shutil
 import sys
 import time
 import zipfile
@@ -30,7 +27,7 @@ if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
 from audiobook_studio.study_filter import is_valid_toeic_700_plus_target, BASIC_VOCAB_STOPLIST
-from audiobook_studio.master_quality_inspector import inspect_epub_quality
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 
@@ -73,10 +70,10 @@ def heal_epub_file(ep_path_str: str, edition_type: str) -> tuple[str, bool, str]
                         pass
         except Exception:
             return ep.name, False, "Unreadable ZIP archive"
-            
+
         if not data:
             return ep.name, False, "Empty archive"
-            
+
         # 1. Fix XML & Content inside XHTML
         chapters = []
         for fname in sorted(data.keys()):
@@ -85,12 +82,12 @@ def heal_epub_file(ep_path_str: str, edition_type: str) -> tuple[str, bool, str]
                 try:
                     soup = BeautifulSoup(content.decode("utf-8", "ignore"), "html.parser")
                     mod = False
-                    
+
                     # Extract chapter title
                     h1 = soup.find(["h1", "h2", "title"])
                     ch_title = h1.get_text().strip() if h1 else Path(fname).stem
                     chapters.append((fname, ch_title))
-                    
+
                     for p in soup.find_all("p"):
                         # Clean rubies
                         for rb in p.find_all("ruby"):
@@ -98,7 +95,7 @@ def heal_epub_file(ep_path_str: str, edition_type: str) -> tuple[str, bool, str]
                             if rb_t.lower() in BASIC_VOCAB_STOPLIST and not is_valid_toeic_700_plus_target(rb_t):
                                 rb.replace_with(rb_t)
                                 mod = True
-                                
+
                         # Clean untranslated raw English in span.ko
                         if edition_type in ["[study]", "[k-e]", "[xteink]/[study]"]:
                             ko_span = p.find("span", class_="ko")
@@ -114,7 +111,7 @@ def heal_epub_file(ep_path_str: str, edition_type: str) -> tuple[str, bool, str]
                                     elif ko_txt.lower() == en_txt.lower() or not re.search(r'[a-zA-Z]', ko_txt):
                                         ko_span.decompose()
                                         mod = True
-                                        
+
                     if mod:
                         data[fname] = str(soup).encode("utf-8")
                 except Exception:
@@ -123,7 +120,7 @@ def heal_epub_file(ep_path_str: str, edition_type: str) -> tuple[str, bool, str]
         # 2. Recreate / Fix TOC if incomplete
         has_nav = "OEBPS/nav.xhtml" in data
         has_ncx = "OEBPS/toc.ncx" in data
-        
+
         needs_toc = False
         if not has_nav and not has_ncx:
             needs_toc = True
@@ -134,22 +131,12 @@ def heal_epub_file(ep_path_str: str, edition_type: str) -> tuple[str, bool, str]
                     needs_toc = True
             except Exception:
                 needs_toc = True
-                
+
         if needs_toc and chapters:
             nav_items = []
             ncx_items = []
             order = 1
-            
-            # Check X-Ray
-            if any("xray" in k.lower() for k in data.keys()):
-                xray_f = [k for k in data.keys() if "xray" in k.lower()][0]
-                nav_items.append(f'      <li><a href="{Path(xray_f).name}">⚡ X-Ray: 등장인물 및 용어 도감</a></li>')
-                ncx_items.append(f'''    <navPoint id="nav_{order}" playOrder="{order}">
-      <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감</text></navLabel>
-      <content src="{Path(xray_f).name}"/>
-    </navPoint>''')
-                order += 1
-                
+
             for fname, ch_t in chapters:
                 clean_t = html.escape(translate_hdr(ch_t) or ch_t)
                 rel_href = Path(fname).name
@@ -159,7 +146,7 @@ def heal_epub_file(ep_path_str: str, edition_type: str) -> tuple[str, bool, str]
       <content src="{rel_href}"/>
     </navPoint>''')
                 order += 1
-                
+
             nav_html = f'''<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="ko" xml:lang="ko">
@@ -204,8 +191,9 @@ def heal_epub_file(ep_path_str: str, edition_type: str) -> tuple[str, bool, str]
                 dst.writestr("mimetype", b"application/epub+zip", compress_type=zipfile.ZIP_STORED)
             for f_name, c_data in data.items():
                 dst.writestr(f_name, c_data)
-                
+
         ep.write_bytes(buf.getvalue())
+        purge_xray_from_epub(ep)
         return ep.name, True, "HEALED"
     except Exception as e:
         return ep.name, False, str(e)
@@ -214,23 +202,23 @@ def main():
     print("==================================================================")
     print("🚀 MASTER ALL-EDITION QUALITY HEALER (4,093 EPUBS)")
     print("==================================================================")
-    
+
     target_tasks = []
     editions = ["[study]", "[e-s]", "[k-e]", "[k]", "[xteink]/[study]", "[xteink]/[e-s]"]
-    
+
     for ed in editions:
         ed_dir = LIB_ROOT / ed
         if ed_dir.exists():
             for p in ed_dir.rglob("*.epub"):
                 if p.stat().st_size > 10000:
                     target_tasks.append((str(p), ed))
-                    
+
     print(f"📚 Healing {len(target_tasks):,} books across all editions (16 workers)...\n")
-    
+
     start_t = time.time()
     healed_count = 0
     failed_count = 0
-    
+
     with ProcessPoolExecutor(max_workers=16) as ex:
         futures = [ex.submit(heal_epub_file, p_str, ed_name) for p_str, ed_name in target_tasks]
         for fut in as_completed(futures):
@@ -239,7 +227,7 @@ def main():
                 healed_count += 1
             else:
                 failed_count += 1
-                
+
     elapsed = time.time() - start_t
     print("\n==================================================================")
     print(f"🎉 MASTER ALL-EDITION HEALING COMPLETED (Elapsed: {elapsed:.1f}s)")

@@ -8,7 +8,6 @@ Scans all 586+ books in `/Users/hyeokjunkong/Desktop/소설2/[k]` and detects al
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
@@ -97,7 +96,7 @@ SCREEN_ADAPTATION_DB = [
         "platform": "Netflix 오리지널 시리즈 (2019~)",
         "details": "헨리 카빌 주연 글로벌 다크 판타지 드라마"
     },
-    
+
     # Thriller, Mystery, Crime Adaptations
     {
         "keywords": ["crawdads sing"],
@@ -275,7 +274,7 @@ SCREEN_ADAPTATION_DB = [
         "platform": "Netflix 오리지널 영화 (2018)",
         "details": "산드라 블록 주연 넷플릭스 메가 히트 호러 스릴러"
     },
-    
+
     # Contemporary, Literary & Bestseller Adaptations
     {
         "keywords": ["the martian", "project hail mary"],
@@ -465,23 +464,23 @@ SCREEN_ADAPTATION_DB = [
 
 def scan_all_library_for_adaptations():
     all_books = list(K_ROOT.rglob("*.epub"))
-    print(f"==================================================================")
+    print("==================================================================")
     print(f"🔍 SCANNING ALL {len(all_books):,} BOOKS IN LIBRARY FOR SCREEN ADAPTATIONS")
-    print(f"==================================================================")
-    
+    print("==================================================================")
+
     found_adaptations = []
-    
+
     for epub_p in sorted(all_books, key=lambda x: x.name):
         fname_lower = epub_p.name.lower()
         parent_lower = str(epub_p.parent).lower()
         full_str = f"{parent_lower}/{fname_lower}"
-        
+
         matched_info = None
         for item in SCREEN_ADAPTATION_DB:
             if any(kw in full_str for kw in item["keywords"]):
                 matched_info = item
                 break
-                
+
         if matched_info:
             found_adaptations.append({
                 "filename": epub_p.name,
@@ -492,13 +491,13 @@ def scan_all_library_for_adaptations():
                 "platform": matched_info["platform"],
                 "details": matched_info["details"]
             })
-            
+
     print(f"\n🎉 Identified {len(found_adaptations)} Screen Adaptation Novels in Library!\n")
-    
+
     out_file = Path("data/library_screen_adaptations_audit.json")
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(json.dumps(found_adaptations, indent=2, ensure_ascii=False))
-    
+
     return found_adaptations
 
 if __name__ == "__main__":

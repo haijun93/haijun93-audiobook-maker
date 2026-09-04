@@ -30,7 +30,7 @@ def main():
     print("==================================================================")
     print("🧹 PURGING DUPLICATE / COMPLETED TASKS FROM SCHEDULER QUEUE")
     print("==================================================================")
-    
+
     if not CONFIG_PATH.exists():
         print(f"❌ Config not found at {CONFIG_PATH}")
         return
@@ -63,7 +63,7 @@ def main():
         t_title = t.get("title") or t.get("book_title_ko") or ""
         t_input = t.get("input_epub", "")
         t_out = t.get("output_epub", "")
-        
+
         is_completed = False
         reason = ""
 
@@ -72,7 +72,7 @@ def main():
         if out_p and out_p.exists() and out_p.stat().st_size > 15000:
             is_completed = True
             reason = f"Target output exists ({out_p.stat().st_size / 1024:.1f} KB)"
-            
+
         # Check by normalized fingerprint against library
         if not is_completed:
             fp = normalize_fingerprint(t_title) or normalize_fingerprint(Path(t_input).stem if t_input else "")
@@ -97,7 +97,7 @@ def main():
         else:
             retained_tasks.append(t)
 
-    print(f"\n📊 COMPARISON RESULTS:")
+    print("\n📊 COMPARISON RESULTS:")
     print(f"  • Already completed in Library : {len(purged_tasks)} tasks (to be purged)")
     print(f"  • Truly pending tasks remaining: {len(retained_tasks)} tasks")
 
@@ -110,7 +110,7 @@ def main():
     # 5. Write sanitized config & state
     cfg["tasks"] = retained_tasks
     CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    
+
     if STATE_PATH.exists():
         STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 

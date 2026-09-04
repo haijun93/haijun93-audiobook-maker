@@ -10,7 +10,6 @@ Examples fixed:
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 
@@ -50,18 +49,18 @@ def fix_all_duplicate_prefixes():
     print("==================================================================")
     print("🔍 INVESTIGATING DUPLICATE / REPEATED PREFIXES IN LIBRARY")
     print("==================================================================")
-    
+
     all_files = list(LIB_ROOT.rglob("*.epub")) + list(LIB_ROOT.rglob("*.pdf")) + list(LIB_ROOT.rglob("*.mobi"))
     print(f"📚 Total Files Scanned: {len(all_files):,}\n")
-    
+
     fixed_count = 0
     duplicate_files = []
-    
+
     for f in all_files:
         filename = f.name
         stem = f.stem
         ext = f.suffix
-        
+
         # Check if filename has repeated prefixes like [k] [k] or multiple brackets at start
         bracket_prefixes = re.findall(r"^(\[[^\]]+\](?:\s*\[[^\]]+\])+)\s*", stem)
         if bracket_prefixes:
@@ -69,18 +68,18 @@ def fix_all_duplicate_prefixes():
             clean_name = clean_title_strip_all_prefixes(stem)
             new_stem = f"{canon_prefix} {clean_name}".strip() if canon_prefix else clean_name
             new_filename = f"{new_stem}{ext}"
-            
+
             if new_filename != filename:
                 target_path = f.parent / new_filename
                 duplicate_files.append((f, target_path, filename, new_filename))
-                
+
     print(f"⚠️ Found {len(duplicate_files):,} files with duplicate/nested prefix errors:\n")
-    
+
     for idx, (src_p, dst_p, old_name, new_name) in enumerate(duplicate_files, 1):
         print(f"[{idx:>3}] 🔄 Renaming:")
         print(f"      Old: {old_name}")
         print(f"      New: {new_name}")
-        
+
         try:
             if dst_p.exists() and dst_p != src_p:
                 # If target already exists and is same or larger, remove src
@@ -93,7 +92,7 @@ def fix_all_duplicate_prefixes():
             fixed_count += 1
         except Exception as e:
             print(f"      ❌ Error renaming: {e}")
-            
+
     print("\n==================================================================")
     print(f"🎉 COMPLETED: Successfully investigated and fixed {fixed_count:,} duplicate prefix files!")
     print("==================================================================")

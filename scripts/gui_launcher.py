@@ -5,10 +5,7 @@ Audiobook Studio - macOS GUI Controller & Launcher
 """
 
 import json
-import os
-import signal
 import subprocess
-import sys
 import threading
 import time
 import tkinter as tk
@@ -32,11 +29,11 @@ class AudiobookStudioController:
         self.root.geometry("540x620+100+100")
         self.root.minsize(480, 520)
         self.root.configure(bg="#0f172a")
-        
+
         self.running = True
         self._setup_styles()
         self._build_ui()
-        
+
         # Initial check & polling thread
         self.poll_thread = threading.Thread(target=self._polling_loop, daemon=True)
         self.poll_thread.start()
@@ -56,20 +53,20 @@ class AudiobookStudioController:
         # 1. Header Frame
         header = tk.Frame(self.root, bg="#1e293b", padx=16, pady=12)
         header.pack(fill="x", side="top")
-        
+
         title_box = tk.Frame(header, bg="#1e293b")
         title_box.pack(side="left")
-        
+
         title_lbl = tk.Label(title_box, text="🎧 Audiobook Studio 컨트롤러",
                              font=("SF Pro Display", 14, "bold"),
                              fg="#f8fafc", bg="#1e293b")
         title_lbl.pack(anchor="w")
-        
+
         sub_lbl = tk.Label(title_box, text="실시간 번역 및 오디오북 통합 관리 시스템",
                            font=("SF Pro Text", 10),
                            fg="#94a3b8", bg="#1e293b")
         sub_lbl.pack(anchor="w")
-        
+
         web_btn = tk.Button(header, text="🌐 웹 대시보드 열기",
                             font=("SF Pro Text", 10, "bold"),
                             fg="#38bdf8", bg="#0f172a",
@@ -87,11 +84,11 @@ class AudiobookStudioController:
                                   font=("SF Pro Text", 10, "bold"),
                                   fg="#cbd5e1", bg="#1e293b", padx=12, pady=10, bd=1)
         sys_frame.pack(fill="x", pady=(0, 10))
-        
+
         self.web_status_lbl = tk.Label(sys_frame, text="• 웹서버 (포트 7870): 확인 중...",
                                        font=("SF Pro Text", 10), fg="#94a3b8", bg="#1e293b", anchor="w")
         self.web_status_lbl.pack(fill="x", pady=2)
-        
+
         self.sched_status_lbl = tk.Label(sys_frame, text="• 배치 스케줄러: 확인 중...",
                                          font=("SF Pro Text", 10), fg="#94a3b8", bg="#1e293b", anchor="w")
         self.sched_status_lbl.pack(fill="x", pady=2)
@@ -101,7 +98,7 @@ class AudiobookStudioController:
                                   font=("SF Pro Text", 10, "bold"),
                                   fg="#cbd5e1", bg="#1e293b", padx=12, pady=10, bd=1)
         acc_frame.pack(fill="x", pady=(0, 10))
-        
+
         self.acc_labels = {}
         acc_names = [
             ("main", "계정 1 (haijun93)"),
@@ -109,10 +106,10 @@ class AudiobookStudioController:
             ("account3", "계정 3 (ngaytot9)"),
             ("chatgpt", "ChatGPT (haijun93)"),
         ]
-        
+
         grid_frame = tk.Frame(acc_frame, bg="#1e293b")
         grid_frame.pack(fill="x")
-        
+
         for idx, (aid, label) in enumerate(acc_names):
             row = idx // 2
             col = idx % 2
@@ -127,7 +124,7 @@ class AudiobookStudioController:
                                     font=("SF Pro Text", 10, "bold"),
                                     fg="#cbd5e1", bg="#1e293b", padx=12, pady=10, bd=1)
         tasks_frame.pack(fill="both", expand=True, pady=(0, 10))
-        
+
         self.tasks_container = tk.Frame(tasks_frame, bg="#1e293b")
         self.tasks_container.pack(fill="both", expand=True)
 
@@ -196,7 +193,7 @@ class AudiobookStudioController:
             try:
                 web_ok = self._is_web_server_running()
                 sched_ok = self._is_scheduler_running()
-                
+
                 # Fetch batch report if web is ok
                 report_data = None
                 if web_ok:
@@ -242,7 +239,7 @@ class AudiobookStudioController:
             active_tasks = report_data["active_tasks"]
             for child in self.tasks_container.winfo_children():
                 child.destroy()
-                
+
             if not active_tasks:
                 empty_lbl = tk.Label(self.tasks_container, text="현재 실행 중인 번역 작업이 없습니다.",
                                      font=("SF Pro Text", 10), fg="#64748b", bg="#1e293b")
@@ -251,24 +248,24 @@ class AudiobookStudioController:
                 for t in active_tasks[:3]:
                     card = tk.Frame(self.tasks_container, bg="#0f172a", padx=10, pady=8, bd=0)
                     card.pack(fill="x", pady=4)
-                    
+
                     r1 = tk.Frame(card, bg="#0f172a")
                     r1.pack(fill="x")
-                    
+
                     title_lbl = tk.Label(r1, text=f"📖 {t.get('title', '')}", font=("SF Pro Text", 10, "bold"),
                                          fg="#f8fafc", bg="#0f172a", anchor="w")
                     title_lbl.pack(side="left")
-                    
+
                     pct = t.get("progress_percent", 0)
                     pct_lbl = tk.Label(r1, text=f"{pct}%", font=("SF Pro Text", 10, "bold"),
                                        fg="#38bdf8", bg="#0f172a")
                     pct_lbl.pack(side="right")
-                    
+
                     r2 = tk.Frame(card, bg="#0f172a", pady=4)
                     r2.pack(fill="x")
                     pbar = ttk.Progressbar(r2, style="TProgressbar", orient="horizontal", mode="determinate", value=pct)
                     pbar.pack(fill="x")
-                    
+
                     r3 = tk.Frame(card, bg="#0f172a")
                     r3.pack(fill="x")
                     label_lbl = tk.Label(r3, text=f"{t.get('label', '')} ({t.get('account_id', '')})",
@@ -287,7 +284,7 @@ class AudiobookStudioController:
                     stdout=open(ROOT / ".work" / "web_app.stdout.log", "a"),
                     stderr=open(ROOT / ".work" / "web_app.stderr.log", "a"),
                 )
-            
+
             # 2. Start scheduler if not running
             if not self._is_scheduler_running():
                 subprocess.Popen(
@@ -299,7 +296,7 @@ class AudiobookStudioController:
                     stdout=open(SCHEDULER_STATE_DIR / "scheduler.stdout.log", "a"),
                     stderr=open(SCHEDULER_STATE_DIR / "scheduler.stderr.log", "a"),
                 )
-            
+
             # 3. Open browser
             time.sleep(1.0)
             webbrowser.open(WEB_URL)
@@ -313,14 +310,14 @@ class AudiobookStudioController:
         """작업 중단 버튼: 실행 중인 번역 작업 및 스케줄러 안전 중단"""
         if not messagebox.askyesno("작업 중단 확인", "현재 진행 중인 번역 스케줄러와 번역 작업을 안전하게 중단하시겠습니까?"):
             return
-            
+
         self.stop_btn.config(state="disabled")
         try:
             # Kill scheduler
             subprocess.run(["pkill", "-15", "-f", "run_continuous_translation_scheduler"], check=False)
             # Kill translation workers
             subprocess.run(["pkill", "-15", "-f", "translate_epub"], check=False)
-            
+
             messagebox.showinfo("작업 중단 완료", "번역 스케줄러 및 번역 프로세스가 안전하게 중단되었습니다.")
         except Exception as exc:
             messagebox.showerror("작업 중단 실패", f"오류: {exc}")

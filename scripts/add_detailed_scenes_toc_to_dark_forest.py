@@ -200,46 +200,46 @@ SUBHEADING_STYLE = """
 """
 
 def enrich_dark_forest_epub(epub_path: Path):
-    print(f"\n=======================================================")
+    print("\n=======================================================")
     print(f"📖 Processing: {epub_path.name}")
-    print(f"=======================================================")
-    
+    print("=======================================================")
+
     tmp_dir = Path(tempfile.mkdtemp(prefix="df_toc_"))
     with zipfile.ZipFile(epub_path, "r") as z:
         z.extractall(tmp_dir)
-        
+
     oebps_dir = tmp_dir / "OEBPS"
     toc_hierarchy = [] # List of (main_title, main_file, [ (sub_title, anchor_id) ])
-    
+
     # Process each HTML file and inject subheadings & anchors
     for hf in sorted(oebps_dir.glob("*.xhtml")):
         fn = hf.name
         if fn in ["cover.xhtml", "front.xhtml", "nav.xhtml", "003-copyright-notice.xhtml", "018-tor-books-by-cixin-liu.xhtml", "019-newsletter-sign-up.xhtml", "021-copyright.xhtml"]:
             continue
-            
+
         main_title = CHAPTER_MAIN_TITLES.get(fn, fn)
         content = hf.read_text(encoding="utf-8", errors="ignore")
         soup = BeautifulSoup(content, "html.parser")
-        
+
         # Inject style if not present
         if not soup.find("style", string=re.compile(r'scene-subheading')):
             if soup.head:
                 style_tag = BeautifulSoup(SUBHEADING_STYLE, "html.parser").style
                 soup.head.append(style_tag)
-                
+
         sub_items = []
         if fn in SCENE_TITLES:
             titles = SCENE_TITLES[fn]
             paragraphs = soup.find_all("p")
             scene_idx = 0
-            
+
             # First scene heading at the beginning if appropriate
             first_p = None
             for p in paragraphs:
                 if len(p.get_text(strip=True)) > 10:
                     first_p = p
                     break
-                    
+
             if first_p and scene_idx < len(titles):
                 stitle = titles[scene_idx]
                 anchor_id = f"scene-{scene_idx+1:03d}"
@@ -248,7 +248,7 @@ def enrich_dark_forest_epub(epub_path: Path):
                 first_p.insert_before(h_tag)
                 sub_items.append((stitle, anchor_id))
                 scene_idx += 1
-                
+
             # Replace subsequent *** separators with subheadings
             for p in paragraphs:
                 txt = p.get_text(strip=True)
@@ -261,12 +261,12 @@ def enrich_dark_forest_epub(epub_path: Path):
                         p.replace_with(h_tag)
                         sub_items.append((stitle, anchor_id))
                         scene_idx += 1
-                        
+
             hf.write_text(str(soup), encoding="utf-8")
             print(f"  ✅ Injected {len(sub_items)} scene subheadings into {fn}")
-        
+
         toc_hierarchy.append((main_title, fn, sub_items))
-        
+
     # Rebuild OEBPS/toc.ncx
     ncx_path = oebps_dir / "toc.ncx"
     ncx_soup = BeautifulSoup(ncx_path.read_text(encoding="utf-8"), "xml")
@@ -281,12 +281,12 @@ def enrich_dark_forest_epub(epub_path: Path):
             txt.string = mtitle
             nl.append(txt)
             np.append(nl)
-            
+
             first_src = f"{mfile}#{subs[0][1]}" if subs else mfile
             cnt = ncx_soup.new_tag("content", src=first_src)
             np.append(cnt)
             play_order += 1
-            
+
             # Sub navpoints
             for stitle, sid in subs:
                 sub_np = ncx_soup.new_tag("navPoint", id=f"navpoint-{play_order}", playOrder=str(play_order))
@@ -299,11 +299,11 @@ def enrich_dark_forest_epub(epub_path: Path):
                 sub_np.append(sub_cnt)
                 np.append(sub_np)
                 play_order += 1
-                
+
             nav_map.append(np)
         ncx_path.write_text(str(ncx_soup), encoding="utf-8")
         print("  ✅ Rebuilt hierarchical OEBPS/toc.ncx")
-        
+
     # Rebuild OEBPS/nav.xhtml
     nav_xhtml_path = oebps_dir / "nav.xhtml"
     if nav_xhtml_path.exists():
@@ -318,7 +318,7 @@ def enrich_dark_forest_epub(epub_path: Path):
                     a_tag = nav_soup.new_tag("a", href=f"{mfile}#{subs[0][1]}" if subs else mfile)
                     a_tag.string = mtitle
                     li.append(a_tag)
-                    
+
                     if subs:
                         sub_ol = nav_soup.new_tag("ol")
                         for stitle, sid in subs:
@@ -331,7 +331,7 @@ def enrich_dark_forest_epub(epub_path: Path):
                     toc_ol.append(li)
                 nav_xhtml_path.write_text(str(nav_soup), encoding="utf-8")
                 print("  ✅ Rebuilt hierarchical OEBPS/nav.xhtml")
-                
+
     # Package back to EPUB
     tmp_out = tmp_dir.parent / f"{epub_path.stem}_detailed.epub"
     with zipfile.ZipFile(tmp_out, "w", zipfile.ZIP_DEFLATED) as z_out:
@@ -344,7 +344,7 @@ def enrich_dark_forest_epub(epub_path: Path):
                 rel_z = fp.relative_to(tmp_dir)
                 if str(rel_z) == "mimetype": continue
                 z_out.write(fp, str(rel_z))
-                
+
     shutil.move(str(tmp_out), str(epub_path))
     shutil.rmtree(tmp_dir, ignore_errors=True)
     print(f"🎉 Successfully enriched and saved '{epub_path.name}'!")
@@ -354,13 +354,13 @@ def main():
     target_ke = Path("/Users/hyeokjunkong/Desktop/소설2/[k-e]/Fantasy_Science_Fiction/Cixin Liu/[k-e] The Dark Forest Cixin Liu (4.43).epub")
     target_study = Path("/Users/hyeokjunkong/Desktop/소설2/[study]/Fantasy_Science_Fiction/Cixin Liu/[study] The Dark Forest Cixin Liu (4.43).epub")
     target_es = Path("/Users/hyeokjunkong/Desktop/소설2/[e-s]/Fantasy_Science_Fiction/Cixin Liu/[e-s] The Dark Forest Cixin Liu (4.43).epub")
-    
+
     # Process all available editions of The Dark Forest
     editions = [target_k, target_ke, target_study, target_es]
     for ed in editions:
         if ed.exists():
             enrich_dark_forest_epub(ed)
-            
+
             # Sync to Google Drive
             rel = ed.relative_to(lib_root)
             gd_dest = gdrive_root / rel

@@ -12,7 +12,6 @@ import os
 import re
 import shutil
 import tempfile
-import time
 import unicodedata
 import zipfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -26,7 +25,7 @@ STOPWORDS = {
     "a", "an", "the", "and", "or", "but", "if", "then", "else", "when", "at", "from",
     "by", "for", "with", "about", "against", "between", "into", "through", "during",
     "before", "after", "above", "below", "to", "of", "up", "down", "in", "out", "on",
-    "off", "over", "under", "again", "further", "then", "once", "here", "there", "all",
+    "off", "over", "under", "again", "further", "once", "here", "there", "all",
     "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
     "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will",
     "just", "don", "should", "now", "i", "you", "he", "she", "it", "we", "they", "me",

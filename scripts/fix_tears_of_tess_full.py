@@ -12,12 +12,17 @@
 from __future__ import annotations
 
 import io
-import os
 import re
-import shutil
+import sys
 import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
+
+WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
+if str(WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_ROOT))
+
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 SD_ROOT = Path("/Volumes/MICROSD_N01")
@@ -70,7 +75,7 @@ TRANSLATIONS_MAP = {
     "이 책을 블로거, 페이스북 친구, 베타 리더, 리뷰어, 그리고 웹상의 모든 멋진 분들께 바칩니다. 『티어즈 오브 테스』의 성공은 여러분의 것입니다.",
     "A huge, heart-felt thank you.":
     "가슴 깊이 진심 어린 감사를 전합니다.",
-    
+
     # Chapter 5 Three Little Words (Prologue)
     "T hree little words.":
     "단 세 마디 말.",
@@ -104,7 +109,7 @@ TRANSLATIONS_MAP = {
     "“내가 널 소유한다.”",
     "‘I own you.’":
     "“내가 널 소유한다.”",
-    
+
     # Chapter 6 Starling (Chapter 1)
     "*Starling*":
     "찌르레기 (Starling)",
@@ -140,13 +145,13 @@ TRANSLATIONS_MAP = {
 
 def translate_chapter_html(html_text: str, chapter_file: str) -> str:
     soup = BeautifulSoup(html_text, "html.parser")
-    
+
     # 1. Update H1 / Title header
     h1 = soup.find(["h1", "h2", "h3"])
     target_title = CHAPTER_TITLES.get(chapter_file)
     if h1 and target_title:
         h1.string = target_title
-        
+
     # 2. Translate untranslated pair blocks
     pairs = soup.find_all(class_=lambda c: c and "pair" in c)
     for p in pairs:
@@ -156,14 +161,14 @@ def translate_chapter_html(html_text: str, chapter_file: str) -> str:
             en_txt = en_span.get_text().strip()
             # Clean weird spacing like "T hree" -> "Three", "W here" -> "Where"
             en_clean = re.sub(r'\b([A-Z])\s+([a-z])', r'\1\2', en_txt)
-            
+
             # Check translation map
             matched_ko = None
             for k, v in TRANSLATIONS_MAP.items():
                 if k in en_txt or k in en_clean or en_clean.startswith(k[:30]):
                     matched_ko = v
                     break
-                    
+
             if matched_ko and ko_span:
                 ko_span.string = matched_ko
             elif ko_span and (ko_span.get_text().strip() == en_txt or not ko_span.get_text().strip()):
@@ -178,14 +183,14 @@ def translate_chapter_html(html_text: str, chapter_file: str) -> str:
                     ko_span.string = "푸른어치 (Blue Jay)"
                 elif en_clean == "*Robin*":
                     ko_span.string = "로빈 (Robin)"
-                    
+
     return str(soup)
 
 def rebuild_toc_and_nav(files_list: list[str]) -> tuple[str, str]:
     # Build beautiful nav.xhtml and toc.ncx
     nav_items = []
     ncx_items = []
-    
+
     order = 1
     for f in files_list:
         if f in CHAPTER_TITLES:
@@ -197,7 +202,7 @@ def rebuild_toc_and_nav(files_list: list[str]) -> tuple[str, str]:
       <content src="{href}"/>
     </navPoint>''')
             order += 1
-            
+
     nav_html = f'''<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
@@ -242,13 +247,13 @@ def fix_and_rebuild_all_tears_of_tess():
     print("==================================================================")
     print("🛠️ COMPREHENSIVE REPAIR: TEARS OF TESS (TOC & MISSING TRANSLATIONS)")
     print("==================================================================")
-    
+
     if not KE_EPUB.exists():
         print(f"❌ Base [k-e] file not found: {KE_EPUB}")
         return
-        
+
     print(f"📖 Reading base [k-e] EPUB: {KE_EPUB.name}...")
-    
+
     processed_files = {}
     with zipfile.ZipFile(KE_EPUB, "r") as src_zip:
         # Collect ordered chapters
@@ -259,9 +264,9 @@ def fix_and_rebuild_all_tears_of_tess():
         for n in sorted(src_zip.namelist()):
             if n.endswith((".xhtml", ".html")) and "chapter" in n:
                 spine_files.append(n)
-                
+
         nav_html, toc_ncx = rebuild_toc_and_nav(spine_files)
-        
+
         for item in src_zip.infolist():
             content = src_zip.read(item.filename)
             if item.filename.endswith((".xhtml", ".html")) and "chapter" in item.filename:
@@ -274,21 +279,23 @@ def fix_and_rebuild_all_tears_of_tess():
                 processed_files[item.filename] = toc_ncx.encode("utf-8")
             else:
                 processed_files[item.filename] = content
-                
+
     # 1. Save repaired [k-e]
     ke_buf = io.BytesIO()
     with zipfile.ZipFile(ke_buf, "w", zipfile.ZIP_DEFLATED) as dst_zip:
         for fname, data in processed_files.items():
             dst_zip.writestr(fname, data)
     KE_EPUB.write_bytes(ke_buf.getvalue())
+    purge_xray_from_epub(KE_EPUB)
     print("✅ Repaired [k-e] edition successfully.")
-    
+
     # 2. Derive [study]
     study_path = LIB_ROOT / "[study]" / "#Top 10 dark romance" / "[study] Tears of Tess - Pepper Winters.epub"
     study_path.parent.mkdir(parents=True, exist_ok=True)
     study_path.write_bytes(ke_buf.getvalue())
+    purge_xray_from_epub(study_path)
     print("✅ Derived [study] edition successfully.")
-    
+
     # 3. Derive [k] (Korean-only)
     k_buf = io.BytesIO()
     with zipfile.ZipFile(k_buf, "w", zipfile.ZIP_DEFLATED) as dst_k:
@@ -303,12 +310,13 @@ def fix_and_rebuild_all_tears_of_tess():
                 dst_k.writestr(fname, str(soup).encode("utf-8"))
             else:
                 dst_k.writestr(fname, data)
-                
+
     k_path = LIB_ROOT / "[k]" / "#Top 10 dark romance" / "[k] Tears of Tess - Pepper Winters.epub"
     k_path.parent.mkdir(parents=True, exist_ok=True)
     k_path.write_bytes(k_buf.getvalue())
+    purge_xray_from_epub(k_path)
     print("✅ Derived [k] (Korean-only) edition successfully.")
-    
+
     # 4. Derive [e-s]
     es_buf = io.BytesIO()
     with zipfile.ZipFile(es_buf, "w", zipfile.ZIP_DEFLATED) as dst_es:
@@ -321,17 +329,19 @@ def fix_and_rebuild_all_tears_of_tess():
                 dst_es.writestr(fname, str(soup).encode("utf-8"))
             else:
                 dst_es.writestr(fname, data)
-                
+
     es_path = LIB_ROOT / "[e-s]" / "#Top 10 dark romance" / "[e-s] Tears of Tess - Pepper Winters.epub"
     es_path.parent.mkdir(parents=True, exist_ok=True)
     es_path.write_bytes(es_buf.getvalue())
+    purge_xray_from_epub(es_path)
     print("✅ Derived [e-s] edition successfully.")
-    
+
     # 5. Overwrite SD Card [k] if mounted
     sd_k_target = SD_ROOT / "[k]" / "#Top 10 dark romance" / "[k] Tears of Tess - Pepper Winters.epub"
     if SD_ROOT.exists():
         sd_k_target.parent.mkdir(parents=True, exist_ok=True)
         sd_k_target.write_bytes(k_path.read_bytes())
+        purge_xray_from_epub(sd_k_target)
         print(f"💾 Successfully updated MicroSD Card: {sd_k_target}")
 
     print("\n==================================================================")

@@ -43,14 +43,14 @@ OLD_CSS_PATTERN = re.compile(r'\.scene-subheading\s*\{[^}]*\}', re.DOTALL)
 def update_single_epub_style(epub_path: Path) -> tuple[str, bool]:
     if not epub_path.exists() or epub_path.name.startswith("._"):
         return epub_path.name, False
-        
+
     try:
         modified = False
         with tempfile.TemporaryDirectory() as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str)
             with zipfile.ZipFile(epub_path, "r") as zin:
                 zin.extractall(tmp_dir)
-                
+
             # Scan and update all .xhtml, .html, .css files
             for root, _, files in os.walk(tmp_dir):
                 for f in files:
@@ -65,7 +65,7 @@ def update_single_epub_style(epub_path: Path) -> tuple[str, bool]:
                                     modified = True
                         except Exception:
                             pass
-                            
+
             if modified:
                 with zipfile.ZipFile(epub_path, "w") as zout:
                     mimetype_file = tmp_dir / "mimetype"
@@ -78,7 +78,7 @@ def update_single_epub_style(epub_path: Path) -> tuple[str, bool]:
                             if str(rel_p) == "mimetype":
                                 continue
                             zout.write(full_p, str(rel_p), compress_type=zipfile.ZIP_DEFLATED)
-                            
+
         return epub_path.name, True
     except Exception:
         return epub_path.name, False
@@ -88,7 +88,7 @@ def main():
     print("==================================================================")
     print("🎨 APPLYING CLEAN & NATURAL SCENE SUBHEADING DESIGN TO LIBRARY")
     print("==================================================================")
-    
+
     all_epubs = []
     for ed in ["[k]", "[k-e]", "[study]", "[e-s]"]:
         ed_dir = lib_root / ed
@@ -96,24 +96,24 @@ def main():
             epubs = [p for p in ed_dir.rglob("*.epub") if not p.name.startswith("._")]
             all_epubs.extend(epubs)
             print(f"  Found {len(epubs):4} EPUBs in {ed}")
-            
+
     print(f"\nTotal EPUBs to update: {len(all_epubs)}")
-    
+
     success_count = 0
     with ProcessPoolExecutor(max_workers=8) as executor:
         futures = {executor.submit(update_single_epub_style, epub): epub for epub in all_epubs}
-        
+
         for i, future in enumerate(as_completed(futures), start=1):
             name, ok = future.result()
             if ok:
                 success_count += 1
             if i % 300 == 0 or i == len(all_epubs):
                 print(f"  [{i:4}/{len(all_epubs)}] Completed styling for {success_count} books...")
-                
-    print(f"\n🎉 CLEAN STYLING COMPLETE!")
+
+    print("\n🎉 CLEAN STYLING COMPLETE!")
     print(f"  - Total Processed: {len(all_epubs)}")
     print(f"  - Success: {success_count}")
-    
+
     print("\n☁️ Synchronizing updated styling to Google Drive #Books...")
     for epub in all_epubs:
         try:

@@ -46,7 +46,7 @@ CUSTOM_TRANSLATIONS = {
     "“That one.”": "“저 녀석으로 하지.”",
     "My stomach twisted, threatening to evict empty contents. Oh, God.": "위장이 뒤틀리며 빈속의 찌꺼기마저 게워낼 듯 요동쳤다. 오, 신이시여.",
     "I was sold.": "나는 팔려갔다.",
-    
+
     # Tears of Tess - French Dialogue & Poetry
     "“Enfermer la dans la bibliothèque. Retirez ses vêtements.”": "“그녀를 서재에 가둬라. 옷을 전부 벗겨.”",
     "Mes besoins sont ma défaite. Je suis un monstre.": "내 욕망은 곧 나의 패배다. 나는 괴물이다.",
@@ -60,7 +60,7 @@ CUSTOM_TRANSLATIONS = {
     "I come shackled with shadow, consumed with rage and fire,": "나는 그림자에 결박되어, 분노와 화염에 휩싸인 채 다가가며,",
     "I’m close to breaking, the urge is quaking, raping,": "나는 무너지기 직전이고, 억누를 수 없는 충동이 전율한다,",
     "I’m the devil, and there’s no hope.": "나는 악마이고, 더 이상 희망은 없다.",
-    
+
     # Common Dedication & Copyright
     "A huge, heart-felt thank you.": "진심 어린 깊은 감사를 드립니다.",
     "Mortui vivos docent.": "죽은 자가 산 자를 가르친다. (라틴어 격언)",
@@ -72,31 +72,31 @@ CUSTOM_TRANSLATIONS = {
 def repair_book(epub_path: Path) -> tuple[bool, str, int]:
     modified = False
     fixed_count = 0
-    
+
     try:
         tmp_dir = Path(tempfile.mkdtemp(prefix="repair_top10_"))
         with zipfile.ZipFile(epub_path, "r") as z:
             z.extractall(tmp_dir)
-            
+
         htmls = list(tmp_dir.glob("**/*.xhtml")) + list(tmp_dir.glob("**/*.html")) + list(tmp_dir.glob("**/*.htm"))
-        
+
         for h in htmls:
             content = h.read_text(encoding="utf-8", errors="ignore")
             if "class=\"pair\"" not in content and "<p class=\"pair\"" not in content:
                 continue
-                
+
             soup = BeautifulSoup(content, "html.parser")
             pairs = soup.find_all(class_=lambda c: c and "pair" in c)
             h_mod = False
-            
+
             for p in pairs:
                 en_span = p.find("span", class_="en")
                 ko_span = p.find("span", class_="ko")
                 study_span = p.find("span", class_="study-note")
-                
+
                 en_txt = en_span.get_text(strip=True) if en_span else ""
                 ko_txt = ko_span.get_text(strip=True) if ko_span else ""
-                
+
                 # 1. Check if KO span is missing
                 if not ko_span:
                     ko_span = soup.new_tag("span", **{"class": "ko"})
@@ -105,7 +105,7 @@ def repair_book(epub_path: Path) -> tuple[bool, str, int]:
                     h_mod = True
                     fixed_count += 1
                     ko_txt = ko_span.get_text(strip=True)
-                    
+
                 # 2. Fix EN+EN (or French in KO)
                 if is_english(ko_txt) or ko_txt in CUSTOM_TRANSLATIONS:
                     # Match custom translations
@@ -129,18 +129,18 @@ def repair_book(epub_path: Path) -> tuple[bool, str, int]:
                         ko_span.string = "작품 공식 플레이리스트 및 사운드트랙 안내"
                         h_mod = True
                         fixed_count += 1
-                        
+
                 # 3. Ensure study-note tag exists
                 if not study_span and len(en_txt) > 20:
                     study_span = soup.new_tag("span", **{"class": "study-note"})
                     study_span.string = ""
                     p.append(study_span)
                     h_mod = True
-                    
+
             if h_mod:
                 h.write_text(str(soup), encoding="utf-8")
                 modified = True
-                
+
         if modified:
             epub_tmp = tmp_dir.parent / f"{epub_path.stem}_fixed.epub"
             with zipfile.ZipFile(epub_tmp, "w", zipfile.ZIP_DEFLATED) as z_out:
@@ -154,7 +154,7 @@ def repair_book(epub_path: Path) -> tuple[bool, str, int]:
                         if str(rel_z) == "mimetype": continue
                         z_out.write(fp, str(rel_z))
             shutil.move(str(epub_tmp), str(epub_path))
-            
+
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return (True, epub_path.name, fixed_count)
     except Exception as e:
@@ -164,24 +164,24 @@ def main():
     desktop = Path("/Users/hyeokjunkong/Desktop")
     lib_root = next(p for p in desktop.iterdir() if "소설2" in unicodedata.normalize("NFC", p.name))
     gdrive_root = Path("/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books")
-    
+
     top10_dir = lib_root / "[study]" / "#Top 10 dark romance"
     gdrive_top10 = gdrive_root / "[study]" / "#Top 10 dark romance"
-    
+
     print("==================================================================")
     print("🚀 Repairing All Books in '#Top 10 dark romance' Study Edition")
     print("==================================================================")
-    
+
     epubs = sorted(top10_dir.glob("*.epub"))
     for ep in epubs:
         ok, name, cnt = repair_book(ep)
         print(f"  📖 {name:45s} -> Fixed {cnt:3d} defect paragraphs!")
-        
+
         # Copy to Google Drive immediately
         gdrive_top10.mkdir(parents=True, exist_ok=True)
         dest_gd = gdrive_top10 / ep.name
         shutil.copy2(str(ep), str(dest_gd))
-        
+
     print("\n==================================================================")
     print("🎉 #Top 10 Dark Romance Perfection & GDrive Sync Complete!")
     print("==================================================================")

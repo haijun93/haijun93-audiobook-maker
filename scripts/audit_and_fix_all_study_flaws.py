@@ -11,7 +11,6 @@ Comprehensive library-wide audit and defect repair for ALL [study] EPUBs:
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
@@ -57,18 +56,18 @@ def process_single_study_epub(args: tuple[str, str, str]) -> dict:
     study_p = Path(study_path_str)
     ke_dir = Path(ke_dir_str)
     gdrive_dir = Path(gdrive_study_str)
-    
+
     modified = False
     fixed_count = 0
     total_pairs = 0
     remaining_en_en = 0
-    
+
     try:
         # Check matching [k-e] file
         clean_stem = study_p.stem.replace("[study] ", "")
         ke_candidates = list(ke_dir.glob(f"**/*{clean_stem}*.epub"))
         ke_p = ke_candidates[0] if ke_candidates else None
-        
+
         # Build [k-e] translation lookup map
         ke_map = {}
         if ke_p and ke_p.exists():
@@ -87,43 +86,43 @@ def process_single_study_epub(args: tuple[str, str, str]) -> dict:
                                     ke_map[clean_key(e_txt)] = k_txt
             except Exception:
                 pass
-                
+
         tmp_dir = Path(tempfile.mkdtemp(prefix="fix_study_"))
         with zipfile.ZipFile(study_p, "r") as z:
             z.extractall(tmp_dir)
-            
+
         htmls = list(tmp_dir.glob("**/*.xhtml")) + list(tmp_dir.glob("**/*.html")) + list(tmp_dir.glob("**/*.htm"))
-        
+
         for h in htmls:
             content = h.read_text(encoding="utf-8", errors="ignore")
             if "class=\"pair\"" not in content and "<p class=\"pair\"" not in content:
                 continue
-                
+
             soup = BeautifulSoup(content, "html.parser")
             pairs = soup.find_all(class_=lambda c: c and "pair" in c)
             h_mod = False
-            
+
             for p in pairs:
                 total_pairs += 1
                 en_s = p.find("span", class_="en")
                 ko_s = p.find("span", class_="ko")
                 study_s = p.find("span", class_="study-note")
-                
+
                 et = en_s.get_text(strip=True) if en_s else ""
                 kt = ko_s.get_text(strip=True) if ko_s else ""
-                
+
                 if not ko_s:
                     ko_s = soup.new_tag("span", **{"class": "ko"})
                     p.append(ko_s)
                     h_mod = True
                     kt = ""
-                    
+
                 if not study_s and len(et) > 20:
                     study_s = soup.new_tag("span", **{"class": "study-note"})
                     study_s.string = ""
                     p.append(study_s)
                     h_mod = True
-                    
+
                 # Defect Detection: KO is English or missing
                 if not is_korean(kt) and len(et) > 3:
                     ck = clean_key(et)
@@ -153,11 +152,11 @@ def process_single_study_epub(args: tuple[str, str, str]) -> dict:
                                 h_mod = True
                             elif len(kt) > 15 and is_english(kt):
                                 remaining_en_en += 1
-                                
+
             if h_mod:
                 h.write_text(str(soup), encoding="utf-8")
                 modified = True
-                
+
         if modified:
             epub_tmp = tmp_dir.parent / f"{study_p.stem}_repaired.epub"
             with zipfile.ZipFile(epub_tmp, "w", zipfile.ZIP_DEFLATED) as z_out:
@@ -171,12 +170,12 @@ def process_single_study_epub(args: tuple[str, str, str]) -> dict:
                         if str(rel_z) == "mimetype": continue
                         z_out.write(fp, str(rel_z))
             shutil.move(str(epub_tmp), str(study_p))
-            
+
             # Sync to Google Drive
             dest_gd = gdrive_dir / study_p.relative_to(Path(study_path_str).parents[len(study_p.parents) - len(Path(study_path_str).parents)])
             dest_gd.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(study_p), str(dest_gd))
-            
+
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return {
             "name": study_p.name,
@@ -201,25 +200,25 @@ def main():
     desktop = Path("/Users/hyeokjunkong/Desktop")
     lib_root = next(p for p in desktop.iterdir() if "소설2" in unicodedata.normalize("NFC", p.name))
     gdrive_root = Path("/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books")
-    
+
     study_dir = lib_root / "[study]"
     ke_dir = lib_root / "[k-e]"
     gdrive_study = gdrive_root / "[study]"
-    
+
     print("==================================================================")
     print("🚀 PARALLEL 3-PART STRUCTURE REPAIR ENGINE ACROSS ALL 515 [study] EPUBS")
     print("==================================================================")
-    
+
     epubs = sorted(study_dir.glob("**/*.epub"))
     print(f"Total Study EPUBs queued: {len(epubs):,}")
-    
+
     tasks = [(str(p), str(ke_dir), str(gdrive_study)) for p in epubs]
-    
+
     total_fixed_paragraphs = 0
     total_modified_books = 0
     total_inspected_pairs = 0
     remaining_errors_total = 0
-    
+
     with ProcessPoolExecutor(max_workers=8) as ex:
         futures = [ex.submit(process_single_study_epub, t) for t in tasks]
         for fut in as_completed(futures):

@@ -10,12 +10,9 @@ Rolls back ALL library editions ([study], [k-e], [k], [e-s]) to 100% pure, authe
 
 from __future__ import annotations
 
-import html as html_mod
 import json
-import os
 import re
 import shutil
-import tempfile
 import time
 import zipfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -25,10 +22,9 @@ import sys
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
-from bs4 import BeautifulSoup
 
 from scripts.translate_epub_with_chatgpt_web_to_study_epub import (
-    SourceSection, SourceBlock, CoverAsset, build_epub, extract_sections, extract_cover_asset, strip_source_watermarks
+    SourceSection, SourceBlock, build_epub, extract_sections
 )
 from scripts.make_english_study_epubs import convert_epub as convert_to_es_epub
 from scripts.make_korean_only_epubs import convert_epub as convert_to_k_epub
@@ -55,10 +51,10 @@ def rebuild_book_from_work_dir(work_dir: Path) -> tuple[bool, str]:
         manifest_f = work_dir / "manifest.json"
         source_sections_f = work_dir / "source_sections.json"
         trans_dir = work_dir / "translations"
-        
+
         if not manifest_f.exists() or not trans_dir.exists():
             return False, f"Missing manifest or translations in {work_dir.name}"
-            
+
         manifest = json.loads(manifest_f.read_text(encoding="utf-8"))
         input_epub = Path(manifest.get("input_epub", ""))
         output_epub = Path(manifest.get("output_epub", ""))
@@ -66,7 +62,7 @@ def rebuild_book_from_work_dir(work_dir: Path) -> tuple[bool, str]:
         book_title = manifest.get("book_title", "")
         ko_book_title = manifest.get("book_title_ko") or book_title
         creator = manifest.get("creator", "")
-        
+
         # 1. Load sections from source_sections.json if available
         sections = []
         if source_sections_f.exists():
@@ -94,14 +90,14 @@ def rebuild_book_from_work_dir(work_dir: Path) -> tuple[bool, str]:
                     input_epub = default_epubs[0]
                 else:
                     return False, f"No reference epub found for {work_dir.name}"
-                
+
         # If sections could not be loaded from source_sections.json, extract from epub
         if not sections:
             _, _, sections = extract_sections(input_epub)
-            
+
         if not sections:
             return False, f"No sections extracted from {work_dir.name}"
-                
+
         # Load all translations from raw chunk files
         translations = {}
         for c_file in sorted(trans_dir.glob("chunk_*.json")):
@@ -115,13 +111,13 @@ def rebuild_book_from_work_dir(work_dir: Path) -> tuple[bool, str]:
                             translations[k] = v
             except Exception as e:
                 pass
-                
+
         if not translations:
             return False, f"No translation entries loaded in {work_dir.name}"
-            
+
         # Target destination in library
         clean_name = get_clean_stem(output_epub if output_epub.name else input_epub)
-        
+
         # Determine relative folder from standard edition
         if output_epub.name and "[k-e]" in str(output_epub):
             rel_path = output_epub.parent.relative_to(KE_ROOT) if KE_ROOT in output_epub.parents else Path("#Author")
@@ -129,17 +125,17 @@ def rebuild_book_from_work_dir(work_dir: Path) -> tuple[bool, str]:
             rel_path = study_output_epub.parent.relative_to(STUDY_ROOT) if STUDY_ROOT in study_output_epub.parents else Path("#Author")
         else:
             rel_path = Path("#Author")
-            
+
         target_study = STUDY_ROOT / rel_path / f"[study] {clean_name}.epub"
         target_ke = KE_ROOT / rel_path / f"[k-e] {clean_name}.epub"
         target_k = K_ROOT / rel_path / f"[k] {clean_name}.epub"
         target_es = ES_ROOT / rel_path / f"[e-s] {clean_name}.epub"
-        
+
         target_study.parent.mkdir(parents=True, exist_ok=True)
         target_ke.parent.mkdir(parents=True, exist_ok=True)
         target_k.parent.mkdir(parents=True, exist_ok=True)
         target_es.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # 1. Build [study] (Authentic LLM translation + authentic LLM study notes)
         build_epub(
             output_epub=target_study,
@@ -151,7 +147,7 @@ def rebuild_book_from_work_dir(work_dir: Path) -> tuple[bool, str]:
             input_epub=input_epub,
             include_study_notes=True,
         )
-        
+
         # 2. Build [k-e] (Authentic LLM translation without study notes)
         build_epub(
             output_epub=target_ke,
@@ -163,13 +159,13 @@ def rebuild_book_from_work_dir(work_dir: Path) -> tuple[bool, str]:
             input_epub=input_epub,
             include_study_notes=False,
         )
-        
+
         # 3. Build [k] (Korean-only)
         convert_to_k_epub(target_ke, target_k, overwrite=True)
-        
+
         # 4. Build [e-s] (English + Authentic Study Notes)
         convert_to_es_epub(target_study, target_es, overwrite=True)
-        
+
         return True, clean_name
     except Exception as e:
         return False, f"{work_dir.name}: {e}"
@@ -195,7 +191,7 @@ def main():
     print("==================================================================")
     print("🌟 100% PURE AI INTELLIGENCE STUDY NOTES ROLLBACK & RESTORATION")
     print("==================================================================")
-    
+
     # 1. Restore Pam Godwin editions from _translation_stage
     if STAGE_ROOT.exists():
         pam_count = 0
@@ -241,14 +237,14 @@ def main():
                     completed_work_dirs.append(w)
             except Exception:
                 pass
-                
+
     print(f"Found {len(completed_work_dirs)} completed translation work dirs to restore.")
     print("Running parallel restoration across 8 CPU cores...")
-    
+
     start_time = time.time()
     success_cnt = 0
     fail_cnt = 0
-    
+
     with ProcessPoolExecutor(max_workers=8) as executor:
         futures = {executor.submit(rebuild_book_from_work_dir, wd): wd.name for wd in completed_work_dirs}
         for idx, future in enumerate(as_completed(futures), 1):
@@ -260,7 +256,7 @@ def main():
             else:
                 fail_cnt += 1
                 print(f"[{idx:3d}/{len(completed_work_dirs):3d}] ❌ {msg}")
-                
+
     elapsed = time.time() - start_time
     print("==================================================================")
     print(f"🎉 Pure AI Study Rollback Completed in {elapsed:.2f}s!")

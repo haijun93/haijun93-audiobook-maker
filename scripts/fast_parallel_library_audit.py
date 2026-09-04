@@ -31,7 +31,7 @@ def audit_single_epub(epub_path_str: str) -> dict:
         "toc_issue": "",
         "samples": []
     }
-    
+
     try:
         with zipfile.ZipFile(ep, "r") as z:
             # 1. Audit TOC
@@ -48,7 +48,7 @@ def audit_single_epub(epub_path_str: str) -> dict:
                     if nums[0] != 1 or any(nums[i+1] - nums[i] > 1 for i in range(len(nums)-1)):
                         res["broken_toc"] = True
                         res["toc_issue"] = f"Jumping chapter numbers: {nums[:8]}"
-                        
+
             # 2. Audit Korean translation
             for n in z.namelist():
                 if n.endswith((".xhtml", ".html", ".htm")) and not any(k in n.lower() for k in ["toc", "nav", "cover", "xray"]):
@@ -59,23 +59,23 @@ def audit_single_epub(epub_path_str: str) -> dict:
                             res["untranslated_count"] += 1
                             if len(res["samples"]) < 2:
                                 res["samples"].append(f"[{n}] {txt[:70]}...")
-                                
+
     except Exception as e:
         res["error"] = str(e)
-        
+
     return res
 
 def main():
     print("==================================================================")
     print("⚡ FAST PARALLEL AUDIT ACROSS FULL [k] LIBRARY")
     print("==================================================================")
-    
+
     epubs = [str(p) for p in K_ROOT.rglob("*.epub") if p.stat().st_size > 50000]
     print(f"📚 Auditing {len(epubs):,} books in parallel (12 workers)...")
-    
+
     untranslated_list = []
     broken_toc_list = []
-    
+
     with ProcessPoolExecutor(max_workers=12) as ex:
         futures = [ex.submit(audit_single_epub, ep) for ep in epubs]
         for fut in as_completed(futures):
@@ -86,14 +86,14 @@ def main():
             if r.get("broken_toc"):
                 broken_toc_list.append(r)
                 print(f"  ⚠️ [Broken TOC] {r['name']} -> {r['toc_issue']}")
-                
+
     print("\n==================================================================")
     print("📊 FAST AUDIT SUMMARY")
     print(f"  • Total Books Audited           : {len(epubs):,} books")
     print(f"  • Books with Untranslated Text  : {len(untranslated_list):,} books")
     print(f"  • Books with Broken Jumping TOC : {len(broken_toc_list):,} books")
     print("==================================================================")
-    
+
     report = {
         "untranslated_books": untranslated_list,
         "broken_toc_books": broken_toc_list

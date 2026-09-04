@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import re
-import sys
 import time
 import urllib.request
 from pathlib import Path
@@ -51,12 +50,12 @@ def solve_turnstile(page, max_wait_sec: int = 15) -> bool:
 
 
 def download_book(page, author: str, title: str) -> bool:
-    print(f"\n==================================================", flush=True)
+    print("\n==================================================", flush=True)
     print(f"[*] Processing: {title} by {author}", flush=True)
-    
+
     final_name = clean_filename(title, author)
     save_path = DEST_DIR / final_name
-    
+
     # Check if already exists in DEST_DIR and size > 50KB
     if save_path.exists() and save_path.stat().st_size > 50000:
         print(f"[+] Already downloaded: {save_path.name} ({save_path.stat().st_size / 1024 / 1024:.2f} MB)", flush=True)
@@ -64,7 +63,7 @@ def download_book(page, author: str, title: str) -> bool:
 
     search_query = f"{title} {author}"
     search_url = f"https://oceanofpdf.com/?s={search_query.replace(' ', '+')}"
-    
+
     try:
         page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
         solve_turnstile(page)
@@ -131,9 +130,9 @@ def download_book(page, author: str, title: str) -> bool:
         if resp.status != 200:
             print(f"[-] POST failed with HTTP {resp.status}", flush=True)
             return False
-        
+
         fetch_html = resp.text()
-        
+
         # Look for meta refresh or fs direct link
         direct_url = None
         m = re.search(r'url=(https://fs\d*\.oceanofpdf\.com/[^"\s]+)', fetch_html)
@@ -145,12 +144,12 @@ def download_book(page, author: str, title: str) -> bool:
                 direct_url = m2.group(1).replace("&amp;", "&")
 
         if not direct_url:
-            print(f"[-] Could not extract direct download URL from fetch response", flush=True)
+            print("[-] Could not extract direct download URL from fetch response", flush=True)
             return False
 
         print(f"[+] Direct download URL: {direct_url}", flush=True)
-        print(f"[*] Downloading binary EPUB...", flush=True)
-        
+        print("[*] Downloading binary EPUB...", flush=True)
+
         req = urllib.request.Request(
             direct_url,
             headers={
@@ -177,7 +176,7 @@ def download_book(page, author: str, title: str) -> bool:
 def main() -> int:
     DEST_DIR.mkdir(parents=True, exist_ok=True)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     print(f"Target download directory: {DEST_DIR}", flush=True)
     print(f"Total books to download: {len(BOOKS_TO_DOWNLOAD)}", flush=True)
 
@@ -203,7 +202,7 @@ def main() -> int:
 
         ctx.close()
 
-    print(f"\n==================================================", flush=True)
+    print("\n==================================================", flush=True)
     print(f"[SUMMARY] Successfully downloaded {success_count}/{len(BOOKS_TO_DOWNLOAD)} EPUBs to {DEST_DIR}", flush=True)
     return 0 if success_count == len(BOOKS_TO_DOWNLOAD) else 1
 

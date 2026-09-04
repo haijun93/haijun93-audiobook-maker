@@ -29,7 +29,7 @@ def purge_non_english():
     print("==================================================================")
     print("🧹 PURGING NON-ENGLISH TASKS FROM SUPERVISOR QUEUE")
     print("==================================================================")
-    
+
     if not CONFIG_PATH.exists():
         print("❌ config.json not found!")
         return
@@ -37,21 +37,21 @@ def purge_non_english():
     cfg = json.loads(CONFIG_PATH.read_text())
     tasks = cfg.get("tasks", [])
     print(f"Total tasks before purge: {len(tasks):,}")
-    
+
     clean_tasks = []
     purged_count = 0
-    
+
     for t in tasks:
         title = (t.get("book_title_ko") or t.get("title") or "").lower()
         in_epub = (t.get("input_epub") or "").lower()
         out_epub = (t.get("output_epub") or "").lower()
-        
+
         is_foreign = False
         for pat in NON_ENGLISH_PATTERNS:
             if re.search(pat, title) or re.search(pat, in_epub) or re.search(pat, out_epub):
                 is_foreign = True
                 break
-                
+
         if is_foreign:
             purged_count += 1
             print(f"  🗑️ Purged non-English task: {t.get('book_title_ko') or t.get('title')}")
@@ -60,7 +60,7 @@ def purge_non_english():
 
     cfg["tasks"] = clean_tasks
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
-    
+
     print(f"\n✨ Purged {purged_count} non-English tasks. Clean tasks in queue: {len(clean_tasks):,}")
     print("==================================================================")
 

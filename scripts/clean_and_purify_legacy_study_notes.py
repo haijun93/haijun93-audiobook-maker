@@ -57,39 +57,39 @@ STANDARD_DICT_OVERRIDES = {
 def clean_single_entry(word: str, definition: str) -> str:
     word_clean = word.strip()
     word_lower = word_clean.lower()
-    
+
     if word_lower in STANDARD_DICT_OVERRIDES:
         return f"{word_clean} - {STANDARD_DICT_OVERRIDES[word_lower]}"
-        
+
     def_clean = definition.strip()
-    
+
     # 1. Remove long narrative quotes or complete sentences (length > 15 containing Korean period or narrative endings)
     # e.g., "사 오라며 장보기 목록을 보내놓고는, 콩 통조림 값이 두 배로 올랐다고 기겁을 하곤 했다."
     def_clean = re.sub(r'["“][^"”]+["”]', '', def_clean)
     def_clean = re.sub(r'[가-힣\s,]+(?:했다|하곤 했다|뜻이다|것이다|있었다|말했다|보았다|생각했다|어림짐작만)\b.*', '', def_clean)
-    
+
     # 2. Remove specific cross-novel situational parenthesis
     # e.g., "(Chapter Seven은 제7장)", "(출판 업계에서)", "(이혼 후의)", "(실험·시험에서의)"
     def_clean = re.sub(r'\([가-힣a-zA-Z0-9\s·\-_,]+은\s+[제Chapter0-9]+[가-힣a-zA-Z0-9\s]*\)', '', def_clean)
     def_clean = re.sub(r'\([가-힣\s]+(?:에서|후의|업계에서|상황|배가|대화|호칭)\)', '', def_clean)
-    
+
     # Clean up trailing punctuation, whitespace
     def_clean = re.sub(r'[\s,;]+$', '', def_clean).strip()
-    
+
     # If definition became empty or invalid, fallback to pure word
     if not def_clean or len(def_clean) < 1:
         def_clean = "사전적 의미"
-        
+
     return f"{word_clean} - {def_clean}"
 
 def purify_study_note_text(raw_text: str) -> str:
     # Strip leading ※ or ※학습:
     content = re.sub(r'^※\s*(?:학습\s*:\s*)?', '', raw_text.strip())
     items = content.split(";")
-    
+
     cleaned_items = []
     seen_words = set()
-    
+
     for item in items:
         item = item.strip()
         if not item or "-" not in item:
@@ -97,26 +97,26 @@ def purify_study_note_text(raw_text: str) -> str:
         parts = item.split("-", 1)
         w = parts[0].strip()
         d = parts[1].strip() if len(parts) > 1 else ""
-        
+
         w_norm = w.lower()
         if w_norm in seen_words:
             continue
         seen_words.add(w_norm)
-        
+
         entry = clean_single_entry(w, d)
         if entry:
             cleaned_items.append(entry)
-            
+
     if not cleaned_items:
         return ""
-        
+
     return "※ " + "; ".join(cleaned_items)
 
 def process_epub(epub_path: Path) -> bool:
     try:
         temp_path = epub_path.with_suffix(".tmp.epub")
         modified = False
-        
+
         with zipfile.ZipFile(epub_path, 'r') as zin, zipfile.ZipFile(temp_path, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
             for item in zin.infolist():
                 data = zin.read(item.filename)
@@ -136,7 +136,7 @@ def process_epub(epub_path: Path) -> bool:
                             data = str(soup).encode('utf-8')
                             modified = True
                 zout.writestr(item, data)
-                
+
         if modified:
             shutil.move(temp_path, epub_path)
             return True
@@ -154,16 +154,16 @@ def main():
     lib_root = Path("/Users/hyeokjunkong/Desktop/소설2")
     study_epubs = list((lib_root / "[study]").rglob("*.epub")) + list((lib_root / "[e-s]").rglob("*.epub"))
     study_epubs = [p for p in study_epubs if not p.name.startswith("._")]
-    
+
     print("==================================================================")
     print(f"🧹 PURIFYING STUDY NOTES TO PURE DICTIONARY DEFINITIONS ({len(study_epubs)} books)")
     print("==================================================================")
-    
+
     success_cnt = 0
     with ProcessPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(process_epub, study_epubs))
         success_cnt = sum(1 for r in results if r)
-        
+
     print(f"🎉 Successfully purified study notes in {success_cnt} / {len(study_epubs)} books!")
     print("==================================================================")
 

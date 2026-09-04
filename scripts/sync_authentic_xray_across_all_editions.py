@@ -5,9 +5,15 @@ from __future__ import annotations
 
 import re
 import tempfile
-import time
 import zipfile
+import sys
 from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 
@@ -34,6 +40,9 @@ def get_authentic_xrays_from_source(source_dir: Path) -> dict[str, tuple[str, Pa
     return xrays
 
 def inject_xray_data_to_epub(epub_path: Path, xray_xhtml: str) -> bool:
+    # Compatibility shim: this old synchronizer is now a purge-only operation.
+    return purge_xray_from_epub(epub_path)
+    # Legacy X-Ray injection code below is intentionally unreachable.
     tmp_file = None
     try:
         with zipfile.ZipFile(epub_path, "r") as zin:
@@ -42,15 +51,15 @@ def inject_xray_data_to_epub(epub_path: Path, xray_xhtml: str) -> bool:
             import os
             os.close(fd)
             tmp_file = Path(tmp_str)
-            
+
             with zipfile.ZipFile(tmp_file, "w") as zout:
                 zout.comment = zin.comment
                 if "mimetype" in in_names:
                     zout.writestr(zipfile.ZipInfo("mimetype"), zin.read("mimetype"), compress_type=zipfile.ZIP_STORED)
-                    
+
                 xray_path = "OEBPS/000-xray-dramatis-personae.xhtml" if any(n.startswith("OEBPS/") for n in in_names) else "000-xray-dramatis-personae.xhtml"
                 zout.writestr(xray_path, xray_xhtml.encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
-                
+
                 for name in in_names:
                     if name == "mimetype" or "000-xray" in name:
                         continue
@@ -58,13 +67,13 @@ def inject_xray_data_to_epub(epub_path: Path, xray_xhtml: str) -> bool:
                     if name.endswith("nav.xhtml"):
                         nav_str = data.decode("utf-8", errors="replace")
                         if "000-xray-dramatis-personae.xhtml" not in nav_str:
-                            xray_li = f'<li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감</a></li>\n      '
+                            xray_li = '<li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감</a></li>\n      '
                             nav_str = re.sub(r"(<ol[^>]*>)", rf"\1\n      {xray_li}", nav_str, count=1)
                         data = nav_str.encode("utf-8")
                     elif name.endswith("toc.ncx"):
                         ncx_str = data.decode("utf-8", errors="replace")
                         if "000-xray-dramatis-personae.xhtml" not in ncx_str:
-                            xray_navpoint = f'<navPoint id="navpoint-xray" playOrder="1">\n    <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감</text></navLabel>\n    <content src="000-xray-dramatis-personae.xhtml"/>\n  </navPoint>\n  '
+                            xray_navpoint = '<navPoint id="navpoint-xray" playOrder="1">\n    <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감</text></navLabel>\n    <content src="000-xray-dramatis-personae.xhtml"/>\n  </navPoint>\n  '
                             ncx_str = re.sub(r"(<navMap[^>]*>)", rf"\1\n  {xray_navpoint}", ncx_str, count=1)
                         data = ncx_str.encode("utf-8")
                     elif name.endswith(".opf"):
@@ -88,7 +97,7 @@ def sync_all():
     source_xrays = get_authentic_xrays_from_source(LIB_ROOT / "[study]")
     source_xrays.update(get_authentic_xrays_from_source(LIB_ROOT / "[k-e]"))
     print(f"Found {len(source_xrays):,} unique authentic AI X-Ray dossiers!\n")
-    
+
     target_editions = ["[k]", "[k-e]", "[study]", "[e-s]", "[xteink]/[study]", "[xteink]/[e-s]"]
     for ed in target_editions:
         ed_dir = LIB_ROOT / ed

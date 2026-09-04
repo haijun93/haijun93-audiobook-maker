@@ -314,6 +314,85 @@ def normalized_for_identity(text: str) -> str:
     return re.sub(r"[^0-9a-z가-힣]+", "", compact_text(text).lower())
 
 
+STUDY_NOTE_RE = re.compile(r"\s*※\s*(?:학습|study)?\s*[:：].*$", re.IGNORECASE | re.DOTALL)
+
+
+def translation_body(text: str) -> str:
+    """Return the translation prose without an optional study-note suffix."""
+
+    return compact_text(STUDY_NOTE_RE.sub("", str(text or "")))
+
+
+def is_allowed_literal_source(text: str) -> bool:
+    """Identify source fragments that are intentionally literal.
+
+    Names, addresses, ISBNs, URLs, catalogue title statements, and epigraph
+    attributions can remain Latin in a Korean translation. Copyright prose,
+    dedications, quotations, headings, and narrative sentences cannot.
+    """
+
+    source = compact_text(text)
+    if not source:
+        return True
+    if re.fullmatch(r"(?:ISBN\s*[:：]?\s*)?[0-9Xx][0-9Xx .:/-]{3,}", source):
+        return True
+    if re.search(r"(?:https?://|www\.|\b\w[\w.-]*\.(?:com|net|org|io|co|edu|gov)\b)", source, re.IGNORECASE):
+        return True
+    if ADDRESS_RE.search(source) or is_address_continuation_line(source):
+        return True
+    if is_proper_noun_list(source) or is_cip_title_statement_line(source):
+        return True
+    if is_bare_title_subtitle_line(source) or is_song_or_quote_attribution_line(source):
+        return True
+    if is_constructed_or_foreign_language_line(source):
+        return True
+    return False
+
+
+def strict_untranslated_output_findings(
+    sources: dict[str, str],
+    translations: dict[str, str],
+) -> list[TranslationFinding]:
+    """Find raw English bodies that would leak into a published translation.
+
+    ``assess_translations`` deliberately retains broad metadata exceptions for
+    source-analysis reports. Publication requires a stricter rule: if a block
+    is not a literal-only fragment, its translation body must contain Korean and
+    must not be the source copied verbatim with a Korean study note appended.
+    """
+
+    findings: list[TranslationFinding] = []
+    for block_id, raw_source in sources.items():
+        source = compact_text(raw_source)
+        body = translation_body(translations.get(block_id, ""))
+        if not source or is_allowed_literal_source(source):
+            continue
+        if not LATIN_RE.search(source):
+            continue
+        if not body:
+            findings.append(
+                TranslationFinding(
+                    block_id=block_id,
+                    severity="severe",
+                    code="missing_translation_output",
+                    detail="출판용 번역 본문이 비어 있습니다.",
+                )
+            )
+            continue
+        same_text = normalized_for_identity(source) == normalized_for_identity(body)
+        no_korean = not KOREAN_RE.search(body)
+        if same_text or no_korean:
+            findings.append(
+                TranslationFinding(
+                    block_id=block_id,
+                    severity="severe",
+                    code="untranslated_output",
+                    detail="출판용 번역 본문에 한국어가 없거나 영문 원문이 그대로 남아 있습니다.",
+                )
+            )
+    return findings
+
+
 def assess_translations(
     sources: dict[str, str],
     translations: dict[str, str],

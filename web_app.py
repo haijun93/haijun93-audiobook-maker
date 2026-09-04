@@ -24,7 +24,6 @@ from audiobook_maker import (
     chatgpt_web_voice_choices,
     discover_chrome_executable,
     gemini_api_tts_voice_choices,
-    gemini_web_voice_choices,
     request_edge_tts_audio_file,
     resolve_ffmpeg_binary,
 )
@@ -226,19 +225,19 @@ def create_app(
                 except Exception as exc:
                     return jsonify({"error": f"Preview generation failed: {exc}"}), 500
             return send_file(preview_file, mimetype="audio/mpeg", max_age=86400)
-        return jsonify({"error": f"미리듣기는 Edge TTS 음성에서 즉시 지원됩니다."}), 400
+        return jsonify({"error": "미리듣기는 Edge TTS 음성에서 즉시 지원됩니다."}), 400
 
     @app.get("/api/xray/status")
     def get_xray_status():
         cache_dir = ROOT / "data" / "fiction_xray_cache"
         screenshots_dir = ROOT / "data" / "claude_harvest_screenshots"
         total_novels = 565
-        
+
         cached_files = sorted(list(cache_dir.glob("*.json")), key=lambda p: p.stat().st_mtime, reverse=True) if cache_dir.exists() else []
         cached_count = len(cached_files)
         remaining = max(0, total_novels - cached_count)
         pct = round((cached_count / total_novels * 100), 1) if total_novels > 0 else 0.0
-        
+
         # Check if harvester process is active
         import subprocess
         is_running = False
@@ -247,7 +246,7 @@ def create_app(
             is_running = bool(out.strip())
         except Exception:
             is_running = False
-            
+
         recent_dossiers = []
         for f in cached_files[:10]:
             try:
@@ -261,13 +260,13 @@ def create_app(
                 })
             except Exception:
                 pass
-                
+
         latest_shot = ""
         if screenshots_dir.exists():
             shots = sorted(list(screenshots_dir.glob("*.png")), key=lambda p: p.stat().st_mtime, reverse=True)
             if shots:
                 latest_shot = shots[0].name
-                
+
         return jsonify({
             "total_novels": total_novels,
             "cached_count": cached_count,
@@ -290,14 +289,14 @@ def create_app(
         visual_dir = ROOT / ".work" / "visual_audits"
         status_file = visual_dir / "latest_visual_status.json"
         log_file = ROOT / ".work" / "supervisor_logs" / "supervisor.log"
-        
+
         status_data = {}
         if status_file.is_file():
             try:
                 status_data = json.loads(status_file.read_text(encoding="utf-8"))
             except Exception:
                 pass
-                
+
         recent_logs = []
         if log_file.is_file():
             try:
@@ -305,7 +304,7 @@ def create_app(
                 recent_logs = lines[-15:]
             except Exception:
                 pass
-                
+
         return jsonify({
             "status": status_data,
             "recent_logs": recent_logs,
@@ -321,12 +320,12 @@ def create_app(
         latest_audit_file = scheduler_dir / "latest_operations_audit.json"
         audit_log_file = scheduler_dir / "operations_audits.jsonl"
         events_file = scheduler_dir / "events.jsonl"
-        
+
         state = json.loads(state_file.read_text(encoding="utf-8")) if state_file.is_file() else {}
         config = json.loads(config_file.read_text(encoding="utf-8")) if config_file.is_file() else {}
         health = json.loads(health_file.read_text(encoding="utf-8")) if health_file.is_file() else {}
         latest_audit = json.loads(latest_audit_file.read_text(encoding="utf-8")) if latest_audit_file.is_file() else {}
-        
+
         # 1. Audit history
         audit_history = []
         if audit_log_file.is_file():
@@ -396,18 +395,18 @@ def create_app(
             status = tstate.get("status", "unknown")
             work_dir = Path(tspec.get("work_dir", ""))
             hb_path = work_dir / "heartbeat.json"
-            
+
             hb = {}
             if hb_path.is_file():
                 try:
                     hb = json.loads(hb_path.read_text(encoding="utf-8"))
                 except Exception:
                     pass
-                    
+
             completed = hb.get("completed_chunks", hb.get("completed", 0))
             total = hb.get("total_chunks", hb.get("total", 0))
             label = str(hb.get("label") or "")
-            
+
             # If completed/total is 0 but label has '번역 X/Y', parse from label
             if (total == 0 or completed == 0) and "번역 " in label:
                 try:
@@ -418,9 +417,9 @@ def create_app(
                         total = int(m.group(2))
                 except Exception:
                     pass
-                    
+
             pct = round((completed / total * 100), 1) if total > 0 else 0.0
-            
+
             stage = str(hb.get("stage") or "")
             POST_PROCESSING_STAGES = {
                 "validate_cache",
@@ -478,7 +477,7 @@ def create_app(
                 "last_error": tstate.get("error"),
                 "started_at": tstate.get("started_at"),
             }
-            
+
             if status in ("completed", "done") or stage == "complete" or tid in epub_mtimes:
                 completed_tasks.append(task_info)
             elif status in ("running", "external", "active", "finalize_wait") or hb.get("label"):
@@ -517,7 +516,7 @@ def create_app(
             if is_complete:
                 exec_account = task_account_map.get(tid) or tstate.get("account_id") or (tspec.get("preferred_accounts") or ["main"])[0]
                 comp_time = epub_mtimes.get(tid) or tstate.get("completed_at") or tstate.get("started_at")
-                
+
                 # Check 3-day cutoff
                 comp_ts = None
                 if comp_time:
@@ -527,7 +526,7 @@ def create_app(
                         pass
                 if comp_ts is not None and comp_ts < three_days_ago_ts:
                     continue  # Filter: keep only the last 3 days
-                
+
                 # Calculate exact translation duration from workflow events
                 duration_text = ""
                 if ev_file.is_file():
@@ -567,7 +566,7 @@ def create_app(
             "account3": {"status": "healthy", "logged_in": True, "label": "제미나이 3 (ngaytot9)", "message": "실시간 번역 작업 정상 수행 중 (세션 정상 🟢)"},
             "chatgpt": {"status": "healthy", "logged_in": True, "label": "ChatGPT (haijun93)", "message": "실시간 번역 작업 정상 수행 중 (세션 정상 🟢)"},
         }
-        
+
         last_audit_time = latest_audit.get("started_at")
         next_audit_sec = 1800
         if last_audit_time:
@@ -577,7 +576,7 @@ def create_app(
                 next_audit_sec = max(0, int(1800 - (elapsed % 1800)))
             except Exception:
                 pass
-                
+
         total_count = len(config.get("tasks", []))
         comp_count = len(completed_timeline)
         act_count = len(active_tasks)
@@ -608,7 +607,7 @@ def create_app(
         scheduler_dir = ROOT / ".work" / "continuous_scheduler"
         config_file = scheduler_dir / "config.json"
         config = json.loads(config_file.read_text(encoding="utf-8")) if config_file.is_file() else {}
-        
+
         # Load completed books from library to exclude already finished
         completed_keys = set()
         library_root = Path("/Users/hyeokjunkong/Desktop/소설2")
@@ -624,15 +623,15 @@ def create_app(
         tasks = config.get("tasks", [])
         priority_counts = {}
         scheduled = []
-        
+
         for t in sorted(tasks, key=lambda x: x.get("priority", 0), reverse=True):
             title = t.get("book_title_ko") or t.get("title") or ""
             clean_title = title.split(" (")[0].strip().lower()
             clean_key = re.sub(r'[^a-zA-Z0-9가-힣]', '', clean_title)
-            
+
             if clean_key in completed_keys:
                 continue
-                
+
             pri = t.get("priority", 100)
             pri_badge = f"P:{pri}"
             if pri >= 1000:
@@ -643,9 +642,9 @@ def create_app(
                 pri_label = "P:900 (주요 명작군)"
             else:
                 pri_label = f"P:{pri} (일반 대기)"
-                
+
             priority_counts[pri_label] = priority_counts.get(pri_label, 0) + 1
-            
+
             if len(scheduled) < 150:
                 is_dark = any(w in title.lower() for w in ["dark romance", "leigh rivers", "pam godwin", "haunting adeline", "corrupt", "god of malice"])
                 provider = "Gemini 전용 (다크로맨스)" if is_dark else "ChatGPT / Gemini 공용"
@@ -659,7 +658,7 @@ def create_app(
                     "provider": provider,
                     "genre": t.get("genre", "일반 소설/교양"),
                 })
-                
+
         return jsonify({
             "total_scheduled": sum(priority_counts.values()),
             "priority_summary": priority_counts,

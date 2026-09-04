@@ -44,7 +44,7 @@ def update_css_content(css_text: str, margin_val: str) -> str:
         )
     else:
         css_text += f"\np {{ margin: 0 0 {margin_val}; text-indent: 0; }}\n"
-        
+
     # 2. Update or add p.pair rule
     if re.search(r"\bp\.pair\s*\{[^}]*\}", css_text):
         css_text = re.sub(
@@ -54,7 +54,7 @@ def update_css_content(css_text: str, margin_val: str) -> str:
         )
     else:
         css_text += f"p.pair {{ margin-bottom: {margin_val}; }}\n"
-        
+
     return css_text
 
 def process_epub(epub_path: Path) -> bool:
@@ -67,11 +67,11 @@ def process_epub(epub_path: Path) -> bool:
             if not css_names:
                 # No CSS, create OEBPS/styles.css
                 pass
-                
+
             fd, tmp_path_str = tempfile.mkstemp(suffix=".epub", dir=epub_path.parent)
             os.close(fd)
             tmp_file = Path(tmp_path_str)
-            
+
             with zipfile.ZipFile(tmp_file, "w") as zout:
                 zout.comment = zin.comment
                 # Preserve uncompressed mimetype at offset 0
@@ -81,7 +81,7 @@ def process_epub(epub_path: Path) -> bool:
                         zin.read("mimetype"),
                         compress_type=zipfile.ZIP_STORED
                     )
-                
+
                 for name in in_names:
                     if name == "mimetype":
                         continue
@@ -91,7 +91,7 @@ def process_epub(epub_path: Path) -> bool:
                         new_text = update_css_content(text, margin_val)
                         data = new_text.encode("utf-8")
                     zout.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
-                    
+
         # Replace atomically
         tmp_file.replace(epub_path)
         return True
@@ -105,11 +105,11 @@ def main():
     print("==================================================================")
     print("🚀 APPLYING STANDARD PARAGRAPH MARGINS ACROSS ENTIRE LIBRARY")
     print("==================================================================")
-    
+
     editions = ["[k]", "[k-e]", "[study]", "[e-s]"]
     total_processed = 0
     total_success = 0
-    
+
     for ed in editions:
         ed_dir = LIB_ROOT / ed
         if not ed_dir.exists():
@@ -117,7 +117,7 @@ def main():
         epub_files = list(ed_dir.rglob("*.epub"))
         margin = "0.5em" if ed == "[k]" else ("0.6em" if ed == "[k-e]" else "0.7em")
         print(f"\n📚 Processing {ed} (Target margin: {margin}, {len(epub_files)} books)...")
-        
+
         success_cnt = 0
         for ep in epub_files:
             if process_epub(ep):
@@ -125,7 +125,7 @@ def main():
         print(f"   -> Successfully updated {success_cnt}/{len(epub_files)} EPUBs in {ed}")
         total_processed += len(epub_files)
         total_success += success_cnt
-        
+
     print("\n==================================================================")
     print(f"🎉 BATCH COMPLETE: Successfully applied standard margins to {total_success}/{total_processed} EPUBs!")
     print("==================================================================")

@@ -32,7 +32,7 @@ def fix_all():
     print("==================================================================")
     print("🧹 RELOCATING MISPLACED [e] SUBFOLDER BOOKS TO PROPER GENRES")
     print("==================================================================")
-    
+
     roots = [
         LIB_ROOT / "[k-e]",
         LIB_ROOT / "[study]",
@@ -41,7 +41,7 @@ def fix_all():
         LIB_ROOT / "[xteink]/[study]",
         LIB_ROOT / "[xteink]/[e-s]",
     ]
-    
+
     for r in roots:
         e_sub = r / "[e]"
         if e_sub.exists():
@@ -51,13 +51,13 @@ def fix_all():
                 new_fname = clean_book_name(f.name, prefix)
                 dst_f = r / author_rel / new_fname
                 dst_f.parent.mkdir(parents=True, exist_ok=True)
-                
+
                 print(f"  📦 Moving {f.relative_to(r)} -> {dst_f.relative_to(r)}")
                 if not dst_f.exists() or dst_f.stat().st_size != f.stat().st_size:
                     shutil.move(str(f), str(dst_f))
                 else:
                     f.unlink()
-                    
+
             try:
                 e_sub.rmdir()
                 print(f"  🗑️ Deleted empty directory: {e_sub.relative_to(LIB_ROOT)}")

@@ -11,8 +11,6 @@
 from __future__ import annotations
 
 import json
-import os
-import re
 import shutil
 from pathlib import Path
 
@@ -39,14 +37,14 @@ def main():
     print("==================================================================")
     print("🚀 RELOCATING NESTED `[e]` BOOKS TO CANONICAL GENRE/AUTHOR FOLDERS")
     print("==================================================================")
-    
+
     editions = ["[k]", "[k-e]", "[study]", "[e-s]", "[e]"]
-    
+
     for ed in editions:
         nested_dir = LIB_ROOT / ed / "[e]"
         if not nested_dir.exists():
             continue
-            
+
         print(f"\n📁 Scanning nested folder: {nested_dir}")
         for ep in list(nested_dir.glob("*.epub")):
             res = resolve_canonical_dest(ep.name, ed)
@@ -55,24 +53,24 @@ def main():
                 dest_dir = LIB_ROOT / ed / genre / author
                 dest_dir.mkdir(parents=True, exist_ok=True)
                 dest_p = dest_dir / clean_fname
-                
+
                 shutil.move(str(ep), str(dest_p))
                 print(f"  🚚 Moved to canonical: {dest_p.relative_to(LIB_ROOT)}")
-                
+
                 # Sync to GDrive
                 if GDRIVE_ROOT.exists():
                     gd_dest_dir = GDRIVE_ROOT / ed / genre / author
                     gd_dest_dir.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(dest_p, gd_dest_dir / clean_fname)
                     print(f"    ☁️ Synced to GDrive: {genre}/{author}/{clean_fname}")
-                    
+
         # Remove empty nested [e] folder
         try:
             shutil.rmtree(nested_dir)
             print(f"  🗑️ Removed empty nested folder: {nested_dir}")
         except Exception as e:
             print(f"  Warning removing {nested_dir}: {e}")
-            
+
         # GDrive nested [e] folder removal
         if GDRIVE_ROOT.exists():
             gd_nested = GDRIVE_ROOT / ed / "[e]"

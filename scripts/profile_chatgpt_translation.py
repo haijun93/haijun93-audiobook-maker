@@ -6,8 +6,6 @@ records response latency, streaming throughput, error/notice messages, and fast-
 """
 
 import json
-import os
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -29,7 +27,7 @@ def get_chatgpt_work_dirs() -> list[Path]:
     base = Path("/Users/hyeokjunkong/Desktop/소설2/_chatgpt_translate_work")
     if not base.exists():
         return []
-    
+
     # Check if there is an explicit chatgpt provider running in ps
     try:
         res = subprocess.run(["ps", "aux"], capture_output=True, text=True)
@@ -53,7 +51,7 @@ def get_chatgpt_work_dirs() -> list[Path]:
             hb = p / "heartbeat.json"
             if hb.exists():
                 candidates.append((hb.stat().st_mtime, p))
-    
+
     candidates.sort(key=lambda x: x[0], reverse=True)
     return [p for _, p in candidates[:1]] if candidates else []
 
@@ -86,13 +84,13 @@ def generate_markdown_report(report_data: dict) -> str:
         "| Section / Chunk | Duration | Chars | Avg Speed (char/s) | Completed At |",
         "|---|---|---|---|---|",
     ]
-    
+
     for tr in report_data.get("completed_chunks", []):
         dur = tr.get("duration_sec", 0)
         chars = tr.get("chars", 0)
         speed = round(chars / dur, 1) if dur > 0 else 0
         lines.append(f"| `{tr.get('section')}` | {dur}s | {chars} | {speed} c/s | {tr.get('timestamp')} |")
-        
+
     if not report_data.get("completed_chunks"):
         lines.append("| *(No chunks finalized in this window yet)* | - | - | - | - |")
 
@@ -101,7 +99,7 @@ def generate_markdown_report(report_data: dict) -> str:
         "## 📸 Recent Transition Screenshots",
         "",
     ])
-    
+
     # List recent screenshots
     screenshots = sorted(SCREENSHOTS_DIR.glob("*.png"), reverse=True)[:6]
     if screenshots:
@@ -118,7 +116,7 @@ def generate_markdown_report(report_data: dict) -> str:
         json.dumps(report_data.get("recent_samples", [])[-1] if report_data.get("recent_samples") else {}, indent=2, ensure_ascii=False),
         "```",
     ])
-    
+
     return "\n".join(lines)
 
 
@@ -132,34 +130,34 @@ def main():
     last_chars = 0
     last_section = ""
     chunk_start_time = time.time()
-    
+
     # Take an initial screenshot
     take_screenshot("profiler_start")
-    
+
     while time.time() - start_time < DURATION_SEC:
         now = time.time()
         elapsed = int(now - start_time)
-        
+
         work_dirs = get_chatgpt_work_dirs()
         if not work_dirs:
             time.sleep(SAMPLE_INTERVAL_SEC)
             continue
-            
+
         active_dir = work_dirs[0]
         hb_file = active_dir / "heartbeat.json"
-        
+
         try:
             hb_data = json.loads(hb_file.read_text(encoding="utf-8"))
         except Exception:
             time.sleep(SAMPLE_INTERVAL_SEC)
             continue
-            
+
         stage = str(hb_data.get("stage") or "")
         label = str(hb_data.get("label") or "")
         section = str(hb_data.get("section_prefix") or "")
         detail = str(hb_data.get("detail") or "")
         pid = int(hb_data.get("pid") or 0)
-        
+
         # Parse chars and stable_polls from detail
         chars = 0
         stable_polls = 0

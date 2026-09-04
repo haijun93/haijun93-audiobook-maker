@@ -52,21 +52,21 @@ def inspect_single_epub(epub_path_str: str, verified_cache_keys: set[str]) -> di
     rel_str = str(rel_p)
     clean_stem = re.sub(r'\[.*?\]\s*', '', ep.stem)
     clean_k = re.sub(r'[^a-zA-Z0-9가-힣]', '', clean_stem.lower())
-    
+
     # Check 1: Known Series Match
     if any(pat.lower() in rel_str.lower() for pat in KNOWN_NEW_SERIES):
         return {"path": str(rel_p), "is_new": True, "reason": "Verified Full-Catalogue AI Series"}
-        
+
     # Check 2: Work Cache Match
     for ck in verified_cache_keys:
         if len(clean_k) >= 6 and (clean_k in ck or ck in clean_k):
             return {"path": str(rel_p), "is_new": True, "reason": f"Work Cache Match ({ck[:20]})"}
-            
+
     # Check 3: Deep Paragraph Content Analysis
     static_dict_hits = 0
     ai_context_hits = 0
     total_notes = 0
-    
+
     try:
         with zipfile.ZipFile(ep, "r") as z:
             htmls = [n for n in z.namelist() if n.endswith((".xhtml", ".html"))]
@@ -101,10 +101,10 @@ def main():
     verified_keys = get_verified_work_cache_keys()
     all_study_epubs = sorted([p for p in study_dir.glob("**/*.epub") if not p.name.startswith("._")])
     tasks = [str(p) for p in all_study_epubs]
-    
+
     new_version_list = []
     old_version_list = []
-    
+
     with ProcessPoolExecutor(max_workers=8) as ex:
         futures = [ex.submit(inspect_single_epub, t, verified_keys) for t in tasks]
         for fut in futures:
@@ -121,7 +121,7 @@ def main():
     print(f"• 🌟 검증된 신버전 AI 웹 완역 도서 ([study])           : {len(new_version_list)} 권")
     print(f"• 🏷️ 구버전 정적 사전 주입 도서 ([study-] 재번역 대상)  : {len(old_version_list)} 권")
     print("==================================================================\n")
-    
+
     print("--- 🏷️ [구버전 정적 사전 주입 도서 샘플 30선 - 재번역 대상] ---")
     for idx, r in enumerate(old_version_list[:30], 1):
         print(f"{idx:2}. {r['path']} | ({r['reason']})")

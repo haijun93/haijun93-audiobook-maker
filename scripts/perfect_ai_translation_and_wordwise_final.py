@@ -13,9 +13,7 @@ from __future__ import annotations
 import html
 import io
 import json
-import os
 import re
-import shutil
 import sys
 import zipfile
 from pathlib import Path
@@ -56,13 +54,13 @@ COMPLETE_TRANSLATION_MAP = {
     "Proofreading by: Robin from Black Firefly": "교열: 블랙 파이어플라이의 로빈",
     "Formatting by: http://www.blackfirefly.com/": "전자책 서식: 블랙 파이어플라이",
     "Images in Manu script from Canstock Photos: http://www.canstockphoto.c": "원고 내 이미지 출처: 캔스톡 포토",
-    
+
     # Section 1: Dedication
     "This book is dedicated to all the Bloggers, Facebook Friends, Beta Rea": "이 책을 모든 블로거, 페이스북 친구들, 베타 리더분들께 바칩니다.",
     "This book is dedicated to all the Bloggers, Facebook Friends, Beta Readers and Fantastic Support Network who helped me release my very first novel.":
     "나의 아주 첫 번째 소설을 세상에 선보일 수 있도록 힘을 보태준 모든 블로거, 페이스북 친구들, 베타 리더, 그리고 환상적인 응원군들에게 이 책을 바칩니다.",
     "A huge, heart-felt thank you.": "가슴 깊은 곳에서 우러나오는 진심 어린 감사를 전합니다.",
-    
+
     # Section 2: Prologue
     "T hree little words.": "단 세 마디 말.",
     "Three little words.": "단 세 마디 말.",
@@ -92,7 +90,7 @@ COMPLETE_TRANSLATION_MAP = {
     "Three little words :": "단 세 마디 말:",
     "Three little words : ": "단 세 마디 말:",
     "I was sold.": "나는 팔려갔다.",
-    
+
     # Section 3: Chapter 1 (Starling)
     "*Starling*": "찌르레기",
     "Starling": "찌르레기",
@@ -114,11 +112,11 @@ COMPLETE_TRANSLATION_MAP = {
     "그래서 멜버른 공항에 서서, 미칠 듯이 행복해하는 남자친구와 심장에서 날뛰는 긴장감을 품은 채, 나는 그저 바보처럼 씩 웃을 수밖에 없었다.",
     "“Not telling. The check-in clerk can be the one to ruin my surprise.” He chuckled. “If it were up to me, I wouldn’t tell you until we arrived at the resort.” He dropped the suitcase and dragged me toward him with a smirk. “In fact, if I could, I’d blindfold you until we got there, so it would all be a complete surprise.”":
     "“안 알려주지. 내 깜짝 선물을 망치는 건 탑승 수속 직원 몫으로 남겨둘 거야.” 그가 킬킬 웃었다. “내 맘대로 할 수 있다면 리조트에 도착할 때까지 한마디도 안 해줄 텐데.” 그가 여행 가방을 내려놓고 능글맞은 미소를 지으며 나를 자기 쪽으로 끌어당겼다. “사실 할 수만 있다면 거기 도착할 때까지 네 눈을 안대로 가려놓고 완벽한 서프라이즈로 만들어주고 싶다고.”",
-    
+
     # Section 11: French Dialogue
     "“Oui, maître?”": "“네, 주인님?”",
     "“Enfermer la dans la bibliothèque. Retirez le téléphone et l'ordinateur.”": "“그녀를 서재에 가둬라. 전화기와 컴퓨터는 전부 치워버리고.”",
-    
+
     # Section 16 & 20: French Poems
     "Mes besoins sont ma défaite. Je suis un monstre dans une peau humaine": "나의 욕망은 나의 파멸이다. 나는 인간의 가죽을 쓴 괴물이다.",
     "Tu ne vois pas mon sort, quand tout ce que je veux faire est de me battre,": "내가 오직 싸우고 싶을 뿐일 때, 당신은 나의 비극을 보지 못하는가,",
@@ -131,7 +129,7 @@ COMPLETE_TRANSLATION_MAP = {
     "I come shackled with shadow, consumed with rage and fire,": "나는 그림자에 결박된 채, 분노와 불꽃에 집어삼켜졌으니,",
     "I’m close to breaking, the urge is quaking, raping,": "나는 부서지기 직전이며, 떨려오는 이 갈망과 유린,",
     "I’m the devil, and there’s no hope.": "나는 악마이며, 그 어떤 희망도 없다.",
-    
+
     # Playlist & Sneak Peek
     "Tainted Love": "오염된 사랑 (Tainted Love)",
     "“Q. Q!”": "“큐. 큐!”",
@@ -222,10 +220,10 @@ def annotate_authentic(en_text: str, note_str: str) -> tuple[str, bool]:
     word_pairs = parse_authentic_notes(note_str)
     if not word_pairs:
         return en_text, False
-        
+
     annotated = en_text
     has_ruby = False
-    
+
     for w, m in word_pairs[:2]:
         pattern = re.compile(rf"\b{re.escape(w)}\b", re.IGNORECASE)
         match = pattern.search(annotated)
@@ -234,17 +232,17 @@ def annotate_authentic(en_text: str, note_str: str) -> tuple[str, bool]:
             ruby_tag = f'<ruby><rb>{html.escape(orig_word)}</rb><rt class="wordwise-hint">{html.escape(m)}</rt></ruby>'
             annotated = pattern.sub(ruby_tag, annotated, count=1)
             has_ruby = True
-            
+
     return annotated, has_ruby
 
 def run_master_build():
     print("==================================================================")
     print("💎 100% COMPLETE MASTER BUILD (ZERO UNTRANSLATED LEAKS): TEARS OF TESS")
     print("==================================================================")
-    
+
     src_data = json.loads(SOURCE_SECTIONS.read_text(encoding="utf-8"))
     sections = src_data.get("sections", [])
-    
+
     translations = {}
     for j in sorted(TRANSLATIONS_DIR.glob("chunk_*.json")):
         data = json.loads(j.read_text(encoding="utf-8"))
@@ -254,7 +252,7 @@ def run_master_build():
                 ko = parts[0].strip()
                 note = parts[1].strip() if len(parts) > 1 else ""
                 translations[bid] = (ko, note)
-                
+
     # Extract cover and images from ORIGINAL_E
     image_files = {}
     if ORIGINAL_E.exists():
@@ -266,7 +264,7 @@ def run_master_build():
                     image_files[f"OEBPS/images/{base_name}"] = img_data
                     if "cover" in base_name.lower():
                         image_files["OEBPS/images/cover.jpeg"] = img_data
-                        
+
     # Cover XHTML page
     cover_html = '''<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
@@ -286,45 +284,44 @@ def run_master_build():
     with zipfile.ZipFile(KE_EPUB, "r") as z:
         for n in z.namelist():
             base_files[n] = z.read(n)
-    xray_data = base_files.get("OEBPS/000-xray-dramatis-personae.xhtml", b"")
-    
+
     study_chapters = {}
     es_chapters = {}
     ke_chapters = {}
     k_chapters = {}
     total_rubies = 0
-    
+
     # Add Cover
     study_chapters["OEBPS/000-cover.xhtml"] = cover_html
     es_chapters["OEBPS/000-cover.xhtml"] = cover_html
     ke_chapters["OEBPS/000-cover.xhtml"] = cover_html
     k_chapters["OEBPS/000-cover.xhtml"] = cover_html
-    
+
     # Add images
     for iname, ibytes in image_files.items():
         study_chapters[iname] = ibytes
         es_chapters[iname] = ibytes
         ke_chapters[iname] = ibytes
         k_chapters[iname] = ibytes
-    
+
     for idx, sec in enumerate(sections):
         ch_title = CHAPTER_NAMES.get(idx, f"제{idx+1}장")
         fname = f"OEBPS/chapter_{idx:03d}.xhtml"
-        
+
         study_pairs = []
         es_pairs = []
         ke_pairs = []
         k_pairs = []
-        
+
         for b in sec.get("blocks", []):
             bid = b.get("id")
             en_txt = b.get("text", "").strip()
             if not en_txt: continue
-            
+
             ai_ko, ai_note = translations.get(bid, ("", ""))
-            
+
             clean_en_key = en_txt.strip()
-            
+
             # 1. Exact match in complete map
             if clean_en_key in COMPLETE_TRANSLATION_MAP:
                 ai_ko = COMPLETE_TRANSLATION_MAP[clean_en_key]
@@ -343,35 +340,35 @@ def run_master_build():
                         ai_ko = ""
                     else:
                         print(f"  ⚠️ Warning untranslated block: [{bid}] {clean_en_key[:50]}")
-                        
+
             ann_en, has_rb = annotate_authentic(en_txt, ai_note)
             if has_rb:
                 total_rubies += ann_en.count("<ruby>")
-                
+
             en_cls = "en has-ww" if has_rb else "en"
             p_cls = "pair has-ww" if has_rb else "pair"
-            
+
             # 1. Study pair
             if ai_ko:
                 study_pairs.append(f'<p class="{p_cls}"><span class="{en_cls}" xml:lang="en">{ann_en}</span><br/><span class="ko" xml:lang="ko">{html.escape(ai_ko)}</span></p>')
             else:
                 study_pairs.append(f'<p class="{p_cls}"><span class="{en_cls}" xml:lang="en">{ann_en}</span></p>')
-                
+
             # 2. ES pair
             es_pairs.append(f'<p class="{p_cls}"><span class="{en_cls}" xml:lang="en">{ann_en}</span></p>')
-            
+
             # 3. KE pair
             if ai_ko:
                 ke_pairs.append(f'<p class="pair"><span class="en" xml:lang="en">{html.escape(en_txt)}</span><br/><span class="ko" xml:lang="ko">{html.escape(ai_ko)}</span></p>')
             else:
                 ke_pairs.append(f'<p class="pair"><span class="en" xml:lang="en">{html.escape(en_txt)}</span></p>')
-                
+
             # 4. K pair
             if ai_ko:
                 k_pairs.append(f'<p class="pair"><span class="ko" xml:lang="ko">{html.escape(ai_ko)}</span></p>')
             else:
                 k_pairs.append(f'<p class="pair"><span class="ko" xml:lang="ko">{html.escape(en_txt)}</span></p>')
-                
+
         def make_doc(title_str, p_list):
             return f'''<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
@@ -396,20 +393,15 @@ def run_master_build():
     # Build TOC & Nav
     nav_items = [
         '      <li><a href="000-cover.xhtml">표지 (Cover)</a></li>',
-        '      <li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감 (Dramatis Personae)</a></li>'
     ]
     ncx_items = [
         '''    <navPoint id="nav_1" playOrder="1">
       <navLabel><text>표지 (Cover)</text></navLabel>
       <content src="000-cover.xhtml"/>
     </navPoint>''',
-        '''    <navPoint id="nav_2" playOrder="2">
-      <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감 (Dramatis Personae)</text></navLabel>
-      <content src="000-xray-dramatis-personae.xhtml"/>
-    </navPoint>'''
     ]
-    
-    order = 3
+
+    order = 2
     for idx in range(len(sections)):
         t = CHAPTER_NAMES.get(idx, f"제{idx+1}장")
         href = f"chapter_{idx:03d}.xhtml"
@@ -420,7 +412,7 @@ def run_master_build():
       <content src="{href}"/>
     </navPoint>''')
         order += 1
-        
+
     nav_html = f'''<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="ko" xml:lang="ko">
@@ -465,22 +457,20 @@ def run_master_build():
     manifest_items = [
         '<item id="cover-image" href="images/cover.jpeg" media-type="image/jpeg" properties="cover-image"/>',
         '<item id="cover-page" href="000-cover.xhtml" media-type="application/xhtml+xml"/>',
-        '<item id="xray-dir" href="000-xray-dramatis-personae.xhtml" media-type="application/xhtml+xml"/>',
         '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
         '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>',
         '<item id="css" href="styles.css" media-type="text/css"/>'
     ]
-    
+
     for iname in image_files.keys():
         if iname != "OEBPS/images/cover.jpeg":
             rel_href = iname.replace("OEBPS/", "")
             img_id = "img_" + Path(iname).stem
             mtype = "image/png" if iname.endswith(".png") else "image/jpeg"
             manifest_items.append(f'<item id="{img_id}" href="{rel_href}" media-type="{mtype}"/>')
-            
+
     spine_items = [
         '<itemref idref="cover-page"/>',
-        '<itemref idref="xray-dir"/>',
         '<itemref idref="nav"/>'
     ]
     for idx in range(len(sections)):
@@ -488,7 +478,7 @@ def run_master_build():
         ch_f = f"chapter_{idx:03d}.xhtml"
         manifest_items.append(f'<item id="{cid}" href="{ch_f}" media-type="application/xhtml+xml"/>')
         spine_items.append(f'<itemref idref="{cid}"/>')
-        
+
     opf_xml = f'''<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uid" version="3.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -524,8 +514,6 @@ def run_master_build():
             zout.writestr("OEBPS/nav.xhtml", nav_html)
             zout.writestr("OEBPS/toc.ncx", toc_ncx)
             zout.writestr("OEBPS/styles.css", KINDLE_CSS.encode("utf-8"))
-            if xray_data:
-                zout.writestr("OEBPS/000-xray-dramatis-personae.xhtml", xray_data)
             for fname, cdata in chapter_dict.items():
                 zout.writestr(fname, cdata)
         dest_path.write_bytes(buf.getvalue())

@@ -35,7 +35,7 @@ def restore_all():
     print("==================================================================")
     print("📦 RESTORING ALL DAMAGED EPUBS FROM PRISTINE BACKUP VAULTS")
     print("==================================================================")
-    
+
     # 1. Index all pristine files in backup vaults
     vault_index = {}
     for b_src in BACKUP_SOURCES:
@@ -47,17 +47,17 @@ def restore_all():
                         vault_index[ep.name] = ep
 
     print(f"📚 Indexed {len(vault_index):,} pristine backup files from vaults.\n")
-    
+
     # 2. Check and repair all active library editions
     editions = ["[k]", "[k-e]", "[study]", "[e-s]", "[e]"]
     total_repaired = 0
     total_still_bad = 0
-    
+
     for ed in editions:
         ed_dir = LIB_ROOT / ed
         if not ed_dir.exists():
             continue
-            
+
         print(f"🔍 Checking edition {ed}...")
         for ep in ed_dir.rglob("*.epub"):
             if not is_valid_zip(ep):
@@ -70,7 +70,7 @@ def restore_all():
                     total_still_bad += 1
                     print(f"  ❌ No vault backup for: {ed}/{ep.name}")
 
-    print(f"\n==================================================================")
+    print("\n==================================================================")
     print(f"🎉 RESTORATION COMPLETED: {total_repaired} files repaired! (Still bad: {total_still_bad})")
     print("==================================================================")
 

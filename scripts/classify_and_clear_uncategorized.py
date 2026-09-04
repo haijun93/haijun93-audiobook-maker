@@ -88,7 +88,7 @@ def process_edition_uncategorized(ed_root: Path, prefix: str):
     uncat_dir = ed_root / "Uncategorized"
     if not uncat_dir.exists():
         return
-        
+
     print(f"\n📂 Processing {ed_root.relative_to(LIB_ROOT)}/Uncategorized...")
     for epub_file in list(uncat_dir.rglob("*.epub")):
         rule = match_rule(epub_file.name)
@@ -99,13 +99,13 @@ def process_edition_uncategorized(ed_root: Path, prefix: str):
         else:
             target_rel = rule["target_rel"]
             clean_t = rule.get("clean_title", "")
-            
+
         dest_dir = ed_root / target_rel
         dest_dir.mkdir(parents=True, exist_ok=True)
-        
+
         new_name = clean_book_filename(epub_file.name, prefix, clean_t)
         dest_file = dest_dir / new_name
-        
+
         print(f"  📦 Moving: {epub_file.name} -> {target_rel}/{new_name}")
         if not dest_file.exists() or dest_file.stat().st_size != epub_file.stat().st_size:
             shutil.move(str(epub_file), str(dest_file))
@@ -121,7 +121,7 @@ def main():
     print("==================================================================")
     print("🌟 CLASSIFYING ALL UNCATEGORIZED BOOKS & PURGING FOLDERS")
     print("==================================================================")
-    
+
     editions = [
         (LIB_ROOT / "[k]", "[k]"),
         (LIB_ROOT / "[k-e]", "[k-e]"),
@@ -131,10 +131,10 @@ def main():
         (LIB_ROOT / "[xteink]" / "[study]", "[study]"),
         (LIB_ROOT / "[xteink]" / "[e-s]", "[e-s]"),
     ]
-    
+
     for ed_root, prefix in editions:
         process_edition_uncategorized(ed_root, prefix)
-        
+
     # GDrive Purge
     if GDRIVE_ROOT.exists():
         print("\n☁️ Synchronizing with Google Drive #Books...")

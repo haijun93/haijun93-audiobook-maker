@@ -7,12 +7,10 @@ that are NOT English-to-Korean translations.
 
 from __future__ import annotations
 
-import os
 import re
 import zipfile
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from bs4 import BeautifulSoup
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 
@@ -66,7 +64,7 @@ def main():
             if res:
                 results.append(res)
 
-    print(f"\n==================================================================")
+    print("\n==================================================================")
     print(f"Discovered {len(results)} Korean original / non-English works in [e]:")
     print("==================================================================")
     for idx, r in enumerate(results, 1):

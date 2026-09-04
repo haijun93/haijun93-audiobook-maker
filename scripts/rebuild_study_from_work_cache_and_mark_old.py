@@ -19,7 +19,6 @@ import unicodedata
 import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 desktop = Path("/Users/hyeokjunkong/Desktop")
 lib_root = next(p for p in desktop.iterdir() if "소설2" in unicodedata.normalize("NFC", p.name))
@@ -39,16 +38,16 @@ def load_ai_work_cache_maps() -> dict[str, dict[str, tuple[str, str]]]:
     """Loads all pure AI translation and study notes from raw work caches."""
     cache_maps = {}
     if not work_base.exists(): return cache_maps
-    
+
     print("1. Loading raw AI translation work caches...")
     for wd in work_base.iterdir():
         if not wd.is_dir(): continue
         td = wd / "translations"
         if not td.exists(): continue
-        
+
         book_key = clean_key(wd.name)
         book_map = {}
-        
+
         for jf in sorted(td.glob("*.json")):
             try:
                 data = json.loads(jf.read_text(encoding="utf-8"))
@@ -64,7 +63,7 @@ def load_ai_work_cache_maps() -> dict[str, dict[str, tuple[str, str]]]:
                         elif isinstance(t_val, str):
                             # String translation without notes
                             pass
-                            
+
                 # Case 2: data has "items" list
                 items = data.get("items") or data.get("pairs") or []
                 if isinstance(items, list):
@@ -76,7 +75,7 @@ def load_ai_work_cache_maps() -> dict[str, dict[str, tuple[str, str]]]:
                             if en: book_map[clean_key(en)] = (ko, st)
             except Exception:
                 pass
-                
+
         # Only consider it an authentic AI study cache if it has notes
         notes_count = sum(1 for _, st in book_map.values() if st and len(st) > 5)
         if notes_count >= 10:
@@ -85,13 +84,13 @@ def load_ai_work_cache_maps() -> dict[str, dict[str, tuple[str, str]]]:
             words = wd.name.split("_")
             if len(words) >= 2:
                 cache_maps[clean_key(" ".join(words[:3]))] = book_map
-                
+
     print(f"   -> Successfully loaded {len(cache_maps)} verified pure AI work cache maps!")
     return cache_maps
 
 def rebuild_or_mark_epub(epub_path: Path, ai_caches: dict[str, dict[str, tuple[str, str]]]) -> tuple[str, str, int]:
     ep_key = clean_key(epub_path.stem)
-    
+
     # Check if we have an authentic AI work cache for this book
     matching_cache = None
     if ep_key in ai_caches:
@@ -101,29 +100,29 @@ def rebuild_or_mark_epub(epub_path: Path, ai_caches: dict[str, dict[str, tuple[s
             if (len(k) >= 6 and k in ep_key) or (len(ep_key) >= 6 and ep_key in k):
                 matching_cache = cmap
                 break
-                
+
     # CASE A: We have authentic AI work cache -> REBUILD PURE [study] & [e-s]
     if matching_cache:
         try:
             tmp_dir = Path(tempfile.mkdtemp(prefix="rebuild_ai_"))
             with zipfile.ZipFile(epub_path, "r") as z:
                 z.extractall(tmp_dir)
-                
+
             injected_count = 0
             for h in tmp_dir.glob("**/*.xhtml"):
                 content = h.read_text(encoding="utf-8")
                 if "class=\"pair\"" not in content and "<p class=\"pair\"" not in content: continue
-                
+
                 soup = BeautifulSoup(content, "html.parser")
                 for p in soup.find_all(class_=lambda c: c and "pair" in c):
                     en_s = p.find("span", class_="en")
                     ko_s = p.find("span", class_="ko")
                     note_s = p.find("span", class_="study-note")
-                    
+
                     if not en_s: continue
                     en_txt = en_s.get_text(strip=True)
                     k_en = clean_key(en_txt)
-                    
+
                     if k_en in matching_cache:
                         raw_ko, raw_st = matching_cache[k_en]
                         if raw_ko and ko_s:
@@ -134,15 +133,15 @@ def rebuild_or_mark_epub(epub_path: Path, ai_caches: dict[str, dict[str, tuple[s
                                 p.append(note_s)
                             note_s.string = raw_st
                             injected_count += 1
-                            
+
                 h.write_text(str(soup), encoding="utf-8")
-                
+
             # Re-package as pure [study]
             pure_name = epub_path.name.replace("[study-] ", "[study] ").replace("[study-]", "[study]")
             if not pure_name.startswith("[study]"):
                 pure_name = f"[study] {pure_name}"
             final_p = epub_path.parent / pure_name
-            
+
             epub_tmp = tmp_dir.parent / f"{epub_path.stem}_ai_rebuilt.epub"
             with zipfile.ZipFile(epub_tmp, "w", zipfile.ZIP_DEFLATED) as z_out:
                 mime_p = tmp_dir / "mimetype"
@@ -154,16 +153,16 @@ def rebuild_or_mark_epub(epub_path: Path, ai_caches: dict[str, dict[str, tuple[s
                         rel_z = fp.relative_to(tmp_dir)
                         if str(rel_z) == "mimetype": continue
                         z_out.write(fp, str(rel_z))
-                        
+
             if final_p != epub_path and epub_path.exists():
                 epub_path.unlink()
-                
+
             shutil.move(str(epub_tmp), str(final_p))
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return ("AI_REBUILT", final_p.name, injected_count)
         except Exception as e:
             return ("ERROR", epub_path.name, 0)
-            
+
     # CASE B: Old translation without AI study cache -> MARK AS [study-]
     else:
         if not epub_path.name.startswith("[study-]"):
@@ -178,14 +177,14 @@ def main():
     print("==================================================================")
     print("🚀 AI CACHE STUDY REBUILD & OLD-VERSION [study-] CLASSIFICATION")
     print("==================================================================")
-    
+
     ai_caches = load_ai_work_cache_maps()
     study_epubs = sorted(study_dir.glob("**/*.epub"))
     print(f"\n2. Processing {len(study_epubs)} study EPUBs in library...")
-    
+
     ai_rebuilt_count = 0
     old_marked_count = 0
-    
+
     for ep in study_epubs:
         status, name, cnt = rebuild_or_mark_epub(ep, ai_caches)
         if status == "AI_REBUILT":
@@ -193,8 +192,8 @@ def main():
             print(f"  🌟 [NEW AI REBUILT] {name:50s} -> Restored {cnt} pure AI study notes!")
         elif status == "OLD_MARKED":
             old_marked_count += 1
-            
-    print(f"\nSummary:")
+
+    print("\nSummary:")
     print(f"   • Re-built Pure '[study]' from AI Work Caches: {ai_rebuilt_count} books")
     print(f"   • Classified as '[study-]' (Old Translation): {old_marked_count} books")
 
@@ -203,8 +202,8 @@ def main():
     # Clean GDrive study
     for gd_f in gdrive_study.glob("**/*.epub"):
         try: gd_f.unlink()
-        except: pass
-        
+        except Exception:
+            pass
     local_study_all = list(study_dir.glob("**/*.epub"))
     for lp in local_study_all:
         rel = lp.relative_to(study_dir)

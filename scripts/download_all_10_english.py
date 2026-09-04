@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import re
-import sys
 import time
 import urllib.request
 from pathlib import Path
@@ -103,8 +102,8 @@ def download_target_book(page, item: dict) -> bool:
     out_name = item["out"]
     target_url = item.get("url")
     save_path = DEST_DIR / out_name
-    
-    print(f"\n==================================================", flush=True)
+
+    print("\n==================================================", flush=True)
     print(f"[*] Processing: {title} by {author}", flush=True)
 
     # If file exists and > 500KB and does not contain Dutch/Spanish/Italian in EPUB content
@@ -134,7 +133,7 @@ def download_target_book(page, item: dict) -> bool:
             page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
             solve_turnstile(page)
             time.sleep(2)
-            
+
             soup = BeautifulSoup(page.content(), "html.parser")
             articles = soup.select("article h2 a")
             target_link = None
@@ -149,7 +148,7 @@ def download_target_book(page, item: dict) -> bool:
                     break
             if not target_link and articles:
                 target_link = articles[0].get("href")
-                
+
             if target_link:
                 print(f"[+] Selected English article: {target_link}", flush=True)
                 page.goto(target_link, wait_until="domcontentloaded", timeout=45000)
@@ -210,7 +209,7 @@ def download_target_book(page, item: dict) -> bool:
                 direct_url = m2.group(1).replace("&amp;", "&")
 
         if not direct_url:
-            print(f"[-] Could not find direct URL in response", flush=True)
+            print("[-] Could not find direct URL in response", flush=True)
             return False
 
         print(f"[+] Downloading from direct link: {direct_url}", flush=True)
@@ -240,10 +239,10 @@ def download_target_book(page, item: dict) -> bool:
 def main() -> int:
     DEST_DIR.mkdir(parents=True, exist_ok=True)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    
-    print(f"==================================================", flush=True)
+
+    print("==================================================", flush=True)
     print(f"[*] Downloading 10 Dark Romance EPUBs to {DEST_DIR}", flush=True)
-    print(f"==================================================", flush=True)
+    print("==================================================", flush=True)
 
     success_count = 0
     with sync_playwright() as p:
@@ -267,7 +266,7 @@ def main() -> int:
 
         ctx.close()
 
-    print(f"\n==================================================", flush=True)
+    print("\n==================================================", flush=True)
     print(f"[FINAL SUMMARY] Successfully downloaded {success_count}/{len(TARGET_BOOKS)} EPUBs to {DEST_DIR}", flush=True)
     return 0 if success_count == len(TARGET_BOOKS) else 1
 

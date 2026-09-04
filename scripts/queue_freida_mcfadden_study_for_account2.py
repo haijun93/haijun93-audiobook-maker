@@ -199,7 +199,7 @@ def main() -> int:
         status_data["tasks"] = updated_status_tasks
         STATUS_PATH.write_text(json.dumps(status_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"Successfully configured 19 Freida McFadden books for study/e-s generation with Account 2 (priority -800)!")
+    print("Successfully configured 19 Freida McFadden books for study/e-s generation with Account 2 (priority -800)!")
     for idx, stem in enumerate(FREIDA_BOOKS, 1):
         print(f"  {idx:02d}. {stem}")
 

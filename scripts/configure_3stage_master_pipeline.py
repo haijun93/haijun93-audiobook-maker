@@ -7,7 +7,8 @@ Configures tasks in strict order:
   Stage 3: /Volumes/2T hard/English Books Collection (Priority: 60)
 """
 
-import json, re
+import json
+import re
 from pathlib import Path
 
 BEST100_DIR = Path("/Volumes/2T hard/best 100")
@@ -33,7 +34,7 @@ def clean_author_from_path(p: Path) -> str:
 def main():
     print("Building 3-Stage Master Pipeline Task List...")
     tasks = []
-    
+
     # ── 1. Stage 1: Best 100 (Priority 100) ──────────────────────────────────
     if BEST100_DIR.exists():
         best100_files = sorted(BEST100_DIR.rglob("*.epub"))
@@ -42,13 +43,13 @@ def main():
             author = clean_author_from_path(p)
             author_folder = f"#{author}"
             stem = p.stem
-            
+
             # Check if already complete in library [study]
             out_study = LIBRARY_DIR / "[study]" / author_folder / f"[study] {stem}.epub"
             out_ke = LIBRARY_DIR / "[k-e]" / author_folder / f"[k-e] {stem}.epub"
             if out_study.exists() and out_ke.exists():
                 continue
-                
+
             task_id = f"best100-{sanitize_id(stem)}"
             work_slug = sanitize_id(f"best100_{stem}")
             tasks.append({
@@ -69,7 +70,7 @@ def main():
                 "chunks_per_conversation": 10,
                 "inter_request_delay_sec": 8.0,
             })
-            
+
     # ── 2. Stage 2: Missing Study / E-S Editions (Priority 80) ────────────────
     ke_root = LIBRARY_DIR / "[k-e]"
     study_root = LIBRARY_DIR / "[study]"
@@ -118,7 +119,7 @@ def main():
             out_study = LIBRARY_DIR / "[study]" / author_folder / f"[study] {stem}.epub"
             if out_ke.exists() and out_study.exists():
                 continue
-                
+
             task_id = f"eng-col-{sanitize_id(stem)}"
             work_slug = sanitize_id(f"eng_col_{stem}")
             tasks.append({
@@ -149,26 +150,26 @@ def main():
     if CONFIG_PATH.exists():
         try:
             existing_cfg = json.loads(CONFIG_PATH.read_text())
-        except:
+        except Exception:
             pass
-            
+
     accounts = existing_cfg.get("accounts", [
         {"id": "main", "provider": "gemini"},
         {"id": "account2", "provider": "gemini"},
         {"id": "account3", "provider": "gemini"},
         {"id": "chatgpt", "provider": "chatgpt"},
     ])
-    
+
     cfg = {
         "accounts": accounts,
         "tasks": tasks,
     }
-    
+
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
     print(f"🎉 Successfully built 3-Stage Master Pipeline Config with {len(tasks)} total queued tasks!")
-    print(f"   - Stage 1 (Best 100): Priority 100")
-    print(f"   - Stage 2 (Missing Study/E-S): Priority 80")
-    print(f"   - Stage 3 (English Books Collection): Priority 60")
+    print("   - Stage 1 (Best 100): Priority 100")
+    print("   - Stage 2 (Missing Study/E-S): Priority 80")
+    print("   - Stage 3 (English Books Collection): Priority 60")
 
 if __name__ == "__main__":
     main()

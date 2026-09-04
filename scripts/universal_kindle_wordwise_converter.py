@@ -15,14 +15,9 @@ Amazon Kindle Genuine Overhead Word Wise (`<ruby><rb>word</rb><rt class="wordwis
 
 from __future__ import annotations
 
-import html
 import io
 import json
-import os
 import re
-import shutil
-import tempfile
-import time
 import zipfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -61,7 +56,7 @@ STOPWORDS = {
     "a", "an", "the", "and", "or", "but", "if", "then", "else", "when", "at", "from",
     "by", "for", "with", "about", "against", "between", "into", "through", "during",
     "before", "after", "above", "below", "to", "of", "up", "down", "in", "out", "on",
-    "off", "over", "under", "again", "further", "then", "once", "here", "there", "all",
+    "off", "over", "under", "again", "further", "once", "here", "there", "all",
     "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
     "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will",
     "just", "don", "should", "now", "i", "you", "he", "she", "it", "we", "they", "me",
@@ -101,7 +96,7 @@ def transform_paragraph(p_soup, lexicon: dict[str, str], is_es: bool = False) ->
     en_span = p_soup.find("span", class_=lambda c: c and "en" in c)
     ko_span = p_soup.find("span", class_=lambda c: c and "ko" in c)
     study_span = p_soup.find(class_=lambda c: c and ("study-note" in c or "study" in c))
-    
+
     # 1. Check if p itself contains direct text without spans
     if not en_span:
         # Check text contents
@@ -113,10 +108,10 @@ def transform_paragraph(p_soup, lexicon: dict[str, str], is_es: bool = False) ->
                 c.replace_with(new_en)
                 en_span = new_en
                 break
-                
+
     if not en_span:
         return False
-        
+
     en_text = "".join(en_span.stripped_strings)
     if "<ruby>" in str(en_span):
         # Already has ruby, if is_es remove ko
@@ -125,13 +120,13 @@ def transform_paragraph(p_soup, lexicon: dict[str, str], is_es: bool = False) ->
             if study_span: study_span.decompose()
             for br in p_soup.find_all("br"): br.decompose()
         return False
-        
+
     # Collect candidates: Priority 1 = existing study-note, Priority 2 = Lexicon lookup
     word_pairs = []
     if study_span:
         word_pairs = parse_study_notes(study_span.get_text())
         study_span.decompose()
-        
+
     if not word_pairs:
         # Lexicon lookup
         tokens = re.findall(r"\b[a-zA-Z]+(?:'[a-zA-Z]+)?\b", en_text)
@@ -154,13 +149,13 @@ def transform_paragraph(p_soup, lexicon: dict[str, str], is_es: bool = False) ->
                 word_pairs.append((w, m))
             if len(word_pairs) >= 4:
                 break
-                
+
     if not word_pairs:
         if is_es:
             if ko_span: ko_span.decompose()
             for br in p_soup.find_all("br"): br.decompose()
         return False
-        
+
     annotated = en_text
     has_ruby = False
     for w, m in word_pairs:
@@ -171,35 +166,35 @@ def transform_paragraph(p_soup, lexicon: dict[str, str], is_es: bool = False) ->
             ruby_str = f'<ruby><rb>{orig_word}</rb><rt class="wordwise-hint">{m}</rt></ruby>'
             annotated = pattern.sub(ruby_str, annotated, count=1)
             has_ruby = True
-            
+
     if has_ruby:
         new_en_soup = BeautifulSoup(f'<span class="en has-ww" xml:lang="en">{annotated}</span>', "html.parser")
         en_span.replace_with(new_en_soup.span)
         p_soup["class"] = "pair has-ww"
-        
+
     if is_es:
         if ko_span: ko_span.decompose()
         for br in p_soup.find_all("br"): br.decompose()
-        
+
     return has_ruby
 
 def process_book(study_epub_path_str: str) -> tuple[str, int, bool]:
     study_p = Path(study_epub_path_str)
     lexicon = get_lexicon()
-    
+
     try:
         processed_study = {}
         processed_es = {}
         total_rubies = 0
-        
+
         with zipfile.ZipFile(study_p, "r") as src_zip:
             for item in src_zip.infolist():
                 content = src_zip.read(item.filename)
-                
+
                 if item.filename.endswith((".xhtml", ".html")) and not any(k in item.filename.lower() for k in ["xray", "cover"]):
                     soup_s = BeautifulSoup(content.decode("utf-8"), "html.parser")
                     soup_es = BeautifulSoup(content.decode("utf-8"), "html.parser")
-                    
+
                     # Study
                     pairs_s = soup_s.find_all(["p", "div", "li"], class_=lambda c: c and "pair" in c)
                     if not pairs_s:
@@ -207,14 +202,14 @@ def process_book(study_epub_path_str: str) -> tuple[str, int, bool]:
                     for p in pairs_s:
                         if transform_paragraph(p, lexicon, is_es=False):
                             total_rubies += str(p).count("<ruby>")
-                            
+
                     # ES
                     pairs_es = soup_es.find_all(["p", "div", "li"], class_=lambda c: c and "pair" in c)
                     if not pairs_es:
                         pairs_es = soup_es.find_all("p")
                     for p in pairs_es:
                         transform_paragraph(p, lexicon, is_es=True)
-                        
+
                     processed_study[item.filename] = str(soup_s).encode("utf-8")
                     processed_es[item.filename] = str(soup_es).encode("utf-8")
                 elif item.filename.endswith(".css"):
@@ -223,14 +218,14 @@ def process_book(study_epub_path_str: str) -> tuple[str, int, bool]:
                 else:
                     processed_study[item.filename] = content
                     processed_es[item.filename] = content
-                    
+
         # Write [study]
         buf_s = io.BytesIO()
         with zipfile.ZipFile(buf_s, "w", zipfile.ZIP_DEFLATED) as dst_s:
             for fname, data in processed_study.items():
                 dst_s.writestr(fname, data)
         study_p.write_bytes(buf_s.getvalue())
-        
+
         # Write [e-s]
         rel = study_p.relative_to(STUDY_ROOT)
         es_p = ES_ROOT / rel.parent / f"[e-s] {study_p.name.replace('[study] ', '')}"
@@ -240,7 +235,7 @@ def process_book(study_epub_path_str: str) -> tuple[str, int, bool]:
             for fname, data in processed_es.items():
                 dst_es.writestr(fname, data)
         es_p.write_bytes(buf_es.getvalue())
-        
+
         return study_p.name, total_rubies, True
     except Exception as e:
         return study_p.name, -1, False
@@ -249,16 +244,16 @@ def main():
     print("==================================================================")
     print("🚀 UNIVERSAL KINDLE WORD WISE MASTER CONVERTER (ALL BOOKS)")
     print("==================================================================")
-    
+
     lex = get_lexicon()
     print(f"📖 Master Lexicon: {len(lex):,} entries loaded.")
-    
+
     epubs = [str(p) for p in STUDY_ROOT.rglob("*.epub") if p.stat().st_size > 50000]
     print(f"📚 Converting and upgrading {len(epubs):,} [study] EPUBs across whole library (12 workers)...\n")
-    
+
     upgraded = 0
     total_rubies = 0
-    
+
     with ProcessPoolExecutor(max_workers=12) as ex:
         futures = [ex.submit(process_book, ep) for ep in epubs]
         for fut in as_completed(futures):
@@ -267,7 +262,7 @@ def main():
                 upgraded += 1
                 total_rubies += r_cnt
                 print(f"  ✨ [Word Wise Ready] {name[:50]:<50} ({r_cnt:>6,} rubies)")
-                
+
     print("\n==================================================================")
     print("🎉 UNIVERSAL KINDLE WORD WISE UPGRADE COMPLETED!")
     print(f"  • Upgraded Books       : {upgraded:,} / {len(epubs):,} books")

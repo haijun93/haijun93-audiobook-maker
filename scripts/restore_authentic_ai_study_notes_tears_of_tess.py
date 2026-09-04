@@ -9,12 +9,9 @@ Eliminates all mechanical static dictionary mis-matches and replaces them with a
 
 from __future__ import annotations
 
-import html
 import io
 import json
-import os
 import re
-import shutil
 import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -53,7 +50,7 @@ rt, rt.wordwise-hint {
 def load_authentic_ai_translations():
     print("📖 Loading authentic Gemini AI translations and study notes...")
     block_map = {}
-    
+
     # 1. Load source english text
     source_texts = {}
     if SOURCE_SECTIONS.exists():
@@ -67,7 +64,7 @@ def load_authentic_ai_translations():
                         txt = b.get("text", "").strip()
                         if bid and txt:
                             source_texts[bid] = txt
-                    
+
     # 2. Load authentic AI translations and ※학습: notes
     for json_f in sorted(TRANSLATIONS_DIR.glob("chunk_*.json")):
         try:
@@ -78,7 +75,7 @@ def load_authentic_ai_translations():
                     parts = re.split(r'※(?:학습|어휘|공부|노트)?[:：\s]*', line_str, maxsplit=1)
                     ko_txt = parts[0].strip()
                     study_note = parts[1].strip() if len(parts) > 1 else ""
-                    
+
                     en_txt = source_texts.get(bid, "")
                     block_map[bid] = {
                         "en": en_txt,
@@ -87,7 +84,7 @@ def load_authentic_ai_translations():
                     }
         except Exception as e:
             print(f"Error loading {json_f.name}: {e}")
-            
+
     print(f"✅ Loaded {len(block_map):,} authentic AI translated blocks!")
     return block_map
 
@@ -110,7 +107,7 @@ def annotate_with_authentic_ai(en_text: str, study_note: str) -> tuple[str, bool
     word_pairs = parse_authentic_notes(study_note)
     if not word_pairs:
         return en_text, False
-        
+
     annotated = en_text
     has_ruby = False
     for w, m in word_pairs:
@@ -121,37 +118,37 @@ def annotate_with_authentic_ai(en_text: str, study_note: str) -> tuple[str, bool
             ruby_str = f'<ruby><rb>{orig_word}</rb><rt class="wordwise-hint">{m}</rt></ruby>'
             annotated = pattern.sub(ruby_str, annotated, count=1)
             has_ruby = True
-            
+
     return annotated, has_ruby
 
 def rebuild_authentic_tears_of_tess():
     print("==================================================================")
     print("🌟 REBUILDING TEARS OF TESS WITH 100% AUTHENTIC GEMINI AI STUDY NOTES")
     print("==================================================================")
-    
+
     block_map = load_authentic_ai_translations()
-    
+
     # Map by clean english text
     en_lookup = {}
     for bid, data in block_map.items():
         en_clean = re.sub(r'\s+', ' ', data["en"]).strip().lower()
         if en_clean:
             en_lookup[en_clean] = data
-            
+
     processed_study = {}
     processed_es = {}
     processed_ke = {}
     total_rubies = 0
-    
+
     with zipfile.ZipFile(STUDY_EPUB, "r") as src_zip:
         for item in src_zip.infolist():
             content = src_zip.read(item.filename)
-            
+
             if item.filename.endswith((".xhtml", ".html")) and "chapter" in item.filename:
                 soup_study = BeautifulSoup(content.decode("utf-8"), "html.parser")
                 soup_es = BeautifulSoup(content.decode("utf-8"), "html.parser")
                 soup_ke = BeautifulSoup(content.decode("utf-8"), "html.parser")
-                
+
                 # Update study
                 for p in soup_study.find_all(class_=lambda c: c and "pair" in c):
                     en_span = p.find("span", class_="en")
@@ -159,7 +156,7 @@ def rebuild_authentic_tears_of_tess():
                     if en_span and ko_span:
                         en_raw = "".join(en_span.stripped_strings)
                         en_key = re.sub(r'\s+', ' ', en_raw).strip().lower()
-                        
+
                         matched = en_lookup.get(en_key)
                         if matched and matched["study_note"]:
                             # Use authentic AI translation and study note!
@@ -174,7 +171,7 @@ def rebuild_authentic_tears_of_tess():
                                 p["class"] = "pair"
                             if matched["ko"]:
                                 ko_span.string = matched["ko"]
-                                
+
                 # Update es
                 for p in soup_es.find_all(class_=lambda c: c and "pair" in c):
                     en_span = p.find("span", class_="en")
@@ -195,7 +192,7 @@ def rebuild_authentic_tears_of_tess():
                             else:
                                 en_span["class"] = "en"
                                 p["class"] = "pair"
-                                
+
                 processed_study[item.filename] = str(soup_study).encode("utf-8")
                 processed_es[item.filename] = str(soup_es).encode("utf-8")
             elif item.filename.endswith(".css"):
@@ -204,7 +201,7 @@ def rebuild_authentic_tears_of_tess():
             else:
                 processed_study[item.filename] = content
                 processed_es[item.filename] = content
-                
+
     # Save [study]
     buf_s = io.BytesIO()
     with zipfile.ZipFile(buf_s, "w", zipfile.ZIP_DEFLATED) as dst_s:
@@ -212,15 +209,15 @@ def rebuild_authentic_tears_of_tess():
             dst_s.writestr(fname, data)
     STUDY_EPUB.write_bytes(buf_s.getvalue())
     print(f"✅ Saved [study] with {total_rubies:,} AUTHENTIC AI contextual ruby hints!")
-    
+
     # Save [e-s]
     buf_es = io.BytesIO()
     with zipfile.ZipFile(buf_es, "w", zipfile.ZIP_DEFLATED) as dst_es:
         for fname, data in processed_es.items():
             dst_es.writestr(fname, data)
     ES_EPUB.write_bytes(buf_es.getvalue())
-    print(f"✅ Saved [e-s] with pure English + AUTHENTIC AI study hints!")
-    
+    print("✅ Saved [e-s] with pure English + AUTHENTIC AI study hints!")
+
     # Sync to GDrive
     GDRIVE_STUDY = Path("/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books/[study]/#Top 10 dark romance") / STUDY_EPUB.name
     GDRIVE_ES = Path("/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books/[e-s]/#Top 10 dark romance") / ES_EPUB.name

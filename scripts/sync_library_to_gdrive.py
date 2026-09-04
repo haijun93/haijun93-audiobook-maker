@@ -43,14 +43,14 @@ def sync_file(args):
 def sync_folder(folder_name: str):
     src_dir = LOCAL_ROOT / folder_name
     dst_dir = GDRIVE_ROOT / folder_name
-    
+
     if not src_dir.exists():
         print(f"⏩ Skipping missing local folder: {folder_name}")
         return 0, 0, 0
-        
+
     print(f"\n🔄 Syncing: {folder_name} ...", flush=True)
     dst_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # 1. Build list of files to copy
     tasks = []
     src_files = set()
@@ -63,12 +63,12 @@ def sync_folder(folder_name: str):
             src_files.add(rel)
             dst_p = dst_dir / rel
             tasks.append((src_p, dst_p))
-            
+
     # 2. Parallel copy with ThreadPoolExecutor
     copied = 0
     identical = 0
     errors = 0
-    
+
     with ThreadPoolExecutor(max_workers=4) as executor:
         for status, msg in executor.map(sync_file, tasks):
             if status == "copied":
@@ -78,7 +78,7 @@ def sync_folder(folder_name: str):
             elif status == "error":
                 errors += 1
                 print(f"    ⚠️ Error: {msg}")
-                
+
     # 3. Clean up deleted/orphaned files in GDrive
     deleted = 0
     for root, _, files in os.walk(dst_dir):
@@ -91,9 +91,9 @@ def sync_folder(folder_name: str):
                 try:
                     dst_p.unlink()
                     deleted += 1
-                except:
+                except Exception:
                     pass
-                    
+
     # Clean empty dirs in dst
     for root, dirs, _ in os.walk(dst_dir, topdown=False):
         for d in dirs:
@@ -101,9 +101,9 @@ def sync_folder(folder_name: str):
             try:
                 if not any(dp.iterdir()):
                     dp.rmdir()
-            except:
+            except Exception:
                 pass
-                
+
     print(f"  ✅ {folder_name}: {copied} copied, {identical} identical, {deleted} deleted orphans, {errors} errors (Total: {len(tasks)} files)")
     return copied, identical, errors
 
@@ -133,7 +133,7 @@ def main():
         total_errors += err
 
     elapsed = time.time() - start_time
-    print(f"\n==================================================================")
+    print("\n==================================================================")
     print(f"🎉 Google Drive Synchronization Completed in {elapsed:.2f}s!")
     print(f"📊 Summary: {total_copied:,} files copied, {total_identical:,} verified identical, {total_errors} errors")
     print("==================================================================")

@@ -16,9 +16,7 @@ from __future__ import annotations
 import html
 import io
 import json
-import os
 import re
-import shutil
 import zipfile
 from pathlib import Path
 
@@ -111,10 +109,10 @@ def annotate_authentic(en_text: str, note_str: str) -> tuple[str, bool]:
     word_pairs = parse_authentic_notes(note_str)
     if not word_pairs:
         return en_text, False
-        
+
     annotated = en_text
     has_ruby = False
-    
+
     for w, m in word_pairs:
         pattern = re.compile(rf"\b{re.escape(w)}\b", re.IGNORECASE)
         match = pattern.search(annotated)
@@ -123,18 +121,18 @@ def annotate_authentic(en_text: str, note_str: str) -> tuple[str, bool]:
             ruby_tag = f'<ruby><rb>{html.escape(orig_word)}</rb><rt class="wordwise-hint">{html.escape(m)}</rt></ruby>'
             annotated = pattern.sub(ruby_tag, annotated, count=1)
             has_ruby = True
-            
+
     return annotated, has_ruby
 
 def build_all_editions():
     print("==================================================================")
     print("💎 REBUILDING TEARS OF TESS: 100% PURE AUTHENTIC GEMINI AI SUITE")
     print("==================================================================")
-    
+
     # 1. Load source sections
     src_data = json.loads(SOURCE_SECTIONS.read_text(encoding="utf-8"))
     sections = src_data.get("sections", [])
-    
+
     # 2. Load translations
     translations = {}
     for j in sorted(TRANSLATIONS_DIR.glob("chunk_*.json")):
@@ -145,70 +143,69 @@ def build_all_editions():
                 ko = parts[0].strip()
                 note = parts[1].strip() if len(parts) > 1 else ""
                 translations[bid] = (ko, note)
-                
+
     print(f"Loaded {len(sections)} sections and {len(translations):,} authentic AI translation pairs.")
-    
+
     # Get existing X-Ray and base meta from KE_EPUB
     base_files = {}
     with zipfile.ZipFile(KE_EPUB, "r") as z:
         for n in z.namelist():
             base_files[n] = z.read(n)
-            
-    xray_data = base_files.get("OEBPS/000-xray-dramatis-personae.xhtml", b"")
-    
+
+
     # Build chapters HTML for each edition
     study_chapters = {}
     es_chapters = {}
     ke_chapters = {}
     k_chapters = {}
-    
+
     total_rubies = 0
-    
+
     for idx, sec in enumerate(sections):
         ch_title = CHAPTER_NAMES.get(idx, f"제{idx+1}장")
         fname = f"OEBPS/chapter_{idx:03d}.xhtml"
-        
+
         study_pairs = []
         es_pairs = []
         ke_pairs = []
         k_pairs = []
-        
+
         for b in sec.get("blocks", []):
             bid = b.get("id")
             en_txt = b.get("text", "").strip()
             if not en_txt: continue
-            
+
             ai_ko, ai_note = translations.get(bid, ("", ""))
-            
+
             # Word Wise annotated English
             ann_en, has_rb = annotate_authentic(en_txt, ai_note)
             if has_rb:
                 total_rubies += ann_en.count("<ruby>")
-                
+
             en_cls = "en has-ww" if has_rb else "en"
             p_cls = "pair has-ww" if has_rb else "pair"
-            
+
             # [study] pair
             if ai_ko:
                 study_pairs.append(f'<p class="{p_cls}"><span class="{en_cls}" xml:lang="en">{ann_en}</span><br/><span class="ko" xml:lang="ko">{html.escape(ai_ko)}</span></p>')
             else:
                 study_pairs.append(f'<p class="{p_cls}"><span class="{en_cls}" xml:lang="en">{ann_en}</span></p>')
-                
+
             # [e-s] pair
             es_pairs.append(f'<p class="{p_cls}"><span class="{en_cls}" xml:lang="en">{ann_en}</span></p>')
-            
+
             # [k-e] pair (clean English without ruby)
             if ai_ko:
                 ke_pairs.append(f'<p class="pair"><span class="en" xml:lang="en">{html.escape(en_txt)}</span><br/><span class="ko" xml:lang="ko">{html.escape(ai_ko)}</span></p>')
             else:
                 ke_pairs.append(f'<p class="pair"><span class="en" xml:lang="en">{html.escape(en_txt)}</span></p>')
-                
+
             # [k] pair (pure Korean)
             if ai_ko:
                 k_pairs.append(f'<p class="pair"><span class="ko" xml:lang="ko">{html.escape(ai_ko)}</span></p>')
             else:
                 k_pairs.append(f'<p class="pair"><span class="ko" xml:lang="ko">{html.escape(en_txt)}</span></p>')
-                
+
         def make_doc(title_str, p_list):
             return f'''<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
@@ -231,13 +228,10 @@ def build_all_editions():
         k_chapters[fname] = make_doc(ch_title, k_pairs).encode("utf-8")
 
     # Build TOC & Nav
-    nav_items = ['        <li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감 (Dramatis Personae)</a></li>']
-    ncx_items = ['''    <navPoint id="navPoint-1" playOrder="1">
-      <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감 (Dramatis Personae)</text></navLabel>
-      <content src="000-xray-dramatis-personae.xhtml"/>
-    </navPoint>''']
-    
-    order = 2
+    nav_items = []
+    ncx_items = []
+
+    order = 1
     for idx in range(len(sections)):
         t = CHAPTER_NAMES.get(idx, f"제{idx+1}장")
         href = f"chapter_{idx:03d}.xhtml"
@@ -247,7 +241,7 @@ def build_all_editions():
       <content src="{href}"/>
     </navPoint>''')
         order += 1
-        
+
     nav_html = f'''<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
@@ -281,22 +275,20 @@ def build_all_editions():
 
     # Build content.opf
     manifest_items = [
-        '<item id="xray-dir" href="000-xray-dramatis-personae.xhtml" media-type="application/xhtml+xml"/>',
         '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
         '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>',
         '<item id="css" href="styles.css" media-type="text/css"/>'
     ]
     spine_items = [
-        '<itemref idref="xray-dir"/>',
         '<itemref idref="nav"/>'
     ]
-    
+
     for idx in range(len(sections)):
         cid = f"ch_{idx:03d}"
         ch_f = f"chapter_{idx:03d}.xhtml"
         manifest_items.append(f'<item id="{cid}" href="{ch_f}" media-type="application/xhtml+xml"/>')
         spine_items.append(f'<itemref idref="{cid}"/>')
-        
+
     opf_xml = f'''<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uid" version="3.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -328,8 +320,6 @@ def build_all_editions():
             zout.writestr("OEBPS/nav.xhtml", nav_html)
             zout.writestr("OEBPS/toc.ncx", toc_ncx)
             zout.writestr("OEBPS/styles.css", KINDLE_CSS.encode("utf-8"))
-            if xray_data:
-                zout.writestr("OEBPS/000-xray-dramatis-personae.xhtml", xray_data)
             for fname, cdata in chapter_dict.items():
                 zout.writestr(fname, cdata)
         dest_path.write_bytes(buf.getvalue())
@@ -345,9 +335,9 @@ def build_all_editions():
     # 4. Package [k]
     package_epub(K_EPUB, k_chapters)
 
-    print(f"\n🎉 100% PURE AUTHENTIC GEMINI AI REBUILD COMPLETED!")
+    print("\n🎉 100% PURE AUTHENTIC GEMINI AI REBUILD COMPLETED!")
     print(f"✨ Total Authentic AI Word Wise Hints: {total_rubies:,} rubies")
-    
+
     # Sync to GDrive
     GDRIVE_STUDY = Path("/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books/[study]/#Top 10 dark romance") / STUDY_EPUB.name
     GDRIVE_ES = Path("/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books/[e-s]/#Top 10 dark romance") / ES_EPUB.name

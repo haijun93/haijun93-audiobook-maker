@@ -61,17 +61,17 @@ def heal_single_epub(epub_path: Path) -> tuple[str, bool, int, int]:
     """Heals scene subheadings and TOC for a single EPUB. Returns (name, success, scene_count, error_count)."""
     if not epub_path.exists() or epub_path.name.startswith("._"):
         return epub_path.name, False, 0, 0
-        
+
     try:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str)
             with zipfile.ZipFile(epub_path, "r") as zin:
                 zin.extractall(tmp_dir)
-                
+
             oebps_dir = tmp_dir / "OEBPS"
             if not oebps_dir.exists():
                 oebps_dir = tmp_dir
-                
+
             # Scan all section XHTML files
             section_files = sorted([
                 f for f in oebps_dir.glob("*.xhtml")
@@ -82,34 +82,34 @@ def heal_single_epub(epub_path: Path) -> tuple[str, bool, int, int]:
                     f for f in oebps_dir.glob("*.html")
                     if not f.name.startswith("nav") and not f.name.startswith("cover") and not f.name.startswith("toc")
                 ])
-                
+
             section_info_list: list[tuple[str, str, list[tuple[str, str]]]] = []
             total_scenes_injected = 0
             global_scene_counter = 1
-            
+
             for s_file in section_files:
                 soup = BeautifulSoup(s_file.read_text(encoding="utf-8", errors="ignore"), "html.parser")
-                
+
                 # Extract Chapter/Section title
                 h1 = soup.find("h1") or soup.find("h2")
                 sec_title = h1.get_text().strip() if h1 else s_file.stem.replace("-", " ").title()
-                
+
                 # Cleanse all old scene subheadings
                 for h3 in soup.find_all("h3", class_="scene-subheading"):
                     h3.decompose()
                 for h3 in soup.find_all("h3"):
                     if "scene" in h3.get("id", "") or "sc-" in h3.get("id", ""):
                         h3.decompose()
-                        
+
                 # Locate all body paragraphs
                 paragraphs = soup.find_all("p")
                 if not paragraphs:
                     section_info_list.append((s_file.name, sec_title, []))
                     continue
-                    
+
                 # Identify scene split points (explicit dividers OR smart 25 paragraph chunking)
                 split_indices: list[int] = [0]
-                
+
                 explicit_splits = []
                 for p_idx, p in enumerate(paragraphs):
                     txt = p.get_text().strip()
@@ -117,7 +117,7 @@ def heal_single_epub(epub_path: Path) -> tuple[str, bool, int, int]:
                     if txt in ["***", "* * *", "• • •", "---", "*"] or any("break" in c or "asterisk" in c for c in cls):
                         if p_idx + 1 < len(paragraphs):
                             explicit_splits.append(p_idx + 1)
-                            
+
                 if len(explicit_splits) >= 2:
                     last_idx = 0
                     for s_idx in explicit_splits:
@@ -128,28 +128,28 @@ def heal_single_epub(epub_path: Path) -> tuple[str, bool, int, int]:
                     for p_idx in range(25, len(paragraphs), 25):
                         if len(paragraphs) - p_idx >= 10:
                             split_indices.append(p_idx)
-                            
+
                 # Inject scene subheadings at split indices
                 file_scenes: list[tuple[str, str]] = []
                 if len(split_indices) > 1:
                     for s_order, p_idx in enumerate(split_indices, start=1):
                         target_p = paragraphs[p_idx]
                         anchor_id = f"sc-{global_scene_counter:03d}"
-                        
+
                         opening_txt = target_p.get_text()
                         ko_match = target_p.find("span", class_="ko")
                         if ko_match:
                             opening_txt = ko_match.get_text()
-                            
+
                         stitle = generate_scene_title(global_scene_counter, opening_txt)
                         h3_tag = soup.new_tag("h3", attrs={"class": "scene-subheading", "id": anchor_id})
                         h3_tag.string = stitle
-                        
+
                         target_p.insert_before(h3_tag)
                         file_scenes.append((stitle, anchor_id))
                         global_scene_counter += 1
                         total_scenes_injected += 1
-                        
+
                 # Ensure CSS
                 head = soup.find("head")
                 if head:
@@ -161,13 +161,13 @@ def heal_single_epub(epub_path: Path) -> tuple[str, bool, int, int]:
                         style_tag = soup.new_tag("style")
                         style_tag.string = CUSTOM_CSS
                         head.append(style_tag)
-                        
+
                 s_file.write_text(str(soup), encoding="utf-8")
                 section_info_list.append((s_file.name, sec_title, file_scenes))
-                    
+
             # Rebuild clean, zero-broken-link TOC
             rebuild_clean_ncx_and_nav(oebps_dir, section_info_list)
-            
+
             # Repackage EPUB
             with zipfile.ZipFile(epub_path, "w") as zout:
                 mimetype_file = tmp_dir / "mimetype"
@@ -180,7 +180,7 @@ def heal_single_epub(epub_path: Path) -> tuple[str, bool, int, int]:
                         if str(rel_p) == "mimetype":
                             continue
                         zout.write(full_p, str(rel_p), compress_type=zipfile.ZIP_DEFLATED)
-                        
+
         return epub_path.name, True, total_scenes_injected, 0
     except Exception as e:
         return epub_path.name, False, 0, 1
@@ -192,7 +192,7 @@ def rebuild_clean_ncx_and_nav(oebps_dir: Path, section_info_list: list[tuple[str
     if ncx_file.exists():
         points = []
         play_order = 1
-        
+
         # Cover / Nav entries if present
         if (oebps_dir / "cover.xhtml").exists():
             points.append(f'''  <navPoint id="navpoint-cover" playOrder="{play_order}">
@@ -200,14 +200,14 @@ def rebuild_clean_ncx_and_nav(oebps_dir: Path, section_info_list: list[tuple[str
     <content src="cover.xhtml"/>
   </navPoint>''')
             play_order += 1
-            
+
         if (oebps_dir / "nav.xhtml").exists():
             points.append(f'''  <navPoint id="navpoint-toc" playOrder="{play_order}">
     <navLabel><text>차례</text></navLabel>
     <content src="nav.xhtml"/>
   </navPoint>''')
             play_order += 1
-            
+
         for fname, sec_title, scenes in section_info_list:
             if not (oebps_dir / fname).exists():
                 continue
@@ -216,7 +216,7 @@ def rebuild_clean_ncx_and_nav(oebps_dir: Path, section_info_list: list[tuple[str
     <navLabel><text>{html.escape(sec_title)}</text></navLabel>
     <content src="{html.escape(first_src)}"/>'''
             play_order += 1
-            
+
             if scenes:
                 sub_pts = []
                 for stitle, sid in scenes:
@@ -229,7 +229,7 @@ def rebuild_clean_ncx_and_nav(oebps_dir: Path, section_info_list: list[tuple[str
             else:
                 np_str += "\n  </navPoint>"
             points.append(np_str)
-            
+
         ncx_xml = f'''<?xml version="1.0" encoding="utf-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="ko">
 <head>
@@ -267,7 +267,7 @@ def rebuild_clean_ncx_and_nav(oebps_dir: Path, section_info_list: list[tuple[str
                 items.append(
                     f'      <li><a href="{html.escape(fname)}">{html.escape(sec_title)}</a></li>'
                 )
-                
+
         nav_html = f'''<?xml version="1.0" encoding="utf-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ko" lang="ko">
 <head>
@@ -292,7 +292,7 @@ def main():
     print("==================================================================")
     print("🏥 FULL LIBRARY SCENE SUBHEADING & ZERO-BROKEN-LINK TOC REBUILD")
     print("==================================================================")
-    
+
     all_epubs = []
     for ed in ["[k]", "[k-e]", "[study]", "[e-s]"]:
         ed_dir = lib_root / ed
@@ -300,17 +300,17 @@ def main():
             epubs = [p for p in ed_dir.rglob("*.epub") if not p.name.startswith("._")]
             all_epubs.extend(epubs)
             print(f"  Found {len(epubs):4} EPUBs in {ed}")
-            
+
     print(f"\nTotal EPUBs to inspect, heal, and rebuild: {len(all_epubs)}")
-    
+
     success_count = 0
     total_scenes = 0
     error_count = 0
-    
+
     # Run with 8 worker processes
     with ProcessPoolExecutor(max_workers=8) as executor:
         futures = {executor.submit(heal_single_epub, epub): epub for epub in all_epubs}
-        
+
         for i, future in enumerate(as_completed(futures), start=1):
             name, success, scenes, errs = future.result()
             if success:
@@ -320,13 +320,13 @@ def main():
                 error_count += 1
             if i % 200 == 0 or i == len(all_epubs):
                 print(f"  [{i:4}/{len(all_epubs)}] Progress: {success_count} healed & rebuilt, {total_scenes} scenes...")
-                
-    print(f"\n🎉 FULL REBUILD COMPLETE!")
+
+    print("\n🎉 FULL REBUILD COMPLETE!")
     print(f"  - Total Processed: {len(all_epubs)}")
     print(f"  - Success: {success_count}")
     print(f"  - Total Clean Scenes Injected: {total_scenes}")
     print(f"  - Errors: {error_count}")
-    
+
     # Sync [k], [k-e], [study], [e-s] to Google Drive
     print("\n☁️ Synchronizing to Google Drive #Books...")
     for epub in all_epubs:

@@ -11,7 +11,6 @@ Accurately aligns all 112 scene sub-headings in 'The Dark Forest' by Cixin Liu:
 
 from __future__ import annotations
 
-import html
 import os
 import re
 import shutil
@@ -173,7 +172,7 @@ SECTION_FILE_MAPPING = [
 def extract_exact_paragraph_indices() -> dict[str, list[int]]:
     """Extracts the exact paragraph index for every scene break in the book."""
     indices_map: dict[str, list[int]] = {}
-    
+
     with zipfile.ZipFile(orig_epub) as zo:
         # We read from [k-e] to perform clue matching
         ke_target = lib_root / "[k-e]/Fantasy_Science_Fiction/#Cixin Liu/[k-e] The Dark Forest Cixin Liu (4.43).epub"
@@ -183,7 +182,7 @@ def extract_exact_paragraph_indices() -> dict[str, list[int]]:
             for orig_f, target_f in SECTION_FILE_MAPPING:
                 so = BeautifulSoup(zo.read(orig_f), "html.parser")
                 ske = BeautifulSoup(zk.read(target_f), "html.parser")
-                
+
                 # Extract scenes from orig
                 scenes = []
                 first_p = None
@@ -199,7 +198,7 @@ def extract_exact_paragraph_indices() -> dict[str, list[int]]:
                             first_p = txt
                 if first_p:
                     scenes.append(first_p)
-                    
+
                 # Match against target_f paragraphs
                 all_p = ske.find_all("p")
                 matched_indices = []
@@ -223,56 +222,56 @@ def extract_exact_paragraph_indices() -> dict[str, list[int]]:
                             fallback_i = min(len(all_p) - 1, int(len(all_p) * s_i / len(scenes)))
                             matched_indices.append(fallback_i)
                             curr_p = fallback_i + 1
-                            
+
                 indices_map[target_f.replace("OEBPS/", "")] = matched_indices
                 print(f"  📍 {target_f:35}: Extracted {len(matched_indices)} scene start indices")
-                
+
     return indices_map
 
 
 def fix_dark_forest_epub(epub_path: Path, exact_indices: dict[str, list[int]]) -> bool:
     if not epub_path.exists():
         return False
-    print(f"\n=======================================================")
+    print("\n=======================================================")
     print(f"🔧 Aligning: {epub_path.name}")
-    print(f"=======================================================")
-    
+    print("=======================================================")
+
     with tempfile.TemporaryDirectory() as tmp_dir_str:
         tmp_dir = Path(tmp_dir_str)
         with zipfile.ZipFile(epub_path, "r") as zin:
             zin.extractall(tmp_dir)
-            
+
         oebps_dir = tmp_dir / "OEBPS"
         if not oebps_dir.exists():
             oebps_dir = tmp_dir
-            
+
         section_scenes_map: dict[str, list[tuple[str, str]]] = {}
-        
+
         for xhtml_rel, titles in SCENE_TITLES_ORDERED.items():
             fname = xhtml_rel.replace("OEBPS/", "")
             xhtml_file = oebps_dir / fname
             if not xhtml_file.exists():
                 continue
-                
+
             soup = BeautifulSoup(xhtml_file.read_text(encoding="utf-8"), "html.parser")
-            
+
             # Step 1: Remove all existing scene sub-headings
             for existing_h3 in soup.find_all("h3", class_="scene-subheading"):
                 existing_h3.decompose()
             for existing_h3 in soup.find_all("h3"):
                 if "scene" in existing_h3.get("id", "") or "sc-" in existing_h3.get("id", ""):
                     existing_h3.decompose()
-                    
+
             # Step 2: Inject scene sub-headings exactly at paragraph indices
             paragraphs = soup.find_all("p")
             p_indices = exact_indices.get(fname, [])
             injected_scenes: list[tuple[str, str]] = []
-            
+
             for s_idx, (p_i, title) in enumerate(zip(p_indices, titles), start=1):
                 anchor_id = f"scene-{fname[:3]}-{s_idx:03d}"
                 h3_tag = soup.new_tag("h3", attrs={"class": "scene-subheading", "id": anchor_id})
                 h3_tag.string = title
-                
+
                 target_p = paragraphs[min(p_i, len(paragraphs) - 1)] if paragraphs else None
                 if target_p:
                     target_p.insert_before(h3_tag)
@@ -280,9 +279,9 @@ def fix_dark_forest_epub(epub_path: Path, exact_indices: dict[str, list[int]]) -
                     body = soup.find("body")
                     if body:
                         body.append(h3_tag)
-                        
+
                 injected_scenes.append((title, anchor_id))
-                
+
             # Ensure stylesheet is present
             head = soup.find("head")
             if head:
@@ -309,14 +308,14 @@ def fix_dark_forest_epub(epub_path: Path, exact_indices: dict[str, list[int]]) -
                     style_tag = soup.new_tag("style")
                     style_tag.string = custom_css
                     head.append(style_tag)
-                    
+
             xhtml_file.write_text(str(soup), encoding="utf-8")
             section_scenes_map[fname] = injected_scenes
             print(f"  ✅ {fname:30}: Injected {len(injected_scenes)} / {len(titles)} exact scenes")
-            
+
         # Step 3: Update toc.ncx and nav.xhtml
         update_ncx_and_nav(oebps_dir, section_scenes_map)
-        
+
         # Step 4: Repackage EPUB
         with zipfile.ZipFile(epub_path, "w") as zout:
             mimetype_file = tmp_dir / "mimetype"
@@ -329,7 +328,7 @@ def fix_dark_forest_epub(epub_path: Path, exact_indices: dict[str, list[int]]) -
                     if str(rel_p) == "mimetype":
                         continue
                     zout.write(full_p, str(rel_p), compress_type=zipfile.ZIP_DEFLATED)
-                    
+
     print(f"🎉 Successfully completed exact alignment for: {epub_path.name}")
     return True
 
@@ -344,7 +343,7 @@ def update_ncx_and_nav(oebps_dir: Path, section_scenes_map: dict[str, list[tuple
             for np in nav_map.find_all("navPoint"):
                 for child_np in np.find_all("navPoint"):
                     child_np.decompose()
-                    
+
             play_order = 1
             for np in nav_map.find_all("navPoint", recursive=False):
                 content = np.find("content")
@@ -352,10 +351,10 @@ def update_ncx_and_nav(oebps_dir: Path, section_scenes_map: dict[str, list[tuple
                     continue
                 src = content["src"]
                 filename = src.split("#")[0]
-                
+
                 np["playOrder"] = str(play_order)
                 play_order += 1
-                
+
                 if filename in section_scenes_map and section_scenes_map[filename]:
                     scenes = section_scenes_map[filename]
                     content["src"] = f"{filename}#{scenes[0][1]}"
@@ -370,7 +369,7 @@ def update_ncx_and_nav(oebps_dir: Path, section_scenes_map: dict[str, list[tuple
                         c = soup.new_tag("content", attrs={"src": f"{filename}#{sanchor}"})
                         child_np.append(c)
                         np.append(child_np)
-                        
+
             ncx_file.write_text(str(soup), encoding="utf-8")
 
     # 2. Update nav.xhtml
@@ -384,13 +383,13 @@ def update_ncx_and_nav(oebps_dir: Path, section_scenes_map: dict[str, list[tuple
                 for li in ol.find_all("li", recursive=False):
                     for inner_ol in li.find_all("ol"):
                         inner_ol.decompose()
-                        
+
                     a_tag = li.find("a")
                     if not a_tag or not a_tag.get("href"):
                         continue
                     href = a_tag["href"]
                     filename = href.split("#")[0]
-                    
+
                     if filename in section_scenes_map and section_scenes_map[filename]:
                         scenes = section_scenes_map[filename]
                         a_tag["href"] = f"{filename}#{scenes[0][1]}"
@@ -402,14 +401,14 @@ def update_ncx_and_nav(oebps_dir: Path, section_scenes_map: dict[str, list[tuple
                             sub_li.append(sub_a)
                             sub_ol.append(sub_li)
                         li.append(sub_ol)
-                        
+
             nav_file.write_text(str(soup), encoding="utf-8")
 
 
 def main():
     print("🚀 Extracting 112 True Author Scene Break Indices...")
     exact_indices = extract_exact_paragraph_indices()
-    
+
     targets = [
         lib_root / "[k]/Fantasy_Science_Fiction/#Cixin Liu/[k] The Dark Forest Cixin Liu (4.43).epub",
         lib_root / "[k-e]/Fantasy_Science_Fiction/#Cixin Liu/[k-e] The Dark Forest Cixin Liu (4.43).epub",
@@ -420,11 +419,11 @@ def main():
         lib_root / "[xteink]/[study]/Fantasy_Science_Fiction/#Cixin Liu/[study] The Dark Forest Cixin Liu (4.43).epub",
         lib_root / "[xteink]/[e-s]/Fantasy_Science_Fiction/#Cixin Liu/[e-s] The Dark Forest Cixin Liu (4.43).epub",
     ]
-    
+
     for t in targets:
         if t.exists():
             fix_dark_forest_epub(t, exact_indices)
-            
+
             # Sync to Google Drive
             try:
                 rel = t.relative_to(lib_root)

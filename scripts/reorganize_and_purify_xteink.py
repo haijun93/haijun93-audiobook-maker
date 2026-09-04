@@ -11,7 +11,6 @@ Completely purifies the /Users/hyeokjunkong/Desktop/소설2/[xteink]/ directory:
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 
@@ -26,7 +25,7 @@ def purify_xteink():
     print("==================================================================")
     print("🧹 PURIFYING AND REORGANIZING [xteink] DIRECTORY")
     print("==================================================================")
-    
+
     if not XTEINK_ROOT.exists():
         XTEINK_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -39,7 +38,7 @@ def purify_xteink():
             parts = rel.parts
             top_dir = parts[0] if parts else ""
             fname = f.name
-            
+
             should_delete = False
             if not fname.endswith(".epub"):
                 should_delete = True
@@ -49,7 +48,7 @@ def purify_xteink():
                 should_delete = True
             elif top_dir not in ["[study]", "[e-s]"]:
                 should_delete = True
-                
+
             if should_delete:
                 try:
                     f.unlink()
@@ -109,7 +108,7 @@ def purify_xteink():
                     gf.unlink(missing_ok=True)
                 elif top_dir not in ["[study]", "[e-s]"]:
                     gf.unlink(missing_ok=True)
-                    
+
         # Copy newly synced
         for f in XTEINK_ROOT.rglob("*.epub"):
             rel = f.relative_to(XTEINK_ROOT)
@@ -125,13 +124,13 @@ def purify_xteink():
     print("==================================================")
     final_study_files = list((XTEINK_ROOT / "[study]").rglob("*.epub"))
     final_es_files = list((XTEINK_ROOT / "[e-s]").rglob("*.epub"))
-    
+
     study_mismatches = [f.name for f in final_study_files if not f.name.startswith("[study]")]
     es_mismatches = [f.name for f in final_es_files if not f.name.startswith("[e-s]")]
-    
+
     print(f"📖 [xteink]/[study]: {len(final_study_files):,} books (Mismatched: {len(study_mismatches)})")
     print(f"📖 [xteink]/[e-s]  : {len(final_es_files):,} books (Mismatched: {len(es_mismatches)})")
-    
+
     if len(study_mismatches) == 0 and len(es_mismatches) == 0:
         print("\n🎉 SUCCESS: [xteink] directory is 100% PURE, CLEAN, AND VERIFIED!")
     else:

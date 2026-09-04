@@ -7,9 +7,10 @@ Direct targeted downloader for:
 3. Perfume: The Story of a Murderer - Patrick Süskind
 """
 
-import sys, time, os, shutil, tempfile
+import time
+import shutil
+import tempfile
 from pathlib import Path
-from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
@@ -41,24 +42,24 @@ TARGETS = [
 ]
 
 def download_one_target(page, target, download_dir):
-    print(f"\n=======================================================")
+    print("\n=======================================================")
     print(f"📖 Downloading: {target['title']} ({target['author']})")
     print(f"🔗 URL: {target['url']}")
     target['dest_dir'].mkdir(parents=True, exist_ok=True)
-    
+
     try:
         page.goto(target['url'], wait_until="domcontentloaded", timeout=45000)
         time.sleep(3)
-        
+
         # Handle cloudflare if any
         for _ in range(10):
             t = page.title()
             if "Just a moment" not in t and "잠시만" not in t:
                 break
             time.sleep(1.5)
-            
+
         time.sleep(2)
-        
+
         # Find the EPUB form or button
         forms = page.locator("form")
         epub_form = None
@@ -68,27 +69,27 @@ def download_one_target(page, target, download_dir):
             if ".epub" in html.lower() or "epub" in html.lower():
                 epub_form = f
                 break
-                
+
         if not epub_form and forms.count() > 0:
             epub_form = forms.first
-            
+
         if not epub_form:
             print("  ❌ No download form found!")
             return False
-            
+
         btn = epub_form.locator("input[type='image'], input[type='submit'], button")
         print("  🚀 Triggering EPUB download stream...")
-        
+
         with page.expect_download(timeout=60000) as download_info:
             if btn.count() > 0:
                 btn.first.click(force=True)
             else:
                 epub_form.evaluate("f => f.submit()")
-                
+
         download = download_info.value
         temp_file = download_dir / download.suggested_filename
         download.save_as(str(temp_file))
-        
+
         if temp_file.exists() and temp_file.stat().st_size > 1000:
             dest_file = target['dest_dir'] / target['final_filename']
             shutil.copy2(temp_file, dest_file)
@@ -104,7 +105,7 @@ def download_one_target(page, target, download_dir):
 def main():
     profile_dir = Path(tempfile.mkdtemp())
     download_dir = Path(tempfile.mkdtemp())
-    
+
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             user_data_dir=str(profile_dir),
@@ -115,11 +116,11 @@ def main():
             args=["--disable-blink-features=AutomationControlled"]
         )
         page = context.new_page()
-        
+
         for t in TARGETS:
             download_one_target(page, t, download_dir)
             time.sleep(3)
-            
+
         context.close()
 
 if __name__ == "__main__":

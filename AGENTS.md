@@ -10,11 +10,13 @@
    - ALWAYS use `.venv311/bin/python` for executing scripts, tests, and CLI tools.
 2. **Library Standard Output & Taxonomy (`/Users/hyeokjunkong/Desktop/소설2/` & GDrive `#Books`)**:
    - NEVER create arbitrary temporary folders like `pam_general_translation`, `finished`, `non-english`, `[e]`, or `Uncategorized` inside output destinations.
-   - ALWAYS output and synchronize to the 4 standard root editions:
+   - ALWAYS output and synchronize to the standard root editions:
      - `소설2/[k]/...` (Korean-only)
      - `소설2/[k-e]/...` (Bilingual)
      - `소설2/[study]/...` (Korean + TOEIC 700+ Study Notes)
      - `소설2/[e-s]/...` (English Original + Study Notes)
+     - `소설2/[xteink]/[study_x]/...` (Xteink Dedicated Korean Study Edition)
+     - `소설2/[xteink]/[e-s_x]/...` (Xteink Dedicated English Study Edition)
    - **Master Hierarchy & Directory Classification Rules**:
      1. **Best 100 & Major Genres**: Must reside in standard genre subdirectories matching original sources:
         - `Fiction_Literary_Historical/#Author/` (`#Hanya Yanagihara`, `#Gabrielle Zevin`, `#Barbara Kingsolver`, `#Fredrik Backman`, `#Khaled Hosseini`, `#Ursula Rani Sarma`, `#Arthur Golden`, `#Ken Follett`, `#Markus Zusak`, `#Paulo Coelho`, `#Patrick Süskind`)
@@ -52,23 +54,17 @@
    - ChatGPT web worker is STRICTLY PROHIBITED from translating any Dark Romance works (including `Dark_Romance`, `#Leigh Rivers`, `#Pam Godwin`, `#Top 10 dark romance`, and related dark/taboo romance authors) due to strict content safety moderation guardrails.
    - All Dark Romance works MUST ONLY be processed by Gemini workers (`main`, `account2`, `account3`).
    - ChatGPT is exclusively routed to non-dark genres (Freida McFadden, Mystery/Thriller, Historical Fiction, Fantasy/Sci-Fi, Nonfiction, YA, etc.).
-7. **Amazon Kindle Genuine Word Wise & X-Ray Master Publishing Standard (킨들 순정 Word Wise & X-Ray 일반 규칙)**:
+7. **Amazon Kindle Genuine Word Wise & Master Publishing Standard (킨들 순정 Word Wise 표준)**:
    - **Zero Truncation Rule (글자 누락 영구 금지)**: NEVER mechanically slice or truncate Korean contextual meanings (e.g. no `[:8]` length chopping). All authentic AI phrases (e.g. `~할 여유가 없다`, `발끝으로 살금살금 지나가다`, `갈라진 신발 밑창`) must remain 100% intact and complete.
    - **Overhead Native HTML5 Ruby Layout**: In `[study]`, `[e-s]`, and `[ks]`, all AI study notes are positioned directly above words as overhead cloud hints (`ruby-position: over; font-size: 0.58em; color: #0284c7;`) using `<ruby><rb>word</rb><rt class="wordwise-hint">문맥 뜻</rt></ruby>`.
    - **Dynamic Conditional Line-Height Rule (동적 조건부 줄간격)**:
      - Sentences WITHOUT Word Wise: Standard `1.65` (100% identical to Korean standard line-height).
      - Sentences WITH Word Wise: Dynamically expanded to `1.85` (`span.en.has-ww`, `p.has-ww`) for ample breathing space.
    - **Elimination of Redundant 3rd Line**: In `[study]` and `[e-s]`, the legacy separate 3rd-line `※` notes are completely streamlined into the overhead Word Wise annotations.
-   - **Kindle X-Ray Directory Integration**: Every book includes the X-Ray Dramatis Personae & Terms directory (`000-xray-dramatis-personae.xhtml`) linked at the top of the Table of Contents.
-8. **Mandatory Fiction X-Ray Dossier Pipeline Standard (소설 번역 시 AI 웹서비스 직접 질의 및 클로드 비간섭 일괄 수집 원칙)**:
-   - **신규 번역 작업 (New Translations)**: 앞으로 진행되는 모든 신규 소설 번역은 담당 워커(Gemini 1/2/3, ChatGPT)가 번역 파이프라인의 필수 단계로서 **자체 제미나이 웹 및 챗지피티 웹 서비스에 직접 질의하여 고품질 100% 한국어 X-Ray 도감(`000-xray-dramatis-personae.xhtml`)을 생성**하고 목차 최상단에 자동 탑재한다 (휴리스틱 추측 금지, 클로드 미사용).
-   - **기존 서재 일괄 수집 (Bulk Retroactive Library Harvest)**: 클로드 웹 수확기(`scripts/harvest_fiction_xray_with_claude.py`)는 **오직 현재 서재에 이미 완성되어 보관 중인 기존 파일들만을 대상**으로 하며, 진행 중인 워커들의 실시간 번역 세션을 일절 방해하지 않고 독립적으로 엑스레이 정보를 수집·보강한다.
-   - Required 4 sections (100% Authentic Korean):
-     1. 👥 주요 등장인물 도감 (인물명, 원어명, 역할/신분, 성격, 행동 동기, 서사적 비중)
-     2. 🔗 등장인물 관계도 및 핵심 갈등 구조 (주인공 ↔ 대립자/조력자 심리 역학)
-     3. 🗺️ 주요 무대 및 공간적 배경 (핵심 장소들의 분위기 및 공간적 상징성)
-     4. 🔍 핵심 테마 및 세계관·복선 해설 (중심 메시지 및 핵심 용어)
-   - Every fiction novel across all 6 editions (`[k]`, `[k-e]`, `[study]`, `[e-s]`, `[xteink]/[study]`, `[xteink]/[e-s]`) must have the X-Ray directory attached as the very top item in the Table of Contents (`nav.xhtml` & `toc.ncx`).
+8. **Complete X-Ray Elimination & Pure Narrative Focus Standard (엑스레이 전면 배제 및 순수 본문 완역 집중 표준)**:
+   - **Zero X-Ray Principle (엑스레이 생성 및 탑재 전면 영구 금지)**:
+     - 모든 신규 번역 및 기존 서재의 모든 EPUB에서 엑스레이 도감(`000-xray-dramatis-personae.xhtml`) 및 목차 내 엑스레이 링크를 일절 생성하지 않고 전면 영구 배제한다.
+     - 오직 원작 소설의 순수한 텍스트 흐름과 정밀한 문맥 완역, 그리고 고순도 TOEIC 700+ to 990 학습 루비만에 집중하여 독자의 몰입감과 전자책 완성도를 극대화한다.
 9. **Non-English Source Translation Exclusion & OceanofPDF English Replacement Principle (비영어 원서 번역 금지 및 영문본 자동 대체 원칙)**:
    - Foreign language editions (German, French, Czech, Turkish, Italian, Indonesian, etc.) are STRICTLY PROHIBITED from being queued or translated into Korean, as they destroy the English learning value of `[study]` and `[e-s]` editions.
    - All non-English tasks are automatically skipped, and their official English editions are retrieved directly via `oceanofpdf.com` (`scripts/handle_non_english_books.py`) and placed into standard `소설2/[e]/[Genre]/#[Author]/` directories before entering the translation pipeline.
@@ -77,26 +73,35 @@
     - **Post-Translation Full Korean Integrity Guard**: Every built `[k]` edition must be strictly verified against untranslated English text leaks. All frontmatter (Title, Copyright, Dedication, Prologue) and backmatter must be 100% translated into authentic Korean without leaving any raw English sentences.
 11. **Mandatory Pre-Publishing Master Quality Gate Protocol (출판 전 자동 품질 검수 신설 의무화 원칙)**:
     - **Automated Pre-Publish Quality Interceptor (`audiobook_studio/master_quality_inspector.py`)**:
-      모든 번역 워커는 결과물 EPUB을 최종 서재(`소설2/` 및 Google Drive `#Books`)에 배포하기 전에 반드시 **자동 품질 검수기(`inspect_epub_quality`)**를 거쳐야 하며, 아래 6대 검수 게이트를 100% 통과하지 못한 파일은 서재 진입을 원천 차단한다:
+      모든 번역 워커는 결과물 EPUB을 최종 서재(`소설2/` 및 Google Drive `#Books`)에 배포하기 전에 반드시 **자동 품질 검수기(`inspect_epub_quality`)**를 거쳐야 하며, 아래 5대 검수 게이트를 100% 통과하지 못한 파일은 서재 진입을 원천 차단한다:
       1. 🖼️ **Cover Gate**: 정품 고화질 표지 이미지(`cover.jpeg`, >10KB), 표지 페이지(`000-cover.xhtml`), OPF 메타데이터 완전 탑재.
       2. 📑 **TOC 3-Tier Gate**: `nav.xhtml` & `toc.ncx` XML Well-formedness 100% 무결성 (특수문자 `&` 이스케이프 강제, 최소 3개 이상 정규 챕터 링크).
-      3. 👥 **X-Ray Dossier Gate**: X-Ray 도감 최상단 탑재 및 4대 필수 섹션(등장인물, 관계도, 무대, 테마) 완비.
-      4. 🚫 **Zero Untranslated Leak Gate**: 한글 번역 영역(`span.ko`) 내 영문 원문 단순 복사 0건 검증 (100% 순수 완역 보장).
-      5. 🎯 **TOEIC 700+ to 990 Vocab Gate**: 중학교 기초 단어 루비 포함 0건, 글자 잘림(Truncation) 0건, Overhead Ruby 표준 준수.
-      6. 🛡️ **XML Well-Formedness Gate**: EPUB 내부 모든 XHTML/XML 파일 파서 파싱 에러 0건.
+      3. 🚫 **Zero Untranslated Leak Gate**: 한글 번역 영역(`span.ko`) 내 영문 원문 단순 복사 0건 검증 (100% 순수 완역 보장).
+      4. 🎯 **TOEIC 700+ to 990 Vocab Gate**: 중학교 기초 단어 루비 포함 0건, 글자 잘림(Truncation) 0건, Overhead Ruby 표준 준수.
+      5. 🛡️ **XML Well-Formedness Gate**: EPUB 내부 모든 XHTML/XML 파일 파서 파싱 에러 0건.
 12. **Mandatory 2-Tier Master Dual Inspector Protocol (2인 상호 교차 검수 의무화 무결성 원칙)**:
     - **Tier-1 Master Inspector (`master_quality_inspector.py`)**:
-      - 1차 구조, 기본 XML 문법, 표지, 3중 TOC, X-Ray 도감, 1차 기초 단어 소거 및 즉각적 자동 자가치유(Auto-Healing) 수행.
+      - 1차 구조, 기본 XML 문법, 표지, 3중 TOC, 1차 기초 단어 소거 및 즉각적 자동 자가치유(Auto-Healing) 수행.
     - **Tier-2 Ultimate Integrity Sentinel (`ultimate_integrity_sentinel.py` - 수석 검수관)**:
-      - 제1검수관을 통과한 파일에 대해 단 0.001%의 결함도 허용하지 않는 **7대 무관용 무결성 심층 정밀 검증(Zero-Tolerance Deep Verification)** 집행:
+      - 제1검수관을 통과한 파일에 대해 단 0.001%의 결함도 허용하지 않는 **6대 무관용 무결성 심층 정밀 검증(Zero-Tolerance Deep Verification)** 집행:
         1. 🔬 **Bi-Text Parity**: 영한 문단 1:1 대칭 및 문장 누락 제로 검증.
         2. 🚫 **Absolute Zero-Leak**: `span.ko` 내 비-한글 원시 영문 잔류 0건 (1건이라도 발견 시 즉시 탈락).
         3. 🎯 **Lexicon Purity**: TOEIC 700+ to 990 엄선 어휘 순도 100%, 말줄임표(`...`) 잘림 0건.
         4. 📑 **TOC-Spine Sync**: `nav.xhtml`, `toc.ncx`, `<spine>` 간 깨진 링크 0건.
         5. 🖼️ **HD Cover Gate**: 고화질 표지(>15KB), `000-cover.xhtml` 및 OPF 속성 100% 선언.
-        6. 👥 **X-Ray Quad-Section**: 등장인물, 관계도, 공간배경, 핵심테마 4대 섹션 100% 한글 수록.
-        7. 🛡️ **W3C Strict XML**: EPUB 내부 모든 문서의 엄격한 W3C XML 파싱 에러 0건.
-      - **Digital Integrity Seal**: 제1검수관과 제2수석검수관의 2단계 인증을 모두 획득한 완벽한 전자책만이 서재에 최종 출판 및 동기화된다.
+        6. 🛡️ **W3C Strict XML**: EPUB 내부 모든 문서의 엄격한 W3C XML 파싱 에러 0건.
+13. **Mandatory 3-Tier Master Visual Inspector Protocol (3인 검수관 팀 시각적 화면 캡처 검수 의무화 원칙)**:
+    - **제1검수관: Tier-1 Master Inspector (`master_quality_inspector.py`)**:
+      - 1차 구조, 기본 XML 문법, 표지, 3중 TOC, 1차 기초 단어 소거 및 즉각적 자동 자가치유(Auto-Healing) 수행.
+    - **제2검수관: Tier-2 Ultimate Integrity Sentinel (`ultimate_integrity_sentinel.py` - 수석 검수관)**:
+      - 제1검수관을 통과한 파일에 대해 단 0.001%의 결함도 허용하지 않는 6대 무관용 무결성 심층 정밀 검증(Bi-Text Parity, Absolute Zero-Leak, Lexicon Purity, TOC-Spine Sync, HD Cover, W3C Strict XML) 집행.
+    - **제3검수관: Tier-3 Visual Screen Sentinel (`visual_screen_sentinel.py` - 시각적 화면 캡처 검수관)**:
+      - 실제 헤드리스 브라우저(Playwright / Chromium)를 기동하여 EPUB 내부의 **최소 10~20개 대표 페이지(표지, 목차, 본문 챕터들, 백마터)를 실제 전자책 뷰포트(800x1200)로 렌더링하고 화면 캡처(Screen Capture)** 검수를 집행:
+        1. 🖼️ **Visual Cover Render**: 표지 이미지가 화면에 꽉 차게 정상 렌더링되는지(Collapsed/Broken Image 0건) 시각 검증.
+        2. 📑 **Visual TOC & Layout**: 목차 및 네비게이션이 올바른 타이포그래피로 깨짐 없이 렌더링되는지 시각 검증.
+        3. 📖 **Visual Ruby Line-Height**: Word Wise 오버헤드 루비가 본문 텍스트와 겹치지 않고 충분한 행간(1.85)으로 시각적 가독성을 확보하는지 검증.
+        4. 🚫 **Zero Blank/Broken Resources**: 빈 페이지(Blank Screen) 0건, 로드 실패 리소스(Missing CSS/Image) 0건 검증.
+    - **🌟 3-Tier Ultimate Master Digital Seal**: 3인 검수관 팀(제1검수관 + 제2수석검수관 + 제3시각검수관)의 만장일치 인증(100% Unanimous Approval)을 획득한 완벽한 전자책만이 최종 서재에 출판 및 동기화된다.
 
 ---
 

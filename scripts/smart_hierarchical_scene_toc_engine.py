@@ -48,17 +48,17 @@ def generate_scene_title(scene_idx: int, opening_text: str) -> str:
     clean = re.sub(r'\(.*?\)', '', opening_text)
     clean = re.sub(r'※.*', '', clean)
     clean = clean.strip(' “"\'\t\r\n')
-    
+
     sentences = re.split(r'[.!?]\s+', clean)
     first_sent = sentences[0] if sentences else clean
-    
+
     # Shorten if too long
     if len(first_sent) > 28:
         first_sent = first_sent[:25].rstrip() + "..."
-        
+
     if not first_sent or len(first_sent) < 3:
         return f"제{scene_idx}막"
-        
+
     return f"제{scene_idx}막: {first_sent}"
 
 def enrich_epub_smart_scenes(epub_path_str: str) -> dict:
@@ -67,48 +67,48 @@ def enrich_epub_smart_scenes(epub_path_str: str) -> dict:
         tmp_dir = Path(tempfile.mkdtemp(prefix="smart_scenes_"))
         with zipfile.ZipFile(ep, "r") as z:
             z.extractall(tmp_dir)
-            
+
         oebps = tmp_dir / "OEBPS"
         if not oebps.exists():
             oebps = tmp_dir
-            
+
         # Update CSS
         for css_f in tmp_dir.glob("**/*.css"):
             content = css_f.read_text(encoding="utf-8", errors="ignore")
             if ".scene-subheading" not in content:
                 css_f.write_text(content + "\n" + SUBHEADING_CSS, encoding="utf-8")
-                
+
         html_files = sorted([f for f in oebps.glob("*.xhtml")] + [f for f in oebps.glob("*.html")])
         toc_tree = []
         total_scenes_injected = 0
-        
+
         global_scene_counter = 1
         for hf in html_files:
             fn = hf.name
             if fn in ["cover.xhtml", "front.xhtml", "nav.xhtml", "toc.xhtml"]:
                 continue
-                
+
             content = hf.read_text(encoding="utf-8", errors="ignore")
             soup = BeautifulSoup(content, "html.parser")
-            
+
             # Extract Chapter Title
             h1 = soup.find("h1") or soup.find("h2")
             chap_title = h1.get_text(strip=True) if h1 else fn.replace(".xhtml", "").replace(".html", "")
             chap_title = re.sub(r'\(.*?\)', '', chap_title).strip()
-            
+
             paragraphs = soup.find_all("p")
             sub_scenes = []
-            
+
             # Step 1: Detect explicit scene breaks (***, etc.)
             explicit_breaks = []
             for p in paragraphs:
                 txt = p.get_text(strip=True)
                 if re.match(r'^\s*(\*\s*){3,}\s*$', txt) or txt in ['***', '* * *', '• • •', '---']:
                     explicit_breaks.append(p)
-                    
+
             # Step 2: Determine scene boundary points
             target_scene_start_paras = [] # list of (sep_p_or_none, first_p_of_scene)
-            
+
             if len(explicit_breaks) >= 1:
                 # Use explicit breaks
                 curr_p_list = []
@@ -131,7 +131,7 @@ def enrich_epub_smart_scenes(epub_path_str: str) -> dict:
                     valid_p = [p for p in chunk if len(p.get_text(strip=True)) > 10]
                     if valid_p:
                         target_scene_start_paras.append((None, valid_p[0]))
-                        
+
             # Step 4: Inject subheadings and anchor IDs
             if len(target_scene_start_paras) >= 2:
                 for sep_p, first_p in target_scene_start_paras:
@@ -141,27 +141,27 @@ def enrich_epub_smart_scenes(epub_path_str: str) -> dict:
                         raw_txt = ko_span.get_text(strip=True)
                     else:
                         raw_txt = first_p.get_text(strip=True)
-                        
+
                     stitle = generate_scene_title(global_scene_counter, raw_txt)
                     anchor_id = f"sc-{global_scene_counter:03d}"
-                    
+
                     # Create h3 element
                     h3 = soup.new_tag("h3", **{"class": "scene-subheading", "id": anchor_id})
                     h3.string = stitle
-                    
+
                     if sep_p and sep_p.parent:
                         sep_p.replace_with(h3)
                     else:
                         first_p.insert_before(h3)
-                        
+
                     sub_scenes.append((stitle, anchor_id))
                     global_scene_counter += 1
                     total_scenes_injected += 1
-                    
+
                 hf.write_text(str(soup), encoding="utf-8")
-                
+
             toc_tree.append((chap_title, fn, sub_scenes))
-            
+
         # Rebuild toc.ncx and nav.xhtml if sub-scenes were created
         if total_scenes_injected > 0:
             # Rebuild toc.ncx
@@ -182,7 +182,7 @@ def enrich_epub_smart_scenes(epub_path_str: str) -> dict:
                             np.append(nl)
                             np.append(ncx_soup.new_tag("content", src=f"{cfile}#{subs[0][1]}" if subs else cfile))
                             p_order += 1
-                            
+
                             for stitle, sid in subs:
                                 sub_np = ncx_soup.new_tag("navPoint", id=f"np-{p_order}", playOrder=str(p_order))
                                 sub_nl = ncx_soup.new_tag("navLabel")
@@ -196,7 +196,7 @@ def enrich_epub_smart_scenes(epub_path_str: str) -> dict:
                             nav_map.append(np)
                         ncx_f.write_text(str(ncx_soup), encoding="utf-8")
                 except Exception: pass
-                
+
             # Rebuild nav.xhtml
             nav_f = oebps / "nav.xhtml"
             if nav_f.exists():
@@ -224,7 +224,7 @@ def enrich_epub_smart_scenes(epub_path_str: str) -> dict:
                                 toc_ol.append(li)
                             nav_f.write_text(str(nav_soup), encoding="utf-8")
                 except Exception: pass
-                
+
             # Repackage EPUB
             tmp_out = tmp_dir.parent / f"{ep.stem}_smart.epub"
             with zipfile.ZipFile(tmp_out, "w", zipfile.ZIP_DEFLATED) as z_out:
@@ -238,7 +238,7 @@ def enrich_epub_smart_scenes(epub_path_str: str) -> dict:
                         if str(rel_z) == "mimetype": continue
                         z_out.write(fp, str(rel_z))
             shutil.move(str(tmp_out), str(ep))
-            
+
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return {"ok": True, "path": epub_path_str, "scenes": total_scenes_injected}
     except Exception as e:
@@ -248,18 +248,18 @@ def main():
     print("==================================================================")
     print("🚀 SMART 5-10 PAGE SCENE CHUNKING & HIERARCHICAL TOC GENERATION")
     print("==================================================================")
-    
+
     all_epubs = []
     for ed in ["[study]", "[k-e]", "[k]", "[e-s]"]:
         ed_p = lib_root / ed
         if ed_p.exists():
             all_epubs.extend([str(p) for p in ed_p.glob("**/*.epub")])
-            
+
     print(f"Total Library EPUBs to process: {len(all_epubs):,}")
-    
+
     total_scenes_added = 0
     books_with_scenes = 0
-    
+
     with ProcessPoolExecutor(max_workers=8) as ex:
         futures = [ex.submit(enrich_epub_smart_scenes, p) for p in all_epubs]
         for fut in as_completed(futures):
@@ -272,7 +272,7 @@ def main():
             else:
                 pass
 
-    print(f"\nSmart Scene Generation Finished:")
+    print("\nSmart Scene Generation Finished:")
     print(f"  • Total Books Enriched with Scene Sub-headings : {books_with_scenes:,} books")
     print(f"  • Total Scene Sub-headings & Anchors Injected : {total_scenes_added:,} scenes")
 
@@ -288,8 +288,8 @@ def main():
             if not gd_dest.exists() or gd_dest.stat().st_size != p.stat().st_size or gd_dest.stat().st_mtime < p.stat().st_mtime:
                 gd_dest.parent.mkdir(parents=True, exist_ok=True)
                 try: shutil.copy2(str(p), str(gd_dest))
-                except: pass
-
+                except Exception:
+                    pass
     print("\n==================================================================")
     print("🎉 FULL SMART SCENE TOC GENERATION & GDRIVE SYNC COMPLETED!")
     print("==================================================================")

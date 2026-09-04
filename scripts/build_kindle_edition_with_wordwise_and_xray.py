@@ -14,7 +14,6 @@ Rules Enforced:
 from __future__ import annotations
 
 import html
-import json
 import os
 import re
 import sys
@@ -22,6 +21,12 @@ import tempfile
 import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 
@@ -153,7 +158,7 @@ a { color: inherit; text-decoration: none; }
 '''
 
 def generate_xray_xhtml(book_title: str, author: str) -> str:
-    return f'''<?xml version="1.0" encoding="utf-8"?>
+    return '''<?xml version="1.0" encoding="utf-8"?>
 <html lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
 <title>X-Ray: Characters &amp; Key Terms</title>
@@ -213,7 +218,7 @@ def parse_authentic_study_note(note_text: str) -> list[tuple[str, str]]:
             continue
         w = parts[0].strip()
         m = parts[1].strip()
-        
+
         w_clean = re.sub(r"^\([^)]*\)\s*", "", w).strip()
         w_clean = re.sub(r"\s*\([^)]*\)$", "", w_clean).strip()
         # Clean meaning: preserve complete natural phrases without hard length slicing
@@ -223,7 +228,7 @@ def parse_authentic_study_note(note_text: str) -> list[tuple[str, str]]:
             m_clean = m_clean.split("/")[0].strip()
         elif "," in m_clean:
             m_clean = m_clean.split(",")[0].strip()
-            
+
         if w_clean and m_clean and not "장" in w_clean and not "Chapter" in w_clean and not "생략" in m_clean:
             pairs.append((w_clean, m_clean))
     return pairs
@@ -231,26 +236,26 @@ def parse_authentic_study_note(note_text: str) -> list[tuple[str, str]]:
 def convert_authentic_study_chapter_to_pure_kindle(html_content: str) -> tuple[str, int]:
     soup = BeautifulSoup(html_content, "html.parser")
     total_hints = 0
-    
+
     for p in soup.find_all("p"):
         en_span = p.find("span", class_="en")
         ko_span = p.find("span", class_="ko")
         note_span = p.find("span", class_="study-note")
-        
+
         if not en_span:
             continue
-            
+
         en_text = en_span.get_text().strip()
         ko_text = ko_span.get_text().strip() if ko_span else ""
         note_text = note_span.get_text().strip() if note_span else ""
-        
+
         if "※" in ko_text:
             parts = ko_text.split("※", 1)
             embedded_note = "※" + parts[1].strip()
             note_text = (note_text + " ; " + embedded_note) if note_text else embedded_note
-            
+
         pairs = parse_authentic_study_note(note_text) if note_text else []
-        
+
         annotated_en = html.escape(en_text)
         for w, m in pairs:
             pattern = rf"\b{re.escape(w)}\b"
@@ -259,27 +264,27 @@ def convert_authentic_study_chapter_to_pure_kindle(html_content: str) -> tuple[s
             if new_text != annotated_en:
                 annotated_en = new_text
                 total_hints += 1
-                
+
         p_html = f'<p class="pair"><span class="en" xml:lang="en">{annotated_en}</span></p>'
         new_p = BeautifulSoup(p_html, "html.parser").p
         p.replace_with(new_p)
-            
+
     return str(soup), total_hints
 
 def build_kindle_edition_from_authentic_study(study_epub: Path, output_epub: Path) -> dict:
     print(f"📖 Building Pure AI Study-Notes Kindle Edition from: {study_epub.name}")
     print(f"   -> Destination: {output_epub.name}")
-    
+
     total_hints_injected = 0
     tmp_file = None
-    
+
     try:
         with zipfile.ZipFile(study_epub, "r") as zin:
             in_names = zin.namelist()
             fd, tmp_path_str = tempfile.mkstemp(suffix=".epub", dir=output_epub.parent)
             os.close(fd)
             tmp_file = Path(tmp_path_str)
-            
+
             with zipfile.ZipFile(tmp_file, "w") as zout:
                 zout.comment = zin.comment
                 if "mimetype" in in_names:
@@ -288,57 +293,58 @@ def build_kindle_edition_from_authentic_study(study_epub: Path, output_epub: Pat
                         zin.read("mimetype"),
                         compress_type=zipfile.ZIP_STORED
                     )
-                    
+
                 xray_xhtml = generate_xray_xhtml("Dark Notes", "Pam Godwin")
                 zout.writestr("OEBPS/000-xray-dramatis-personae.xhtml", xray_xhtml.encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
-                
+
                 zout.writestr("OEBPS/styles.css", kindle_styles_css().encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
-                
+
                 for name in in_names:
                     if name in ["mimetype", "OEBPS/styles.css"]:
                         continue
                     data = zin.read(name)
-                    
+
                     if name.endswith("nav.xhtml"):
                         nav_str = data.decode("utf-8", errors="replace")
                         if "000-xray-dramatis-personae.xhtml" not in nav_str:
                             xray_li = '<li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감</a></li>\n      '
                             nav_str = re.sub(r"(<ol[^>]*>)", rf"\1\n      {xray_li}", nav_str, count=1)
                         data = nav_str.encode("utf-8")
-                        
+
                     elif name.endswith("toc.ncx"):
                         ncx_str = data.decode("utf-8", errors="replace")
                         if "000-xray-dramatis-personae.xhtml" not in ncx_str:
                             xray_navpoint = '<navPoint id="navpoint-xray" playOrder="1">\n    <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감</text></navLabel>\n    <content src="000-xray-dramatis-personae.xhtml"/>\n  </navPoint>\n  '
                             ncx_str = re.sub(r"(<navMap[^>]*>)", rf"\1\n  {xray_navpoint}", ncx_str, count=1)
                         data = ncx_str.encode("utf-8")
-                        
+
                     elif name.endswith((".xhtml", ".html", ".htm")):
                         html_str = data.decode("utf-8", errors="replace")
                         if "class=\"study-note\"" in html_str or "class='study-note'" in html_str or "class=\"en\"" in html_str:
                             new_html, hints_cnt = convert_authentic_study_chapter_to_pure_kindle(html_str)
                             total_hints_injected += hints_cnt
                             data = new_html.encode("utf-8")
-                            
+
                     elif name.endswith(".opf"):
                         opf_str = data.decode("utf-8", errors="replace")
                         opf_str = re.sub(r"<dc:title>\[study\]", "<dc:title>[kindle]", opf_str)
                         opf_str = re.sub(r"<dc:title>", "<dc:title>[kindle] ", opf_str) if "[kindle]" not in opf_str else opf_str
-                        
+
                         if "000-xray-dramatis-personae.xhtml" not in opf_str:
                             item_tag = '<item id="xray-dir" href="000-xray-dramatis-personae.xhtml" media-type="application/xhtml+xml"/>\n'
                             itemref_tag = '<itemref idref="xray-dir"/>\n'
                             opf_str = re.sub(r"(<manifest[^>]*>)", rf"\1\n    {item_tag}", opf_str, count=1)
                             opf_str = re.sub(r"(<spine[^>]*>)", rf"\1\n    {itemref_tag}", opf_str, count=1)
                         data = opf_str.encode("utf-8")
-                        
+
                     zout.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
-                    
+
         tmp_file.replace(output_epub)
+        purge_xray_from_epub(output_epub)
         print(f"🎉 Pure AI Kindle Edition Created: {output_epub.name}")
         print(f"   • File Size: {output_epub.stat().st_size:,} bytes")
         print(f"   • Authentic AI Word Wise Hints: {total_hints_injected:,} hints")
-        print(f"   • Overhead Layout: Amazon Kindle Genuine Layout Enforced ✅")
+        print("   • Overhead Layout: Amazon Kindle Genuine Layout Enforced ✅")
         return {
             "success": True,
             "output_path": str(output_epub),

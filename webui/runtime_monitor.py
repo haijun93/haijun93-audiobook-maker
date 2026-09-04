@@ -303,7 +303,7 @@ class RuntimeMonitor:
 
         full_cmd_str = " ".join(process.command) if isinstance(process.command, (list, tuple)) else str(process.command)
         check_str = f"{profile_dir} {env_prof} {full_cmd_str}".lower()
-        
+
         if "audiobookstudio-account2" in check_str or "account2" in env_prof:
             account_id = "account2"
         elif "audiobookstudio-account3" in check_str or "account3" in env_prof:
@@ -330,7 +330,6 @@ class RuntimeMonitor:
             "deploy",
             "korean_only_epub_generation",
             "english_study_epub_generation",
-            "final_quality_audit",
             "dialogue_consistency_review",
             "tone_review",
         }

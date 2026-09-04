@@ -51,7 +51,6 @@
 
 from __future__ import annotations
 
-import re
 import shutil
 from pathlib import Path
 
@@ -237,10 +236,10 @@ def match_original_screen_adaptation(fname: str, parent_path: str) -> dict | Non
 def process_edition_originals(ed_root: Path):
     if not ed_root.exists():
         return
-        
+
     print(f"\n📂 Processing edition: {ed_root.relative_to(LIB_ROOT)}...")
     orig_root = ed_root / "#original books"
-    
+
     # Scan all epubs in edition
     epubs = list(ed_root.rglob("*.epub"))
     moved_count = 0
@@ -248,33 +247,33 @@ def process_edition_originals(ed_root: Path):
         # Don't move if already inside #original books or #apple tv original or full-catalog series
         if any(p in str(ep) for p in ["#original books", "#apple tv original", "#Freida McFadden", "#Pam Godwin", "#Leigh Rivers", "#Top 10 dark romance"]):
             continue
-            
+
         matched = match_original_screen_adaptation(ep.name, str(ep.parent))
         if matched:
             target_dir = orig_root / matched["author_folder"]
             target_dir.mkdir(parents=True, exist_ok=True)
             target_file = target_dir / ep.name
-            
+
             print(f"  🎬 Moving [{matched['title']}]: {ep.name} -> #original books/{matched['author_folder']}/")
             if not target_file.exists() or target_file.stat().st_size != ep.stat().st_size:
                 shutil.move(str(ep), str(target_file))
             else:
                 ep.unlink()
             moved_count += 1
-            
+
             # Clean empty old parent dir if empty
             try:
                 if not any(ep.parent.iterdir()):
                     ep.parent.rmdir()
-            except: pass
-            
+            except Exception:
+                pass
     print(f"   ✨ Relocated {moved_count} screen adaptation novels in {ed_root.name}")
 
 def main():
     print("==================================================================")
     print("🌟 ORGANIZING MOVIE & TV ORIGINAL NOVELS INTO `#original books`")
     print("==================================================================")
-    
+
     editions = [
         LIB_ROOT / "[k]",
         LIB_ROOT / "[k-e]",
@@ -284,10 +283,10 @@ def main():
         LIB_ROOT / "[xteink]" / "[study]",
         LIB_ROOT / "[xteink]" / "[e-s]",
     ]
-    
+
     for ed in editions:
         process_edition_originals(ed)
-        
+
     # GDrive Sync
     if GDRIVE_ROOT.exists():
         print("\n☁️ Synchronizing with Google Drive #Books...")

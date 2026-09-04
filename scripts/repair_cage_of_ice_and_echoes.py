@@ -46,7 +46,7 @@ TRANSLATIONS = {
 def clean_and_repair_xhtml(html_str: str) -> tuple[str, bool]:
     soup = BeautifulSoup(html_str, "html.parser")
     modified = False
-    
+
     # 1. Remove all page_XXX paragraphs
     for p in soup.find_all("p", class_="pair"):
         txt = p.get_text(strip=True)
@@ -54,13 +54,13 @@ def clean_and_repair_xhtml(html_str: str) -> tuple[str, bool]:
             p.decompose()
             modified = True
             continue
-            
+
         en_span = p.find("span", class_="en")
         ko_span = p.find("span", class_="ko")
         if en_span and ko_span:
             en_t = en_span.get_text(strip=True)
             ko_t = ko_span.get_text(strip=True)
-            
+
             if en_t in TRANSLATIONS:
                 ko_span.string = TRANSLATIONS[en_t]
                 modified = True
@@ -70,14 +70,14 @@ def clean_and_repair_xhtml(html_str: str) -> tuple[str, bool]:
                         ko_span.string = v
                         modified = True
                         break
-                        
+
     return str(soup), modified
 
 def repair_cage_of_ice_and_echoes():
     print("==================================================================")
     print("🔧 REPAIRING CAGE OF ICE AND ECHOES (PAM GODWIN) & 6 EDITIONS")
     print("==================================================================")
-    
+
     ke_path = LIB_ROOT / "[k-e]/#Pam Godwin/[k-e] Cage of Ice and Echoes Pam Godwin (4.43).epub"
     if not ke_path.exists():
         print(f"❌ Cannot find base k-e: {ke_path}")
@@ -88,16 +88,16 @@ def repair_cage_of_ice_and_echoes():
         tmp_dir = Path(tmp_dir_str)
         with zipfile.ZipFile(ke_path, "r") as zin:
             zin.extractall(tmp_dir)
-            
+
         repaired_cnt = 0
         for xhtml_f in tmp_dir.glob("**/*.xhtml"):
             new_html, mod = clean_and_repair_xhtml(xhtml_f.read_text(encoding="utf-8"))
             if mod:
                 xhtml_f.write_text(new_html, encoding="utf-8")
                 repaired_cnt += 1
-                
+
         print(f"  ✅ Cleansed and repaired {repaired_cnt} XHTML files in [k-e].")
-        
+
         # Re-pack [k-e] with proper uncompressed mimetype first
         ke_temp = tmp_dir / "repacked_ke.epub"
         with zipfile.ZipFile(ke_temp, "w") as zout:
@@ -118,16 +118,16 @@ def repair_cage_of_ice_and_echoes():
     study_path = LIB_ROOT / "[study]/#Pam Godwin/[study] Cage of Ice and Echoes Pam Godwin (4.43).epub"
     k_path = LIB_ROOT / "[k]/#Pam Godwin/[k] Cage of Ice and Echoes Pam Godwin (4.43).epub"
     es_path = LIB_ROOT / "[e-s]/#Pam Godwin/[e-s] Cage of Ice and Echoes Pam Godwin (4.43).epub"
-    
+
     xteink_study = LIB_ROOT / "[xteink]/[study]/#Pam Godwin/[study] Cage of Ice and Echoes Pam Godwin (4.43).epub"
     xteink_es = LIB_ROOT / "[xteink]/[e-s]/#Pam Godwin/[e-s] Cage of Ice and Echoes Pam Godwin (4.43).epub"
 
     print("\n📦 Generating authentic [study] with Word Wise notes...")
     process_single_epub((str(ke_path), str(study_path)))
-    
+
     print("📦 Generating [k] Korean-only edition...")
     make_korean(ke_path, k_path, overwrite=True)
-    
+
     print("📦 Generating [e-s] English study edition...")
     make_english_study(study_path, es_path, overwrite=True)
 

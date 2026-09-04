@@ -18,13 +18,20 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 import tempfile
 import time
 import zipfile
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 import browser_cookie3
+
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 CACHE_DIR = Path("data/fiction_xray_cache")
@@ -54,7 +61,7 @@ def clean_book_name(stem: str) -> str:
 def parse_book_info(epub_stem: str, author_folder: str) -> tuple[str, str]:
     author = author_folder.lstrip("#").strip()
     title = clean_book_name(epub_stem)
-    
+
     if " - " in title:
         parts = title.split(" - ")
         if len(parts) == 2:
@@ -68,7 +75,7 @@ def parse_book_info(epub_stem: str, author_folder: str) -> tuple[str, str]:
         title = parts[0].strip()
     elif author in title and len(title) > len(author) + 3:
         title = title.replace(author, "").strip()
-        
+
     title = re.sub(r"^\d+\s*[-–]\s*", "", title)
     title = re.sub(r"^(Book\s*\d+|Vol\s*\d+|Volume\s*\d+)\s*[-–:]\s*", "", title, flags=re.IGNORECASE)
     title = re.sub(r"\s*\{[^}]*\}", "", title)
@@ -172,6 +179,9 @@ def build_xray_html(title: str, author: str, data: dict) -> str:
 """
 
 def inject_xray_to_epub(epub_path: Path, xray_html: str) -> bool:
+    # Compatibility shim: X-Ray generation is disabled by library policy.
+    return purge_xray_from_epub(epub_path)
+    # Legacy injection code below is intentionally unreachable.
     tmp_file = None
     try:
         with zipfile.ZipFile(epub_path, "r") as zin:
@@ -179,15 +189,15 @@ def inject_xray_to_epub(epub_path: Path, xray_html: str) -> bool:
             fd, tmp_str = tempfile.mkstemp(suffix=".epub", dir=epub_path.parent)
             os.close(fd)
             tmp_file = Path(tmp_str)
-            
+
             with zipfile.ZipFile(tmp_file, "w") as zout:
                 zout.comment = zin.comment
                 if "mimetype" in in_names:
                     zout.writestr(zipfile.ZipInfo("mimetype"), zin.read("mimetype"), compress_type=zipfile.ZIP_STORED)
-                    
+
                 xray_path = "OEBPS/000-xray-dramatis-personae.xhtml" if any(n.startswith("OEBPS/") for n in in_names) else "000-xray-dramatis-personae.xhtml"
                 zout.writestr(xray_path, xray_html.encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
-                
+
                 for name in in_names:
                     if name == "mimetype" or "000-xray" in name:
                         continue
@@ -195,13 +205,13 @@ def inject_xray_to_epub(epub_path: Path, xray_html: str) -> bool:
                     if name.endswith("nav.xhtml"):
                         nav_str = data.decode("utf-8", errors="replace")
                         if "000-xray-dramatis-personae.xhtml" not in nav_str:
-                            xray_li = f'<li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감</a></li>\n      '
+                            xray_li = '<li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감</a></li>\n      '
                             nav_str = re.sub(r"(<ol[^>]*>)", rf"\1\n      {xray_li}", nav_str, count=1)
                         data = nav_str.encode("utf-8")
                     elif name.endswith("toc.ncx"):
                         ncx_str = data.decode("utf-8", errors="replace")
                         if "000-xray-dramatis-personae.xhtml" not in ncx_str:
-                            xray_navpoint = f'<navPoint id="navpoint-xray" playOrder="1">\n    <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감</text></navLabel>\n    <content src="000-xray-dramatis-personae.xhtml"/>\n  </navPoint>\n  '
+                            xray_navpoint = '<navPoint id="navpoint-xray" playOrder="1">\n    <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감</text></navLabel>\n    <content src="000-xray-dramatis-personae.xhtml"/>\n  </navPoint>\n  '
                             ncx_str = re.sub(r"(<navMap[^>]*>)", rf"\1\n  {xray_navpoint}", ncx_str, count=1)
                         data = ncx_str.encode("utf-8")
                     elif name.endswith(".opf"):
@@ -263,23 +273,23 @@ def query_claude_dossier(page, title: str, author: str) -> dict | None:
     try:
         page.goto("https://claude.ai/new", wait_until="domcontentloaded", timeout=35000)
         time.sleep(2)
-        
+
         editor = page.locator("div.ProseMirror, div[contenteditable=\"true\"]").first
         if editor.count() == 0:
             page.screenshot(path=str(SCREENSHOT_DIR / f"err_no_editor_{slugify(title)}.png"))
             return None
-            
+
         editor.click()
         page.keyboard.insert_text(prompt)
         time.sleep(1)
-        
+
         send_btn = page.locator("button[aria-label=\"메시지 보내기\"], button[aria-label*=\"Send\"], button.bg-accent-main-000").first
         if send_btn.count() == 0 or send_btn.is_disabled():
             page.screenshot(path=str(SCREENSHOT_DIR / f"err_send_disabled_{slugify(title)}.png"))
             return None
-            
+
         send_btn.click()
-        
+
         # Wait for reply
         start_t = time.time()
         parsed_json = None
@@ -287,7 +297,7 @@ def query_claude_dossier(page, title: str, author: str) -> dict | None:
             time.sleep(3)
             stop_btn = page.locator("button[aria-label*=\"중지\"], button[aria-label*=\"Stop\"]")
             is_generating = stop_btn.count() > 0 and stop_btn.is_visible()
-            
+
             msgs = page.locator("[data-message-author-role=\"assistant\"], .font-claude-message, pre code")
             if msgs.count() > 0:
                 txt = msgs.last.inner_text()
@@ -335,7 +345,7 @@ def main():
     print("==================================================================", flush=True)
     print("🌟 STARTING CONTINUOUS CLAUDE WEB X-RAY HARVESTER (PRIORITY QUEUE)", flush=True)
     print("==================================================================", flush=True)
-    
+
     # Collect novels with priority metadata
     study_dir = LIB_ROOT / "[study]"
     novels = {}
@@ -346,9 +356,9 @@ def main():
         if slug not in novels:
             p_score, p_label = get_priority_score(author_folder, author)
             novels[slug] = (title, author, clean_book_name(ep.stem).lower(), p_score, p_label)
-            
+
     print(f"📚 Total Novels Identified: {len(novels):,}", flush=True)
-    
+
     cached_slugs = {f.stem for f in CACHE_DIR.glob("*.json")}
     pending = [
         (slug, t, a, k, p_score, p_label)
@@ -357,21 +367,21 @@ def main():
     ]
     # Sort by priority score (1: Pam Godwin, 2: Freida McFadden, 3: Leigh Rivers, 4: Top 10 Dark Romance, 10: General)
     pending.sort(key=lambda item: (item[4], item[1]))
-    
+
     print(f"📊 Cached: {len(cached_slugs):,} | Pending to Harvest: {len(pending):,}\n", flush=True)
     print("🎯 Top Priority Queue Breakdown:")
     for p_val, p_name in [(1, "#Pam Godwin"), (2, "#Freida McFadden"), (3, "#Leigh Rivers"), (4, "#Top 10 dark romance")]:
         p_count = sum(1 for item in pending if item[4] == p_val)
         print(f"   • {p_name:<25}: {p_count:>3}권 대기 중", flush=True)
     print("", flush=True)
-    
+
     if not pending:
         print("🎉 All fiction novels already harvested and cached!", flush=True)
         return
-        
+
     cookies = get_claude_cookies()
     print(f"🔑 Loaded {len(cookies)} Claude cookies from Chrome.\n", flush=True)
-    
+
     with sync_playwright() as p:
         browser = p.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE_DIR),
@@ -381,42 +391,42 @@ def main():
         )
         if cookies:
             browser.add_cookies(cookies)
-            
+
         page = browser.new_page()
         page.set_viewport_size({"width": 1280, "height": 900})
-        
+
         success_count = 0
         fail_count = 0
-        
+
         for idx, (slug, title, author, match_key, p_score, p_label) in enumerate(pending, 1):
             print(f"[{idx}/{len(pending)}] 🤖 [우선순위: {p_label}] Harvesting X-Ray: '{title}' by {author} ...", flush=True)
             data = query_claude_dossier(page, title, author)
-            
+
             if data:
                 # Save cache
                 cache_file = CACHE_DIR / f"{slug}.json"
                 with open(cache_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
-                    
+
                 # Build & Inject
                 xray_html = build_xray_html(title, author, data)
                 injected_cnt = inject_to_all_matching_editions(match_key, xray_html)
                 success_count += 1
-                
+
                 # Visual snapshot
                 if success_count % 5 == 1 or idx == 1:
                     page.screenshot(path=str(SCREENSHOT_DIR / f"success_{slug}.png"))
-                    
+
                 print(f"   ✅ SUCCESS! Cached & injected into {injected_cnt} EPUB editions ({len(data.get('characters', []))} characters)", flush=True)
             else:
                 fail_count += 1
                 print(f"   ❌ FAILED for '{title}'. Taking debug screenshot...", flush=True)
                 page.screenshot(path=str(SCREENSHOT_DIR / f"fail_{slug}.png"))
-                
+
             time.sleep(3)
-            
+
         browser.close()
-        
+
     print("\n==================================================================")
     print(f"🎉 HARVEST RUN COMPLETE: {success_count} Successes, {fail_count} Failures.")
     print("==================================================================")

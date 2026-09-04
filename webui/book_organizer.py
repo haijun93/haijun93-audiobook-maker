@@ -472,31 +472,31 @@ def extract_metadata_from_epub(epub_path: Path) -> dict[str, str]:
             opf_files = [f for f in zip_file.namelist() if f.endswith(".opf")]
             if not opf_files:
                 return metadata
-            
+
             opf_content = zip_file.read(opf_files[0])
             root = ET.fromstring(opf_content)
-            
+
             # 네임스페이스 정의
             namespaces = {
                 "dc": "http://purl.org/dc/elements/1.1/",
                 "opf": "http://www.idpf.org/2007/opf",
             }
-            
+
             # 제목 추출
             title_elem = root.find(".//dc:title", namespaces)
             if title_elem is not None and title_elem.text:
                 metadata["title"] = title_elem.text.strip()
-            
+
             # 작가 추출
             author_elem = root.find(".//dc:creator", namespaces)
             if author_elem is not None and author_elem.text:
                 metadata["author"] = author_elem.text.strip()
-            
+
             # 언어 추출
             language_elem = root.find(".//dc:language", namespaces)
             if language_elem is not None and language_elem.text:
                 metadata["language"] = language_elem.text.strip()
-    
+
     except Exception as e:
         print(f"Warning: Could not extract metadata from {epub_path.name}: {e}")
 
@@ -871,12 +871,12 @@ def get_existing_korean_books(korean_root: Path) -> set[str]:
     Returns:
         {원본_파일명, ...} 집합
     """
-    
+
     if not korean_root.exists():
         return set()
-    
+
     existing_books = set()
-    
+
     # [k] 폴더의 모든 EPUB 파일 찾기
     for epub_path in korean_root.rglob("*.epub"):
         filename = epub_path.name

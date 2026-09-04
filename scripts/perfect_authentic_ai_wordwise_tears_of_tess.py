@@ -10,9 +10,7 @@ from __future__ import annotations
 import html
 import io
 import json
-import os
 import re
-import shutil
 import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -63,7 +61,7 @@ def load_all_authentic_blocks():
             txt = b.get("text", "").strip()
             if bid and txt:
                 src_blocks[bid] = txt
-                
+
     # 2. Authentic AI Translations & Study Notes
     translations = {}
     for j in sorted(TRANSLATIONS_DIR.glob("chunk_*.json")):
@@ -74,11 +72,11 @@ def load_all_authentic_blocks():
                 ko = parts[0].strip()
                 note = parts[1].strip() if len(parts) > 1 else ""
                 translations[bid] = (ko, note)
-                
+
     # Combine into fast lookup maps
     exact_lookup = {}
     fuzzy_lookup = {}
-    
+
     for bid, en_text in src_blocks.items():
         if bid in translations:
             ko, note = translations[bid]
@@ -86,7 +84,7 @@ def load_all_authentic_blocks():
             norm = normalize_key(en_text)
             if norm:
                 fuzzy_lookup[norm] = (en_text, ko, note)
-                
+
     print(f"✅ Loaded {len(exact_lookup):,} exact and {len(fuzzy_lookup):,} normalized authentic AI records!")
     return exact_lookup, fuzzy_lookup
 
@@ -111,10 +109,10 @@ def annotate_authentic(en_text: str, note_str: str) -> tuple[str, bool]:
     word_pairs = parse_authentic_notes(note_str)
     if not word_pairs:
         return en_text, False
-        
+
     annotated = en_text
     has_ruby = False
-    
+
     for w, m in word_pairs:
         pattern = re.compile(rf"\b{re.escape(w)}\b", re.IGNORECASE)
         match = pattern.search(annotated)
@@ -123,30 +121,30 @@ def annotate_authentic(en_text: str, note_str: str) -> tuple[str, bool]:
             ruby_tag = f'<ruby><rb>{html.escape(orig_word)}</rb><rt class="wordwise-hint">{html.escape(m)}</rt></ruby>'
             annotated = pattern.sub(ruby_tag, annotated, count=1)
             has_ruby = True
-            
+
     return annotated, has_ruby
 
 def run_rebuild():
     print("==================================================================")
     print("🌟 100% PURE AUTHENTIC AI WORD WISE REBUILD FOR TEARS OF TESS")
     print("==================================================================")
-    
+
     exact_map, fuzzy_map = load_all_authentic_blocks()
-    
+
     processed_study = {}
     processed_es = {}
     total_rubies = 0
     total_pairs = 0
     matched_pairs = 0
-    
+
     with zipfile.ZipFile(STUDY_EPUB, "r") as src_zip:
         for item in src_zip.infolist():
             content = src_zip.read(item.filename)
-            
+
             if item.filename.endswith((".xhtml", ".html")) and "chapter" in item.filename:
                 soup_study = BeautifulSoup(content.decode("utf-8"), "html.parser")
                 soup_es = BeautifulSoup(content.decode("utf-8"), "html.parser")
-                
+
                 # Update study
                 for p in soup_study.find_all(class_=lambda c: c and "pair" in c):
                     en_span = p.find("span", class_="en")
@@ -154,13 +152,13 @@ def run_rebuild():
                     if en_span and ko_span:
                         total_pairs += 1
                         en_raw = "".join(en_span.stripped_strings)
-                        
+
                         # Match exact or fuzzy
                         matched = exact_map.get(en_raw.strip().lower())
                         if not matched:
                             norm_k = normalize_key(en_raw)
                             matched = fuzzy_map.get(norm_k)
-                            
+
                         if matched:
                             matched_pairs += 1
                             orig_en, ai_ko, ai_note = matched
@@ -177,10 +175,10 @@ def run_rebuild():
                             else:
                                 en_span["class"] = "en"
                                 p["class"] = "pair"
-                                
+
                             if ai_ko and len(ai_ko) > 2:
                                 ko_span.string = ai_ko
-                                
+
                 # Update es
                 for p in soup_es.find_all(class_=lambda c: c and "pair" in c):
                     en_span = p.find("span", class_="en")
@@ -203,7 +201,7 @@ def run_rebuild():
                             else:
                                 en_span["class"] = "en"
                                 p["class"] = "pair"
-                                
+
                 processed_study[item.filename] = str(soup_study).encode("utf-8")
                 processed_es[item.filename] = str(soup_es).encode("utf-8")
             elif item.filename.endswith(".css"):
@@ -212,7 +210,7 @@ def run_rebuild():
             else:
                 processed_study[item.filename] = content
                 processed_es[item.filename] = content
-                
+
     # Save [study]
     buf_s = io.BytesIO()
     with zipfile.ZipFile(buf_s, "w", zipfile.ZIP_DEFLATED) as dst_s:
@@ -221,14 +219,14 @@ def run_rebuild():
     STUDY_EPUB.write_bytes(buf_s.getvalue())
     print(f"\n🎉 Successfully Matched {matched_pairs:,} / {total_pairs:,} paragraphs ({matched_pairs/total_pairs*100:.1f}%)!")
     print(f"✨ Injected {total_rubies:,} 100% PURE AUTHENTIC GEMINI AI CONTEXTUAL WORD WISE HINTS!")
-    
+
     # Save [e-s]
     buf_es = io.BytesIO()
     with zipfile.ZipFile(buf_es, "w", zipfile.ZIP_DEFLATED) as dst_es:
         for fname, data in processed_es.items():
             dst_es.writestr(fname, data)
     ES_EPUB.write_bytes(buf_es.getvalue())
-    
+
     # Sync to GDrive
     GDRIVE_STUDY = Path("/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books/[study]/#Top 10 dark romance") / STUDY_EPUB.name
     GDRIVE_ES = Path("/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books/[e-s]/#Top 10 dark romance") / ES_EPUB.name

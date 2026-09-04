@@ -11,11 +11,8 @@ Master Library Catalog & Deduplication Guard:
 from __future__ import annotations
 
 import json
-import os
 import re
-import sys
 import unicodedata
-import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,7 +32,7 @@ def normalize_fingerprint(title_or_filename: str) -> str:
     name = str(title_or_filename)
     if name.lower().endswith(".epub"):
         name = name[:-5]
-        
+
     # Strip prefixes
     while True:
         m = PREFIX_RE.match(name)
@@ -43,20 +40,20 @@ def normalize_fingerprint(title_or_filename: str) -> str:
             name = name[m.end():].strip()
         else:
             break
-            
+
     # Strip rating, e.g. (4.15)
     name = RATING_RE.sub(" ", name)
-    
+
     # Strip noise words & author markers
     name = re.sub(r"#", "", name)
     name = re.sub(r"oceanofpdf|readrobe|dailybooks", "", name, flags=re.I)
-    
+
     # Normalize unicode
     name = unicodedata.normalize("NFKD", name)
-    
+
     # Normalize punctuation to spaces
     name = CLEAN_PUNCT_RE.sub(" ", name)
-    
+
     # Collapse multiple spaces and lowercase
     tokens = [t.lower() for t in name.split() if len(t) > 0]
     return " ".join(tokens)
@@ -66,29 +63,29 @@ def scan_and_build_catalog() -> dict:
     """Scans the entire library and builds data/master_library_catalog.json."""
     if not LIB_ROOT or not LIB_ROOT.exists():
         return {}
-        
+
     catalog = {
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "total_books_unique": 0,
         "editions": {"k": 0, "k-e": 0, "study": 0, "e-s": 0},
         "fingerprints": {}, # fp -> {title, editions: {k: path, k-e: path, ...}, size_bytes}
     }
-    
+
     ed_map = {
         "[k]": "k",
         "[k-e]": "k-e",
         "[study]": "study",
         "[e-s]": "e-s"
     }
-    
+
     for ed_dir_name, ed_code in ed_map.items():
         ed_dir = LIB_ROOT / ed_dir_name
         if not ed_dir.exists():
             continue
-            
+
         epubs = [p for p in ed_dir.rglob("*.epub") if not p.name.startswith("._")]
         catalog["editions"][ed_code] = len(epubs)
-        
+
         for epub in epubs:
             try:
                 stat = epub.stat()
@@ -96,22 +93,22 @@ def scan_and_build_catalog() -> dict:
                     continue
             except Exception:
                 continue
-                
+
             fp = normalize_fingerprint(epub.name)
             if not fp:
                 continue
-                
+
             if fp not in catalog["fingerprints"]:
                 catalog["fingerprints"][fp] = {
                     "base_title": epub.stem,
                     "editions": {},
                     "last_modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
                 }
-                
+
             catalog["fingerprints"][fp]["editions"][ed_code] = str(epub.resolve())
-            
+
     catalog["total_books_unique"] = len(catalog["fingerprints"])
-    
+
     CATALOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CATALOG_PATH.write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
     return catalog
@@ -130,7 +127,7 @@ def is_book_already_completed(
     fp = normalize_fingerprint(str(input_path_or_title))
     if not fp:
         return False, "empty_fingerprint", None
-        
+
     # Load catalog if exists
     catalog_data = None
     if CATALOG_PATH.exists():
@@ -138,12 +135,12 @@ def is_book_already_completed(
             catalog_data = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
         except Exception:
             pass
-            
+
     if not catalog_data:
         catalog_data = scan_and_build_catalog()
-        
+
     fps = catalog_data.get("fingerprints", {})
-    
+
     # 1. Exact fingerprint match
     if fp in fps:
         entry = fps[fp]
@@ -157,7 +154,7 @@ def is_book_already_completed(
             p = Path(editions["k-e"])
             if p.exists() and p.stat().st_size >= min_size_bytes:
                 return True, f"기본 대역본([k-e])이 이미 완성되어 있음: {p.name}", p
-                
+
     # 2. Token subset match (resilient against slight title variations)
     fp_tokens = set(fp.split())
     if len(fp_tokens) >= 3:

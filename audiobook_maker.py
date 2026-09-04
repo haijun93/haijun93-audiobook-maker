@@ -27,6 +27,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Any
 
 from defusedxml import ElementTree as DefusedElementTree
 
@@ -330,12 +331,25 @@ CHATGPT_WEB_REFUSAL_MARKERS = (
     "This content can’t be shown for safety reasons",
     "This content can't be shown for safety reasons",
     "intended model behavior in our Model Spec",
-    # 브라우저가 --lang=ko로 뜨기 때문에 ChatGPT 웹 UI가 위 영어 배너와 같은 내용을
-    # 한국어로 보여주는 경우가 있다. 실제로 이 한국어 배너 문구가 chunk_0001_response.txt에
-    # 그대로(거절로 인식되지 못한 채) 저장되는 사례를 발견했다 - 영어 문구만 있어서
-    # is_chatgpt_web_refusal_response()가 이걸 거절로 인식하지 못하고 그대로 "번역 결과"로
-    # 취급, 형식 검증에서만 계속 실패해 재시도를 반복하고(문학적 맥락 재설득 프롬프트도
-    # 전혀 발동 안 됨) 결국 청크 전체가 막혔다.
+    "I can help with all sorts of things, but that request may go against my guidelines",
+    "that request may go against my guidelines",
+    "go against my guidelines",
+    "against my guidelines",
+    "against my safety guidelines",
+    "i'm sorry, it appears i can't help",
+    "i’m sorry, it appears i can’t help",
+    "can't help with this particular request",
+    "can’t help with this particular request",
+    "violates our safety guidelines",
+    "violates our policies",
+    "against our policies",
+    "cannot fulfill this request",
+    "unable to process this request",
+    "미성년자가 포함된 성적 내용의 번역·변환은 도와드릴 수 없습니다",
+    "미성년자가 포함된 성적 내용의 번역",
+    "미성년자가 포함된",
+    "성적 내용의 번역·변환은 도와드릴 수 없습니다",
+    "성적 내용의 번역은 도와드릴 수 없습니다",
     "안전상의 이유로 이 콘텐츠를 표시할 수 없습니다",
     "의도된 모델 동작에 대한 자세한 내용은 모델 사양에서 확인하세요",
     "그 요청은 도와드릴 수 없습니다",
@@ -351,6 +365,8 @@ CHATGPT_WEB_REFUSAL_MARKERS = (
     "오디오북 낭독용으로는 수위를 낮춘 비노골적 문장으로 다듬거나",
     "감정선만 살린 문장으로 바꿔드릴 수 있어요",
     "이 콘텐츠는 당사의 사용 정책을 위반할 수 있습니다",
+    "안전 가이드라인에 위배",
+    "정책상 제공해 드릴 수 없",
 )
 CHATGPT_WEB_REFUSAL_ACTION_MARKERS = (
     "그 요청은 도와드릴 수 없습니다",
@@ -5139,7 +5155,58 @@ def dismiss_chatgpt_web_modal_dialogs(page) -> bool:
     except Exception:
         pass
 
-    return dismissed
+def ensure_chatgpt_normal_chat_mode(page) -> bool:
+    """ChatGPT 웹 UI에서 Work/Agent 모드 대신 일반 Chat(대화) 모드로 강제 전환한다."""
+    switched = False
+    try:
+        # 1. 상단 Chat / Work 토글 스위처 확인
+        chat_tab_selectors = (
+            'button:has-text("Chat")',
+            '[role="tab"]:has-text("Chat")',
+            'div:has-text("Chat") button',
+            'a:has-text("Chat")',
+            'nav [role="tab"]:has-text("Chat")',
+        )
+        for sel in chat_tab_selectors:
+            try:
+                locator = page.locator(sel)
+                if locator.count() > 0:
+                    for i in range(min(locator.count(), 2)):
+                        btn = locator.nth(i)
+                        if btn.is_visible():
+                            # Work 탭이 활성화되어 있거나 Chat 탭이 선택 가능한 상태면 클릭
+                            btn.click(timeout=1000)
+                            switched = True
+                            page.wait_for_timeout(300)
+                            break
+                    if switched:
+                        break
+            except Exception:
+                pass
+
+        # 2. 만약 Work 배너가 보이거나 Work URL에 진입해 있으면 New chat 클릭
+        page_content = (page.content() or "").lower()
+        if "work 사용량" in page_content or "chatgpt work" in page_content or "/work/" in (page.url or ""):
+            new_chat_selectors = (
+                'a[data-testid="create-new-chat-button"]',
+                'button[aria-label="New chat"]',
+                'button:has-text("New chat")',
+                'button:has-text("새 채팅")',
+                'a:has-text("New chat")',
+            )
+            for sel in new_chat_selectors:
+                try:
+                    btn = page.locator(sel).first
+                    if btn.is_visible() and btn.is_enabled():
+                        btn.click(timeout=1000)
+                        page.wait_for_timeout(500)
+                        switched = True
+                        break
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return switched
 
 
 def prepare_chatgpt_web_page(
@@ -5219,6 +5286,7 @@ def prepare_chatgpt_web_page(
         attempt=attempt,
     )
     dismiss_chatgpt_web_modal_dialogs(page)
+    ensure_chatgpt_normal_chat_mode(page)
     prompt_box = page.locator(CHATGPT_WEB_PROMPT_INPUT_SELECTOR).first
     prompt_timeout_ms = 30000 if navigation_error is not None else 120000
     prompt_deadline = time.monotonic() + prompt_timeout_ms / 1000
@@ -5299,6 +5367,7 @@ def send_chatgpt_web_prompt(
             attempt=attempt,
         )
         dismiss_chatgpt_web_modal_dialogs(page)
+        ensure_chatgpt_normal_chat_mode(page)
         # ── Find prompt input box ──
         box = None
         for sel in CHATGPT_WEB_PROMPT_INPUT_SELECTORS:
@@ -5324,10 +5393,10 @@ def send_chatgpt_web_prompt(
         except Exception:
             dismiss_chatgpt_web_modal_dialogs(page)
             box.fill(prompt, timeout=90_000)
-            
+
         # Human-like review pause before submitting
         time.sleep(1.8)
-        
+
         sent = False
         dismiss_chatgpt_web_modal_dialogs(page)
         for selector in CHATGPT_WEB_SEND_BUTTON_SELECTORS:
@@ -5797,7 +5866,7 @@ DEFAULT_WEB_BROWSER_LAUNCH_TIMEOUT_SECONDS = 120
 
 
 def infer_web_account_label(base: Path | str | None = None) -> str:
-    sched_acc = os.environ.get("AUDIOBOOK_SCHEDULER_ACCOUNT", "").strip()
+    sched_acc = (os.environ.get("AUDIOBOOK_ACCOUNT_ID", "") or os.environ.get("AUDIOBOOK_SCHEDULER_ACCOUNT", "")).strip()
     if sched_acc in WEB_ACCOUNT_PROFILE_BASES:
         return sched_acc
 
@@ -5908,7 +5977,7 @@ def prepare_gemini_web_page(
                     page.context.add_cookies(fresh_cookies)
                     page.goto(GEMINI_WEB_URL, wait_until="domcontentloaded")
                     page.wait_for_timeout(2500)
-                    
+
                     # Re-verify after hot injection
                     guest_login_button = page.get_by_text(
                         GEMINI_WEB_GUEST_MODE_LOGIN_BUTTON_TEXT, exact=True

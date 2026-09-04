@@ -8,7 +8,6 @@ and queues them into the continuous translation scheduler.
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import tempfile
@@ -139,7 +138,7 @@ def run_downloader() -> list[Path]:
                 # Look for EPUB download button / form
                 # OceanofPDF uses forms with submit buttons for 'Download EPUB' or 'Download [EPUB]'
                 epub_btn = page.locator("form[action*='epub'] input[type='submit'], button:has-text('EPUB'), a:has-text('Download EPUB'), input[value*='EPUB']")
-                
+
                 if epub_btn.count() == 0:
                     # fallback search
                     epub_btn = page.get_by_role("button", name=re.compile("EPUB", re.I))
@@ -151,7 +150,7 @@ def run_downloader() -> list[Path]:
                     print("Found EPUB download trigger! Triggering download...")
                     with page.expect_download(timeout=60000) as download_info:
                         epub_btn.first.click()
-                    
+
                     download = download_info.value
                     orig_filename = download.suggested_filename
                     temp_dest = download_dir / orig_filename

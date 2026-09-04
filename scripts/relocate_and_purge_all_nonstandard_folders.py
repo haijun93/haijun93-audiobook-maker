@@ -120,7 +120,7 @@ def relocate_and_purge():
     print("==================================================================")
     print("🚀 RELOCATING VALID [k] BOOKS & PURGING ALL NON-STANDARD FOLDERS")
     print("==================================================================")
-    
+
     # 1. Relocate [k] Korean translations to standard genre folders
     k_root = LIB_ROOT / "[k]"
     for sub_name in ["[e]", "finished", "non-english"]:
@@ -131,10 +131,10 @@ def relocate_and_purge():
                 genre, author_dir, clean_title = find_target_dir(epub_file.name)
                 dest_dir = k_root / genre / author_dir
                 dest_dir.mkdir(parents=True, exist_ok=True)
-                
+
                 new_fname = clean_korean_filename(epub_file.name, clean_title)
                 dest_file = dest_dir / new_fname
-                
+
                 print(f"  📦 Moving [k]: {epub_file.name} -> {genre}/{author_dir}/{new_fname}")
                 if not dest_file.exists() or dest_file.stat().st_size != epub_file.stat().st_size:
                     shutil.move(str(epub_file), str(dest_file))
@@ -153,12 +153,12 @@ def relocate_and_purge():
                     genre, author_dir, clean_title = find_target_dir(epub_file.name)
                     dest_dir = edition_root / genre / author_dir
                     dest_dir.mkdir(parents=True, exist_ok=True)
-                    
+
                     clean_name = re.sub(r"^\[(k-e|k|study|e-s|e)\]\s*", "", epub_file.name)
                     clean_name = re.sub(r"^\[e\]\s*", "", clean_name)
                     new_fname = f"{ed_prefix} {clean_name}"
                     dest_file = dest_dir / new_fname
-                    
+
                     print(f"  📦 Moving {edition_root.name}: {epub_file.name} -> {genre}/{author_dir}/{new_fname}")
                     if not dest_file.exists() or dest_file.stat().st_size != epub_file.stat().st_size:
                         shutil.move(str(epub_file), str(dest_file))
@@ -186,7 +186,7 @@ def relocate_and_purge():
         LIB_ROOT / "[xteink]" / "[study]",
         LIB_ROOT / "[xteink]" / "[e-s]",
     ]
-    
+
     for ed in all_edition_roots:
         for sub_name in ["[e]", "finished", "non-english"]:
             target_p = ed / sub_name

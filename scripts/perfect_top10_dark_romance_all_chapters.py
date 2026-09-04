@@ -31,7 +31,7 @@ TRANSLATIONS_MAP = {
     "But, somehow, he kept quiet on the whole mysterious holiday.": "하지만 어쩐 일인지 그는 이번 신비로운 휴가 여행에 대해서만큼은 철저히 함구했다.",
     "So, as I stood in the Melbourne airport, with a crazy happy grin on my face, looking at this gorgeous boy holding my hand, I had no clue where we were going.": "그래서 멜버른 공항에 서서 얼굴에 주체할 수 없는 행복한 미소를 띤 채 내 손을 잡고 있는 이 멋진 남자를 바라보면서도, 나는 우리가 어디로 가는지 전혀 알지 못했다.",
     "“Not telling. The check-in clerk can be the one to ruin my surprise, not me.”": "“안 알려줄 거야. 내 깜짝 선물을 망치는 건 내가 아니라 체크인 직원이 되어야 하니까.”",
-    
+
     # French and other dialogue in Tears of Tess
     "“Oui, maître?”": "“예, 주인님?”",
     "“Enfermer la dans la bibliothèque. Retirez le téléphone et l'accès à Internet. Assurez-vous qu'elle mange.”": "“그녀를 서재에 가둬라. 전화와 인터넷 연결을 끊고, 반드시 식사를 챙겨 먹이도록 해.”",
@@ -50,19 +50,19 @@ def clean_and_perfect_all_top10():
     desktop = Path("/Users/hyeokjunkong/Desktop")
     lib_root = next(p for p in desktop.iterdir() if "소설2" in unicodedata.normalize("NFC", p.name))
     gdrive_root = Path("/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books")
-    
+
     top10_dir = lib_root / "[study]" / "#Top 10 dark romance"
     gdrive_top10 = gdrive_root / "[study]" / "#Top 10 dark romance"
-    
+
     for ep in top10_dir.glob("*.epub"):
         tmp_dir = Path(tempfile.mkdtemp(prefix="perfect_top10_"))
         with zipfile.ZipFile(ep, "r") as z:
             z.extractall(tmp_dir)
-            
+
         htmls = list(tmp_dir.glob("**/*.xhtml")) + list(tmp_dir.glob("**/*.html")) + list(tmp_dir.glob("**/*.htm"))
         modified = False
         fixed_count = 0
-        
+
         for h in htmls:
             content = h.read_text(encoding="utf-8", errors="ignore")
             if "class=\"pair\"" not in content and "<p class=\"pair\"" not in content:
@@ -70,21 +70,21 @@ def clean_and_perfect_all_top10():
             soup = BeautifulSoup(content, "html.parser")
             pairs = soup.find_all(class_=lambda c: c and "pair" in c)
             h_mod = False
-            
+
             for p in pairs:
                 en_span = p.find("span", class_="en")
                 ko_span = p.find("span", class_="ko")
                 study_span = p.find("span", class_="study-note")
-                
+
                 et = en_span.get_text(strip=True) if en_span else ""
                 kt = ko_span.get_text(strip=True) if ko_span else ""
-                
+
                 if not ko_span:
                     ko_span = soup.new_tag("span", **{"class": "ko"})
                     p.append(ko_span)
                     h_mod = True
                     kt = ""
-                    
+
                 if is_english(kt) or kt in TRANSLATIONS_MAP or et in TRANSLATIONS_MAP:
                     if et in TRANSLATIONS_MAP:
                         ko_span.string = TRANSLATIONS_MAP[et]
@@ -106,17 +106,17 @@ def clean_and_perfect_all_top10():
                         ko_span.string = "작가의 말 및 헌사"
                         h_mod = True
                         fixed_count += 1
-                        
+
                 if not study_span and len(et) > 20:
                     study_span = soup.new_tag("span", **{"class": "study-note"})
                     study_span.string = ""
                     p.append(study_span)
                     h_mod = True
-                    
+
             if h_mod:
                 h.write_text(str(soup), encoding="utf-8")
                 modified = True
-                
+
         if modified:
             epub_tmp = tmp_dir.parent / f"{ep.stem}_perfect.epub"
             with zipfile.ZipFile(epub_tmp, "w", zipfile.ZIP_DEFLATED) as z_out:
@@ -130,11 +130,11 @@ def clean_and_perfect_all_top10():
                         if str(rel_z) == "mimetype": continue
                         z_out.write(fp, str(rel_z))
             shutil.move(str(epub_tmp), str(ep))
-            
+
             # Sync to Google Drive
             gdrive_top10.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(ep), str(gdrive_top10 / ep.name))
-            
+
         shutil.rmtree(tmp_dir, ignore_errors=True)
         print(f"  🌟 {ep.name:45s} -> 100% Perfected ({fixed_count} defect paragraphs corrected)")
 

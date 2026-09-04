@@ -5,7 +5,6 @@ Download remaining missing Freida McFadden EPUBs from OceanofPDF.
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import tempfile
@@ -49,7 +48,7 @@ def extract_epub_metadata(epub_path: Path) -> tuple[str | None, str | None]:
 
 def main() -> int:
     download_staging = Path(tempfile.mkdtemp())
-    print(f"=== Downloading Remaining Freida McFadden Books ===")
+    print("=== Downloading Remaining Freida McFadden Books ===")
     print(f"Destination: {DEST_DIR}")
     print(f"Download staging: {download_staging}\n")
 
@@ -73,7 +72,7 @@ def main() -> int:
                 print(f"⏩ Already exists: {existing[0].name}")
                 continue
 
-            print(f"\n==================================================")
+            print("\n==================================================")
             print(f"📖 Processing: {title} ({url})")
 
             try:
@@ -163,7 +162,7 @@ def main() -> int:
         context.close()
 
     shutil.rmtree(download_staging, ignore_errors=True)
-    print(f"\n==================================================")
+    print("\n==================================================")
     print(f"Finished! Total {downloaded_count} new EPUBs downloaded.")
     return 0
 

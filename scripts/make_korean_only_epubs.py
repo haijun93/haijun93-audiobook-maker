@@ -5,16 +5,23 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from atomic_io import atomic_output_path
-from epub_integrity import validate_epub
-from remove_readrobe_text_from_epubs import clone_info, scrub_epub
-from safe_xml import safe_fromstring
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from atomic_io import atomic_output_path  # noqa: E402
+from epub_integrity import validate_epub  # noqa: E402
+from remove_readrobe_text_from_epubs import clone_info, scrub_epub  # noqa: E402
+from safe_xml import safe_fromstring  # noqa: E402
+from audiobook_studio.epub_xray_policy import assert_no_xray  # noqa: E402
+from translation_quality_checks import strict_untranslated_output_findings  # noqa: E402
 
 
 XHTML_NS = "http://www.w3.org/1999/xhtml"
@@ -22,6 +29,18 @@ EPUB_NS = "http://www.idpf.org/2007/ops"
 OPF_NS = "http://www.idpf.org/2007/opf"
 DC_NS = "http://purl.org/dc/elements/1.1/"
 XML_NS = "http://www.w3.org/XML/1998/namespace"
+
+KOREAN_STRUCTURAL_LABELS = {
+    "back cover": "뒷표지",
+    "copyright": "판권",
+    "dedication": "헌사",
+    "quote": "인용문",
+    "prologue": "프롤로그",
+    "table of contents": "목차",
+    "contents": "목차",
+    "cover": "표지",
+    "text": "본문",
+}
 
 ET.register_namespace("", XHTML_NS)
 ET.register_namespace("epub", EPUB_NS)
@@ -63,6 +82,29 @@ def remove_matching_children(parent: ET.Element, predicate) -> None:
                 else:
                     parent.text = (parent.text or "") + child.tail
             parent.remove(child)
+
+
+def normalize_structural_labels(root: ET.Element) -> int:
+    """Translate standalone frontmatter/navigation labels in a [k] EPUB.
+
+    These labels are not paired paragraphs, so the normal ``span.en`` removal
+    cannot see them.  The old converter consequently left headings such as
+    ``Dedication`` and ``Quote`` in Korean-only output.
+    """
+    changed = 0
+    for element in root.iter():
+        if tag_name(element) not in {"title", "h1", "h2", "h3", "a"}:
+            continue
+        current = element_text(element).strip()
+        translated = KOREAN_STRUCTURAL_LABELS.get(current.lower())
+        if not translated or current == translated:
+            continue
+        if list(element):
+            for child in list(element):
+                element.remove(child)
+        element.text = translated
+        changed += 1
+    return changed
 
 
 def strip_inline_english_parentheticals(text: str) -> tuple[str, int]:
@@ -143,9 +185,9 @@ def strip_inline_english_from_tree(root: ET.Element) -> int:
 
 def convert_xhtml(data: bytes, remove_inline_parenthetical_english: bool = False) -> tuple[bytes, dict[str, int]]:
     root = safe_fromstring(data)
-    stats = {"pairs": 0, "en_removed": 0, "inline_removed": 0}
+    stats = {"pairs": 0, "en_removed": 0, "inline_removed": 0, "labels_translated": 0}
 
-    for paragraph in root.iter(f"{{{XHTML_NS}}}p"):
+    for paragraph in list(root.iter(f"{{{XHTML_NS}}}p")):
         if not has_class(paragraph, "pair"):
             continue
         korean_parts = [
@@ -154,6 +196,20 @@ def convert_xhtml(data: bytes, remove_inline_parenthetical_english: bool = False
             if child is not paragraph and has_class(child, "ko")
         ]
         if not korean_parts:
+            # BUG FIX: paragraph has no Korean translation (untranslated chunk).
+            # Previously this was left in place, leaking raw English span.en content.
+            # Now we locate the parent and remove this paragraph entirely.
+            for parent in root.iter():
+                if paragraph in list(parent):
+                    if paragraph.tail:
+                        siblings = list(parent)
+                        idx = siblings.index(paragraph)
+                        if idx > 0:
+                            siblings[idx - 1].tail = (siblings[idx - 1].tail or "") + paragraph.tail
+                        else:
+                            parent.text = (parent.text or "") + paragraph.tail
+                    parent.remove(paragraph)
+                    break
             continue
         tail = paragraph.tail
         attrs = dict(paragraph.attrib)
@@ -175,6 +231,8 @@ def convert_xhtml(data: bytes, remove_inline_parenthetical_english: bool = False
     if remove_inline_parenthetical_english:
         stats["inline_removed"] += strip_inline_english_from_tree(root)
 
+    stats["labels_translated"] = normalize_structural_labels(root)
+
     for element in root.iter():
         if has_class(element, "ko"):
             remove_class(element, "ko")
@@ -183,6 +241,86 @@ def convert_xhtml(data: bytes, remove_inline_parenthetical_english: bool = False
 
     xml = ET.tostring(root, encoding="utf-8", xml_declaration=True, short_empty_elements=True)
     return xml + b"\n", stats
+
+
+def is_xray_file(name: str) -> bool:
+    """Return True for X-Ray dramatis personae files excluded from [k] EPUBs."""
+    lower = name.lower()
+    basename = lower.rsplit("/", 1)[-1]
+    return basename.startswith("000-xray") or "dramatis-personae" in basename or "dramatis_personae" in basename
+
+
+def find_untranslated_source_pairs(input_path: Path) -> list[str]:
+    """Return bilingual blocks that cannot safely produce a Korean-only EPUB."""
+
+    issues: list[str] = []
+    with zipfile.ZipFile(input_path, "r") as archive:
+        for name in archive.namelist():
+            lower = name.lower()
+            if not lower.endswith((".xhtml", ".html", ".htm")) or any(
+                marker in lower for marker in ("cover", "nav", "xray", "dramatis-personae")
+            ):
+                continue
+            root = safe_fromstring(archive.read(name))
+            for index, paragraph in enumerate(root.iter(f"{{{XHTML_NS}}}p"), start=1):
+                if not has_class(paragraph, "pair"):
+                    continue
+                english = " ".join(
+                    element_text(child)
+                    for child in paragraph.iter()
+                    if has_class(child, "en")
+                ).strip()
+                korean = " ".join(
+                    element_text(child)
+                    for child in paragraph.iter()
+                    if has_class(child, "ko")
+                ).strip()
+                if not english:
+                    continue
+                findings = strict_untranslated_output_findings(
+                    {f"{name}:{index}": english}, {f"{name}:{index}": korean}
+                )
+                if findings:
+                    issues.append(f"{name}:{index}")
+    return issues
+
+
+def strip_xray_from_opf(data: bytes) -> bytes:
+    """Remove xray manifest item and spine itemref from OPF XML."""
+    text = data.decode("utf-8", "replace")
+    text = re.sub(
+        r'<item\b[^>]*href=["\'][^"\'>]*(?:000-xray|dramatis[_-]personae)[^"\'>]*["\'][^>]*/?>',
+        "",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(
+        r'<itemref\b[^>]*idref=["\'][^"\'>]*xray[^"\'>]*["\'][^>]*/?>',
+        "",
+        text,
+        flags=re.I,
+    )
+    return text.encode("utf-8")
+
+
+def strip_xray_from_nav(data: bytes) -> bytes:
+    """Remove X-Ray navpoint/li entries from nav.xhtml and toc.ncx."""
+    text = data.decode("utf-8", "replace")
+    # nav.xhtml: remove <li> linking to xray file
+    text = re.sub(
+        r'<li[^>]*>\s*<a[^>]*href=["\'][^"\'>]*(?:000-xray|dramatis[_-]personae)[^"\'>]*["\'][^>]*>.*?</a>\s*</li>',
+        "",
+        text,
+        flags=re.S | re.I,
+    )
+    # toc.ncx: remove <navPoint> linking to xray file
+    text = re.sub(
+        r'<navPoint\b[^>]*>(?:(?!<navPoint).)*?<content\b[^>]*src=["\'][^"\'>]*(?:000-xray|dramatis[_-]personae)[^"\'>]*["\'][^>]*/>(?:(?!<navPoint).)*?</navPoint>',
+        "",
+        text,
+        flags=re.S | re.I,
+    )
+    return text.encode("utf-8")
 
 
 def convert_css(data: bytes) -> bytes:
@@ -234,11 +372,35 @@ def convert_opf(data: bytes, source_name: str) -> bytes:
     return text.encode("utf-8")
 
 
+def convert_ncx_labels(data: bytes) -> bytes:
+    """Translate standalone NCX labels without changing original targets."""
+    text = data.decode("utf-8", "replace")
+    for english, korean in KOREAN_STRUCTURAL_LABELS.items():
+        text = re.sub(
+            rf"(<text\b[^>]*>)\s*{re.escape(english)}\s*(</text>)",
+            rf"\g<1>{korean}\g<2>",
+            text,
+            flags=re.I,
+        )
+    return text.encode("utf-8")
+
+
 def output_name(input_name: str) -> str:
     s = input_name
     while re.match(r"^\[[^\]]+\]\s*", s):
         s = re.sub(r"^\[[^\]]+\]\s*", "", s)
     return f"[k] {s}".strip()
+
+
+def korean_output_path(input_path: Path) -> Path:
+    """Mirror a [k-e] source into the standard sibling [k] root."""
+    parts = list(input_path.parts)
+    try:
+        edition_index = len(parts) - 1 - parts[::-1].index("[k-e]")
+    except ValueError:
+        return input_path.with_name(output_name(input_path.name))
+    parts[edition_index] = "[k]"
+    return Path(*parts).with_name(output_name(input_path.name))
 
 
 def uses_structured_pairs(input_path: Path) -> bool:
@@ -258,6 +420,13 @@ def convert_epub(input_path: Path, output_path: Path, overwrite: bool) -> dict[s
         raise RuntimeError(
             "Source bilingual EPUB failed integrity validation: "
             + "; ".join(source_integrity.issues[:8])
+        )
+    untranslated = find_untranslated_source_pairs(input_path)
+    if untranslated:
+        sample = ", ".join(untranslated[:10])
+        raise RuntimeError(
+            "Source bilingual EPUB contains untranslated English blocks; refusing to publish [k]. "
+            f"Re-translate first ({len(untranslated)} blocks; e.g. {sample})"
         )
     if output_path.exists() and not overwrite:
         cleanup = scrub_epub(output_path)
@@ -293,6 +462,11 @@ def convert_epub(input_path: Path, output_path: Path, overwrite: bool) -> dict[s
             for name in names:
                 if name == "mimetype":
                     continue
+                # ⚡ ZERO X-RAY PRINCIPLE: skip dramatis personae file entirely from [k] epub
+                if is_xray_file(name):
+                    totals.setdefault("xray_removed", 0)
+                    totals["xray_removed"] = totals.get("xray_removed", 0) + 1
+                    continue
                 data = zin.read(name)
                 lower = name.lower()
                 if lower.endswith((".xhtml", ".html", ".htm")):
@@ -302,15 +476,24 @@ def convert_epub(input_path: Path, output_path: Path, overwrite: bool) -> dict[s
                     totals["inline_removed"] += stats["inline_removed"]
                     data = data.replace(b">Kindle EPUB<", ">한국어판<".encode("utf-8"))
                     data = data.replace(b">Front Matter<", ">앞부분<".encode("utf-8"))
+                    # Strip xray nav entries from nav.xhtml
+                    if "nav" in lower:
+                        data = strip_xray_from_nav(data)
                 elif lower.endswith(".css"):
                     data = convert_css(data)
                 elif lower.endswith(".opf"):
                     data = convert_opf(data, input_path.name)
+                    # Strip xray item/itemref from OPF manifest+spine
+                    data = strip_xray_from_opf(data)
                 elif lower.endswith(".ncx"):
                     data = data.replace(b">Front Matter<", ">앞부분<".encode("utf-8"))
+                    data = convert_ncx_labels(data)
+                    # Strip xray navPoint from toc.ncx
+                    data = strip_xray_from_nav(data)
 
                 original = zin.getinfo(name)
                 zout.writestr(clone_info(original), data)
+
         cleanup = scrub_epub(temp_output)
         if str(cleanup.get("status") or "").startswith("error:"):
             raise RuntimeError(f"Korean EPUB watermark cleanup failed: {cleanup['status']}")
@@ -320,6 +503,7 @@ def convert_epub(input_path: Path, output_path: Path, overwrite: bool) -> dict[s
                 "Korean EPUB failed integrity validation: "
                 + "; ".join(integrity.issues[:8])
             )
+        assert_no_xray(temp_output)
         totals["watermarks_removed"] = int(cleanup.get("replacements") or 0)
     return totals
 
@@ -338,7 +522,7 @@ def main() -> int:
     print(f"Found {len(epubs)} [k-e] EPUBs in {folder}")
     converted = skipped = total_pairs = total_removed = total_inline_removed = 0
     for input_path in epubs:
-        output_path = input_path.with_name(output_name(input_path.name))
+        output_path = korean_output_path(input_path)
         stats = convert_epub(input_path, output_path, args.overwrite)
         if stats["skipped"]:
             skipped += 1

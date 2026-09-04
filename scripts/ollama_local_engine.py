@@ -5,8 +5,10 @@ Leverages Apple Silicon M1 Max 32GB Unified Memory & Metal GPU Acceleration.
 Zero API cost, zero network latency, zero Cloudflare WAF issues.
 """
 
-import json, urllib.request, urllib.error, time
-from pathlib import Path
+import json
+import urllib.request
+import urllib.error
+import time
 
 OLLAMA_API_CHAT_URL = "http://127.0.0.1:11434/api/chat"
 DEFAULT_MODEL = "gemma4:latest"
@@ -24,7 +26,7 @@ def query_ollama_gemma(prompt: str, system_prompt: str = "", model: str = DEFAUL
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
-    
+
     payload = {
         "model": model,
         "messages": messages,
@@ -34,14 +36,14 @@ def query_ollama_gemma(prompt: str, system_prompt: str = "", model: str = DEFAUL
             "top_p": 0.9,
         }
     }
-    
+
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         OLLAMA_API_CHAT_URL,
         data=data,
         headers={"Content-Type": "application/json"}
     )
-    
+
     try:
         with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
             body = json.loads(resp.read().decode("utf-8"))
@@ -60,7 +62,7 @@ def extract_study_notes_local(chunk_text: str, model: str = DEFAULT_MODEL) -> di
     )
     prompt = f"English Text Chunk:\n\n{chunk_text}\n\nOutput JSON:"
     res_text = query_ollama_gemma(prompt, system_prompt=sys_prompt, model=model)
-    
+
     # Clean JSON
     clean_json = res_text.replace("```json", "").replace("```", "").strip()
     try:

@@ -4,7 +4,6 @@
 import os
 import re
 import unicodedata
-import zipfile
 from pathlib import Path
 
 desktop = Path("/Users/hyeokjunkong/Desktop")
@@ -43,7 +42,7 @@ for coll_name, sdir in source_dirs:
         continue
     coll_total = 0
     coll_untranslated = 0
-    
+
     for dirpath, _, filenames in os.walk(str(sdir)):
         if any(skip in dirpath for skip in [".git", ".venv", "_work", "site-packages", "__pycache__", "4account_"]):
             continue
@@ -52,23 +51,23 @@ for coll_name, sdir in source_dirs:
                 continue
             if f.startswith(("[k]", "[k-e]", "[study]")):
                 continue
-                
+
             f_path = Path(dirpath) / f
             if not is_valid_source_epub(f_path):
                 continue
-                
+
             coll_total += 1
             clean_stem = re.sub(r'^\[e\]\s*', '', f_path.stem)
             clean_stem = re.sub(r'\(.*?\)', '', clean_stem)
             key = re.sub(r'[^a-zA-Z0-9가-힣]', '', clean_stem.lower())
-            
+
             # Check if key is completed
             is_completed = False
             for ck in completed_keys:
                 if key and ck and (key == ck or (len(key) > 8 and key in ck) or (len(ck) > 8 and ck in key)):
                     is_completed = True
                     break
-                    
+
             if not is_completed:
                 coll_untranslated += 1
                 if key not in all_untranslated_books:
@@ -79,7 +78,7 @@ for coll_name, sdir in source_dirs:
                         "size": f_path.stat().st_size,
                         "rel": str(f_path.relative_to(sdir))
                     }
-                    
+
     collection_stats[coll_name] = {
         "total": coll_total,
         "untranslated": coll_untranslated
@@ -99,7 +98,7 @@ active_translating = [
 ]
 
 print("\n==================================================================")
-print(f"🎯 SUMMARY OF PENDING TRANSLATION TASKS")
+print("🎯 SUMMARY OF PENDING TRANSLATION TASKS")
 print(f"   • Total Unique Master Originals Awaiting Translation : {len(all_untranslated_books):,} books")
 print(f"   • Currently Active in 4 AI LLM Workers              : {len(active_translating):,} books")
 print(f"   • Queued in Supervisor for Next Auto-Assignment     : {len(all_untranslated_books) - len(active_translating):,} books")

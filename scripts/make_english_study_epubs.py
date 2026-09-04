@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -22,6 +23,12 @@ from atomic_io import atomic_output_path
 from epub_integrity import validate_epub
 from remove_readrobe_text_from_epubs import clone_info, scrub_epub
 from safe_xml import safe_fromstring
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
 
 
 XHTML_NS = "http://www.w3.org/1999/xhtml"
@@ -171,8 +178,17 @@ def convert_opf(data: bytes, source_name: str) -> bytes:
 
 def output_name(input_name: str) -> str:
     s = input_name
+    prefix_seen = False
+    separator = ""
     while re.match(r"^\[[^\]]+\]\s*", s):
-        s = re.sub(r"^\[[^\]]+\]\s*", "", s)
+        match = re.match(r"^\[[^\]]+\](?P<separator>\s*)", s)
+        if not match:
+            break
+        prefix_seen = True
+        separator = match.group("separator")
+        s = s[match.end():]
+    if prefix_seen:
+        return f"[e-s]{separator}{s}"
     return f"[e-s] {s}".strip()
 
 
@@ -238,6 +254,7 @@ def convert_epub(input_path: Path, output_path: Path, overwrite: bool) -> dict[s
             raise RuntimeError(
                 "[e-s] EPUB failed integrity validation: " + "; ".join(integrity.issues[:8])
             )
+        purge_xray_from_epub(temp_output)
         totals["watermarks_removed"] = int(cleanup.get("replacements") or 0)
     return totals
 

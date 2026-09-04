@@ -10,7 +10,6 @@ Auto-heals all remaining integrity flaws found in the library:
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import tempfile
@@ -28,7 +27,7 @@ def heal_single_epub(epub_path: Path) -> tuple[bool, str]:
             tmp_dir = Path(tmp_str)
             with zipfile.ZipFile(epub_path, "r") as zin:
                 zin.extractall(tmp_dir)
-                
+
             # Scan and heal all html/xhtml/ncx files
             for f in tmp_dir.rglob("*"):
                 if f.is_file() and f.suffix in [".xhtml", ".html", ".htm", ".ncx", ".opf"]:
@@ -38,7 +37,7 @@ def heal_single_epub(epub_path: Path) -> tuple[bool, str]:
                         clean_bytes = re.sub(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]", b"", raw_bytes)
                         f.write_bytes(clean_bytes)
                         modified = True
-                        
+
                     # 2. Remove scene-subheading tags
                     if f.suffix in [".xhtml", ".html", ".htm"]:
                         raw_text = f.read_text(encoding="utf-8", errors="ignore")
@@ -63,10 +62,10 @@ def heal_single_epub(epub_path: Path) -> tuple[bool, str]:
                     for f in sorted(list(tmp_dir.rglob("*"))):
                         if f.is_file() and f != repack_f and f.name != "mimetype":
                             zout.write(f, f.relative_to(tmp_dir), compress_type=zipfile.ZIP_DEFLATED)
-                            
+
                 shutil.copy2(repack_f, epub_path)
                 return True, f"Healed {epub_path.name}"
-                
+
         return True, "Clean"
     except Exception as e:
         return False, f"Error on {epub_path.name}: {e}"
@@ -75,16 +74,16 @@ def main():
     print("==================================================================")
     print("🏥 AUTO-HEALING ALL LIBRARY INTEGRITY FLAWS")
     print("==================================================================")
-    
-    editions = ["[k]", "[k-e]", "[study]", "[e-s]", "[e]", "[xteink]/[study]", "[xteink]/[e-s]"]
+
+    editions = ["[k]", "[k-e]", "[study]", "[e-s]", "[e]", "[xteink]/[study_x]", "[xteink]/[e-s_x]"]
     all_target_epubs = []
     for ed in editions:
         d = LIB_ROOT / ed
         if d.exists():
             all_target_epubs.extend(list(d.rglob("*.epub")))
-            
+
     print(f"📚 Total EPUBs to inspect & heal: {len(all_target_epubs):,}\n")
-    
+
     healed_count = 0
     with ProcessPoolExecutor(max_workers=8) as ex:
         futs = [ex.submit(heal_single_epub, p) for p in all_target_epubs]
@@ -92,7 +91,7 @@ def main():
             ok, msg = f.result()
             if ok and msg.startswith("Healed"):
                 healed_count += 1
-                
+
     print(f"✨ Successfully healed {healed_count:,} EPUB files with XML/TOC/Mimetype fixes.\n")
 
 if __name__ == "__main__":

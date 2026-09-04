@@ -21,6 +21,12 @@ import time
 import zipfile
 from pathlib import Path
 
+WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
+if str(WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_ROOT))
+
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
+
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 
 HEURISTIC_PATTERNS = [
@@ -42,6 +48,10 @@ def is_heuristic_xray(xray_content: str) -> bool:
     return any(p in xray_content for p in HEURISTIC_PATTERNS)
 
 def strip_xray_from_epub(epub_path: Path) -> bool:
+    # All X-Ray dossiers are prohibited by the current library contract.
+    return purge_xray_from_epub(epub_path)
+
+    # Legacy implementation retained below only for historical reference.
     tmp_file = None
     try:
         with zipfile.ZipFile(epub_path, "r") as zin:
@@ -49,26 +59,26 @@ def strip_xray_from_epub(epub_path: Path) -> bool:
             xray_names = [n for n in in_names if "000-xray" in n]
             if not xray_names:
                 return False
-                
+
             xray_data = zin.read(xray_names[0]).decode("utf-8", errors="replace")
             if not is_heuristic_xray(xray_data):
                 # Authentic AI dossier -> Keep it!
                 return False
-                
+
             fd, tmp_path_str = tempfile.mkstemp(suffix=".epub", dir=epub_path.parent)
             os.close(fd)
             tmp_file = Path(tmp_path_str)
-            
+
             with zipfile.ZipFile(tmp_file, "w") as zout:
                 zout.comment = zin.comment
                 if "mimetype" in in_names:
                     zout.writestr(zipfile.ZipInfo("mimetype"), zin.read("mimetype"), compress_type=zipfile.ZIP_STORED)
-                    
+
                 for name in in_names:
                     if name == "mimetype" or "000-xray" in name:
                         continue
                     data = zin.read(name)
-                    
+
                     # Remove from nav.xhtml
                     if name.endswith("nav.xhtml"):
                         nav_str = data.decode("utf-8", errors="replace")
@@ -85,9 +95,9 @@ def strip_xray_from_epub(epub_path: Path) -> bool:
                         opf_str = re.sub(r"<item[^>]*id=\"xray-dir\"[^>]*/>\s*", "", opf_str)
                         opf_str = re.sub(r"<itemref[^>]*idref=\"xray-dir\"[^>]*/>\s*", "", opf_str)
                         data = opf_str.encode("utf-8")
-                        
+
                     zout.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
-                    
+
         tmp_file.replace(epub_path)
         return True
     except Exception:
@@ -100,7 +110,7 @@ def clean_all_heuristic_xrays():
     print("==================================================================")
     print("🧹 REMOVING ALL HEURISTIC / PLACEHOLDER X-RAY DOSSIERS")
     print("==================================================================")
-    
+
     target_dirs = [
         LIB_ROOT / "[k]",
         LIB_ROOT / "[k-e]",
@@ -109,23 +119,23 @@ def clean_all_heuristic_xrays():
         LIB_ROOT / "[xteink]" / "[study]",
         LIB_ROOT / "[xteink]" / "[e-s]",
     ]
-    
+
     all_epubs = []
     for d in target_dirs:
         if d.exists():
             all_epubs.extend(d.rglob("*.epub"))
-            
+
     print(f"📚 Scanning {len(all_epubs):,} books across library...\n")
-    
+
     removed_count = 0
     kept_count = 0
-    
+
     for idx, epub_p in enumerate(all_epubs, 1):
         if strip_xray_from_epub(epub_p):
             removed_count += 1
         if idx % 500 == 0 or idx == len(all_epubs):
             print(f"   -> Processed {idx:,} / {len(all_epubs):,} (Removed {removed_count:,} heuristic X-Rays)")
-            
+
     elapsed = time.time() - t0
     print("\n==================================================================")
     print(f"🎉 COMPLETED in {elapsed:.1f}s! Removed {removed_count:,} heuristic X-Rays. Authentic AI dossiers preserved!")

@@ -28,12 +28,12 @@ def clean_remaining_meta(epub_path_str: str, study_dir_str: str, gdrive_study_st
     study_dir = Path(study_dir_str)
     gdrive_study = Path(gdrive_study_str)
     modified = False
-    
+
     try:
         tmp_dir = Path(tempfile.mkdtemp(prefix="clean_meta_"))
         with zipfile.ZipFile(ep, "r") as z:
             z.extractall(tmp_dir)
-            
+
         htmls = list(tmp_dir.glob("**/*.xhtml")) + list(tmp_dir.glob("**/*.html")) + list(tmp_dir.glob("**/*.htm"))
         for h in htmls:
             c = h.read_text(encoding="utf-8", errors="ignore")
@@ -66,7 +66,7 @@ def clean_remaining_meta(epub_path_str: str, study_dir_str: str, gdrive_study_st
             if h_mod:
                 h.write_text(str(soup), encoding="utf-8")
                 modified = True
-                
+
         if modified:
             epub_tmp = tmp_dir.parent / f"{ep.stem}_cleaned.epub"
             with zipfile.ZipFile(epub_tmp, "w", zipfile.ZIP_DEFLATED) as z_out:
@@ -80,13 +80,13 @@ def clean_remaining_meta(epub_path_str: str, study_dir_str: str, gdrive_study_st
                         if str(rel_z) == "mimetype": continue
                         z_out.write(fp, str(rel_z))
             shutil.move(str(epub_tmp), str(ep))
-            
+
             # Sync to Google Drive
             rel_ep = ep.relative_to(study_dir)
             g_dest = gdrive_study / rel_ep
             if g_dest.parent.exists():
                 shutil.copy2(str(ep), str(g_dest))
-                
+
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return (True, ep.name, modified)
     except Exception as e:
@@ -98,11 +98,11 @@ def main():
     study_dir = lib_root / "[study]"
     gdrive_root = Path("/Users/hyeokjunkong/Library/CloudStorage/GoogleDrive-haijun93@gmail.com/.shortcut-targets-by-id/16Rb7wC9JJw_rgMVEnDerFiY4JbFsC0aF/#Books")
     gdrive_study = gdrive_root / "[study]"
-    
+
     epubs = sorted(study_dir.glob("**/*.epub"))
     tasks = [(str(ep), str(study_dir), str(gdrive_study)) for ep in epubs]
     print(f"Refining metadata spans across {len(epubs)} [study] EPUBs...")
-    
+
     modified_count = 0
     with ProcessPoolExecutor(max_workers=8) as ex:
         futures = [ex.submit(clean_remaining_meta, t[0], t[1], t[2]) for t in tasks]
@@ -110,7 +110,7 @@ def main():
             ok, name, mod = fut.result()
             if mod:
                 modified_count += 1
-                
+
     print(f"🎉 Successfully refined {modified_count} books with clean Korean metadata!")
 
 if __name__ == "__main__":

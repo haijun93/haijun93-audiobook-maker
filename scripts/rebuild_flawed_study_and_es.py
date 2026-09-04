@@ -23,17 +23,17 @@ def heal_single_study_and_es(ke_path: Path) -> tuple[bool, str, str]:
         rel = ke_path.relative_to(LIB_ROOT / "[k-e]")
         study_path = LIB_ROOT / "[study]" / rel
         es_path = LIB_ROOT / "[e-s]" / rel
-        
+
         # 1. Build clean [study] from [k-e]
         study_path.parent.mkdir(parents=True, exist_ok=True)
         res_ok, _, err = process_single_epub((str(ke_path), str(study_path)))
         if not res_ok:
             return False, str(rel), f"Failed to build [study]: {err}"
-            
+
         # 2. Build clean [e-s] from [study]
         es_path.parent.mkdir(parents=True, exist_ok=True)
         make_english_study_epub(study_path, es_path, overwrite=True)
-        
+
         # 3. Sync to Xteink
         xteink_study = LIB_ROOT / "[xteink]/[study]" / rel
         xteink_es = LIB_ROOT / "[xteink]/[e-s]" / rel
@@ -41,7 +41,7 @@ def heal_single_study_and_es(ke_path: Path) -> tuple[bool, str, str]:
             shutil.copy2(study_path, xteink_study)
         if xteink_es.parent.exists():
             shutil.copy2(es_path, xteink_es)
-            
+
         # 4. Sync to Google Drive
         try:
             g_study = GDRIVE_ROOT / "[study]" / rel
@@ -52,7 +52,7 @@ def heal_single_study_and_es(ke_path: Path) -> tuple[bool, str, str]:
                 shutil.copy2(es_path, g_es)
         except Exception:
             pass
-            
+
         return True, str(rel), "OK"
     except Exception as e:
         return False, str(ke_path.name), str(e)
@@ -61,10 +61,10 @@ def main():
     print("==================================================================")
     print("🔧 REBUILDING CLEAN [study] AND [e-s] FROM [k-e] IN PARALLEL")
     print("==================================================================")
-    
+
     ke_epubs = sorted([p for p in (LIB_ROOT / "[k-e]").rglob("*.epub") if p.is_file()])
     print(f"📚 Total [k-e] sources to rebuild: {len(ke_epubs)}\n")
-    
+
     success = 0
     fail = 0
     with ProcessPoolExecutor(max_workers=8) as ex:
@@ -76,8 +76,8 @@ def main():
             else:
                 fail += 1
                 print(f"  ❌ [Fail] {name}: {err}")
-                
-    print(f"\n==================================================================")
+
+    print("\n==================================================================")
     print(f"🎉 COMPLETED: Successfully rebuilt {success} [study] & [e-s] books! (Failed: {fail})")
     print("==================================================================")
 

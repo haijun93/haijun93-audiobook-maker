@@ -6,7 +6,6 @@ and translation quality characteristics of all books in the library.
 
 import zipfile
 import re
-import json
 from pathlib import Path
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -23,7 +22,7 @@ for ep in sorted(ke_dir.rglob("*.epub")):
         continue
     rel = ep.relative_to(ke_dir)
     mtime = datetime.fromtimestamp(ep.stat().st_mtime)
-    
+
     # Analyze EPUB internals
     try:
         with zipfile.ZipFile(ep) as z:
@@ -35,7 +34,7 @@ for ep in sorted(ke_dir.rglob("*.epub")):
             date = ""
             if opf_name:
                 opf_content = z.read(opf_name[0]).decode("utf-8", "ignore")
-                
+
             # Sample first chapter
             chap_files = [n for n in namelist if n.endswith((".xhtml", ".html")) and "nav" not in n.lower() and "cover" not in n.lower()]
             sample_ko = ""
@@ -43,7 +42,7 @@ for ep in sorted(ke_dir.rglob("*.epub")):
             has_study_notes = False
             has_ruby = False
             has_deep_l_markers = False
-            
+
             for c in chap_files[:3]:
                 raw = z.read(c).decode("utf-8", "ignore")
                 if "class=\"study-note\"" in raw or "class='study-note'" in raw:
@@ -52,7 +51,7 @@ for ep in sorted(ke_dir.rglob("*.epub")):
                     has_ruby = True
                 if "deepl" in raw.lower() or "google" in raw.lower():
                     has_deep_l_markers = True
-                    
+
                 soup = BeautifulSoup(raw, "html.parser")
                 pairs = soup.find_all("p", class_="pair")
                 total_pairs += len(pairs)
@@ -62,7 +61,7 @@ for ep in sorted(ke_dir.rglob("*.epub")):
                         if ko and len(ko.get_text(strip=True)) > 20:
                             sample_ko = ko.get_text(strip=True)
                             break
-                            
+
             books.append({
                 "path": str(rel),
                 "mtime": mtime.strftime("%Y-%m-%d %H:%M:%S"),
@@ -103,7 +102,7 @@ matched_in_work_dir = []
 for b in books:
     b_name = Path(b["path"]).stem.lower()
     clean_stem = re.sub(r"[^a-z0-9]", "", b_name.replace("ke", "").replace("study", ""))
-    
+
     found = False
     for wd in work_dirs_list:
         wd_clean = re.sub(r"[^a-z0-9]", "", wd.lower())
@@ -115,7 +114,7 @@ for b in books:
     else:
         unmatched_in_work_dir.append(b)
 
-print(f"\n📊 TRANSLATION ORIGIN ANALYSIS:")
+print("\n📊 TRANSLATION ORIGIN ANALYSIS:")
 print(f"  • Matched with New AI Work Dirs (_chatgpt_translate_work) : {len(matched_in_work_dir)} books")
 print(f"  • UNMATCHED (Originating from Legacy/External batch)      : {len(unmatched_in_work_dir)} books ⚠️")
 

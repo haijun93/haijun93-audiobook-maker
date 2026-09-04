@@ -10,10 +10,7 @@ from __future__ import annotations
 import html
 import io
 import json
-import os
 import re
-import shutil
-import time
 import zipfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -51,7 +48,7 @@ STOPWORDS = {
     "a", "an", "the", "and", "or", "but", "if", "then", "else", "when", "at", "from",
     "by", "for", "with", "about", "against", "between", "into", "through", "during",
     "before", "after", "above", "below", "to", "of", "up", "down", "in", "out", "on",
-    "off", "over", "under", "again", "further", "then", "once", "here", "there", "all",
+    "off", "over", "under", "again", "further", "once", "here", "there", "all",
     "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
     "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will",
     "just", "don", "should", "now", "i", "you", "he", "she", "it", "we", "they", "me",
@@ -89,20 +86,20 @@ def parse_study_note(note_str: str) -> list[tuple[str, str]]:
 
 def transform_html_str(html_text: str, lexicon: dict[str, str], is_es: bool = False) -> tuple[str, int]:
     rubies_added = 0
-    
+
     def repl_p(match):
         nonlocal rubies_added
         full_p = match.group(0)
-        
+
         # 1. Extract note, en, ko
         note_m = re.search(r'<span[^>]*class=["\'](?:study-note|study)["\'][^>]*>(.*?)</span>', full_p, flags=re.DOTALL)
         en_m = re.search(r'<span[^>]*class=["\']en(?: has-ww)?["\'][^>]*>(.*?)</span>', full_p, flags=re.DOTALL)
         ko_m = re.search(r'<span[^>]*class=["\']ko["\'][^>]*>(.*?)</span>', full_p, flags=re.DOTALL)
-        
+
         raw_note = note_m.group(1).strip() if note_m else ""
         raw_en = en_m.group(1).strip() if en_m else ""
         raw_ko = ko_m.group(1).strip() if ko_m else ""
-        
+
         # If no spans, check if p has direct text
         if not raw_en and not raw_ko:
             p_inner = re.sub(r"^<p[^>]*>|</p>$", "", full_p).strip()
@@ -112,17 +109,17 @@ def transform_html_str(html_text: str, lexicon: dict[str, str], is_es: bool = Fa
                 raw_note = parts[1].strip()
             else:
                 raw_en = p_inner
-                
+
         if "※" in raw_ko:
             parts = raw_ko.split("※", 1)
             raw_ko = parts[0].strip()
             raw_note = (raw_note + " ; " + parts[1].strip()) if raw_note else parts[1].strip()
-            
+
         # Collect word pairs
         word_pairs = []
         if raw_note:
             word_pairs = parse_study_note(raw_note)
-            
+
         if not word_pairs and raw_en and "<ruby>" not in raw_en:
             tokens = re.findall(r"\b[a-zA-Z]+(?:'[a-zA-Z]+)?\b", raw_en)
             words_lower = [t.lower() for t in tokens]
@@ -144,7 +141,7 @@ def transform_html_str(html_text: str, lexicon: dict[str, str], is_es: bool = Fa
                     word_pairs.append((w, m))
                 if len(word_pairs) >= 4:
                     break
-                    
+
         annotated_en = raw_en
         for w, m in word_pairs:
             if f"<rb>{w}</rb>" in annotated_en:
@@ -155,11 +152,11 @@ def transform_html_str(html_text: str, lexicon: dict[str, str], is_es: bool = Fa
             if new_en != annotated_en:
                 annotated_en = new_en
                 rubies_added += 1
-                
+
         has_ruby = "<ruby>" in annotated_en
         en_cls = "en has-ww" if has_ruby else "en"
         p_cls = "pair has-ww" if has_ruby else "pair"
-        
+
         if is_es:
             clean_en = annotated_en or raw_en
             return f'<p class="{p_cls}"><span class="{en_cls}" xml:lang="en">{clean_en}</span></p>'
@@ -171,23 +168,23 @@ def transform_html_str(html_text: str, lexicon: dict[str, str], is_es: bool = Fa
             elif raw_ko:
                 return f'<p class="pair"><span class="ko" xml:lang="ko">{raw_ko}</span></p>'
             return full_p
-            
+
     transformed = re.sub(r"<p\b[^>]*>.*?</p>", repl_p, html_text, flags=re.DOTALL)
     return transformed, rubies_added
 
 def process_single_study_epub(epub_path_str: str) -> tuple[str, int, bool]:
     ep = Path(epub_path_str)
     lexicon = get_lexicon()
-    
+
     try:
         processed_study = {}
         processed_es = {}
         total_rubies = 0
-        
+
         with zipfile.ZipFile(ep, "r") as src_zip:
             for item in src_zip.infolist():
                 content = src_zip.read(item.filename)
-                
+
                 if item.filename.endswith((".xhtml", ".html")) and not any(k in item.filename.lower() for k in ["xray", "cover"]):
                     html_str = content.decode("utf-8", errors="ignore")
                     study_html, r_cnt = transform_html_str(html_str, lexicon, is_es=False)
@@ -201,14 +198,14 @@ def process_single_study_epub(epub_path_str: str) -> tuple[str, int, bool]:
                 else:
                     processed_study[item.filename] = content
                     processed_es[item.filename] = content
-                    
+
         # Write [study]
         buf_s = io.BytesIO()
         with zipfile.ZipFile(buf_s, "w", zipfile.ZIP_DEFLATED) as dst_s:
             for fname, data in processed_study.items():
                 dst_s.writestr(fname, data)
         ep.write_bytes(buf_s.getvalue())
-        
+
         # Write [e-s]
         rel = ep.relative_to(STUDY_ROOT)
         es_p = ES_ROOT / rel.parent / f"[e-s] {ep.name.replace('[study] ', '')}"
@@ -218,7 +215,7 @@ def process_single_study_epub(epub_path_str: str) -> tuple[str, int, bool]:
             for fname, data in processed_es.items():
                 dst_es.writestr(fname, data)
         es_p.write_bytes(buf_es.getvalue())
-        
+
         # Copy to SD card if in Top 10 or mounted
         if SD_ROOT.exists():
             sd_dest_s = SD_ROOT / "[study]" / rel
@@ -227,7 +224,7 @@ def process_single_study_epub(epub_path_str: str) -> tuple[str, int, bool]:
             sd_dest_es.parent.mkdir(parents=True, exist_ok=True)
             sd_dest_s.write_bytes(buf_s.getvalue())
             sd_dest_es.write_bytes(buf_es.getvalue())
-            
+
         return ep.name, total_rubies, True
     except Exception as e:
         return ep.name, -1, False
@@ -236,16 +233,16 @@ def main():
     print("==================================================================")
     print("⚡ FAST ULTRA-PERFECT WORD WISE INJECTION (ALL 584+ BOOKS)")
     print("==================================================================")
-    
+
     lex = get_lexicon()
     print(f"📖 Master Lexicon loaded: {len(lex):,} entries.")
-    
+
     epubs = [str(p) for p in STUDY_ROOT.rglob("*.epub") if p.stat().st_size > 50000]
     print(f"📚 Upgrading all {len(epubs):,} [study] and [e-s] books in parallel (12 workers)...\n")
-    
+
     upgraded = 0
     total_rubies = 0
-    
+
     with ProcessPoolExecutor(max_workers=12) as ex:
         futures = [ex.submit(process_single_study_epub, ep) for ep in epubs]
         for fut in as_completed(futures):
@@ -254,7 +251,7 @@ def main():
                 upgraded += 1
                 total_rubies += r_cnt
                 print(f"  ✨ [Word Wise Injected] {name[:50]:<50} ({r_cnt:>6,} rubies)")
-                
+
     print("\n==================================================================")
     print("🎉 FULL BATCH WORD WISE INJECTION 100% COMPLETED!")
     print(f"  • Upgraded Books       : {upgraded:,} / {len(epubs):,} books")

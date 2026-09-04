@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import re
 import shutil
 from pathlib import Path
 
@@ -19,14 +18,14 @@ def purge_nested_e_folders():
     print("==================================================================")
     print("🧹 PURGING NESTED `[e]` SUBFOLDERS & MOVING CARL SAGAN TO STANDARD")
     print("==================================================================")
-    
+
     editions = ["[k]", "[k-e]", "[study]", "[e-s]", "[xteink]/[study]", "[xteink]/[e-s]"]
-    
+
     for ed_rel in editions:
         ed_dir = LIB_ROOT / ed_rel
         if not ed_dir.exists():
             continue
-            
+
         nested_e = ed_dir / "[e]"
         if nested_e.exists():
             print(f"🔍 Found nested `[e]` in {ed_rel}:")
@@ -34,13 +33,13 @@ def purge_nested_e_folders():
                 target_dir = ed_dir / "Science_Nature_Technology" / "#Carl Sagan"
                 target_dir.mkdir(parents=True, exist_ok=True)
                 target_file = target_dir / f.name.replace("[e] [e] ", "").replace("[e] ", "")
-                
+
                 print(f"  📦 Moving: {f.name} -> Science_Nature_Technology/#Carl Sagan/{target_file.name}")
                 shutil.move(str(f), str(target_file))
-                
+
             shutil.rmtree(str(nested_e), ignore_errors=True)
             print(f"  🗑️ Deleted folder: {nested_e}")
-            
+
     # GDrive Sync & Cleanup
     if GDRIVE_ROOT.exists():
         for ed_rel in editions:
@@ -48,7 +47,7 @@ def purge_nested_e_folders():
             if g_nested_e.exists():
                 shutil.rmtree(str(g_nested_e), ignore_errors=True)
                 print(f"  ☁️ Deleted GDrive folder: {ed_rel}/[e]")
-                
+
     print("\n✅ Successfully purged all nested `[e]` subfolders!")
 
 if __name__ == "__main__":

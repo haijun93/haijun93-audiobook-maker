@@ -52,7 +52,7 @@ def count_study_notes(epub_path: Path) -> int:
                 if name.endswith((".xhtml", ".html", ".htm")) and not name.startswith("cover"):
                     try:
                         content = z.read(name).decode("utf-8", errors="ignore")
-                    except:
+                    except Exception:
                         continue
                     notes = len(re.findall(r"※\s*[^<\n]+", content))
                     if "study-note" in content or "study_notes" in content:

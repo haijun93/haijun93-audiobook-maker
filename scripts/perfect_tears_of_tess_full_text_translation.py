@@ -10,10 +10,16 @@ from __future__ import annotations
 
 import io
 import re
-import shutil
+import sys
 import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
+
+WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
+if str(WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_ROOT))
+
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 SD_ROOT = Path("/Volumes/MICROSD_N01")
@@ -54,7 +60,7 @@ FULL_TRANSLATION_DICT = {
     "“내가 널 소유한다.”",
     "‘I own you.’":
     "“내가 널 소유한다.”",
-    
+
     # --- Chapter 6: Starling (Chapter 1) ---
     "*Starling*": "찌르레기 (Starling)",
     "“ W here are you taking me, Brax?” I giggled as my boyfriend of two years beamed his slightly crooked smile and plucked my suitcase from my hands.":
@@ -105,7 +111,7 @@ def repair_all_html_files():
     print("==================================================================")
     print("🌟 100% COMPLETE TEXT TRANSLATION & REBUILD FOR TEARS OF TESS")
     print("==================================================================")
-    
+
     with zipfile.ZipFile(KE_EPUB, "r") as src_zip:
         processed_files = {}
         for item in src_zip.infolist():
@@ -118,30 +124,32 @@ def repair_all_html_files():
                     if en_span and ko_span:
                         en_txt = en_span.get_text().strip()
                         en_clean = re.sub(r'\b([A-Z])\s+([a-z])', r'\1\2', en_txt)
-                        
+
                         # Match full or partial translation
                         for k, v in FULL_TRANSLATION_DICT.items():
                             if k == en_txt or k == en_clean or k in en_txt or en_clean.startswith(k[:35]):
                                 ko_span.string = v
                                 break
-                                
+
                 processed_files[item.filename] = str(soup).encode("utf-8")
             else:
                 processed_files[item.filename] = content
-                
+
     # 1. Update [k-e]
     ke_buf = io.BytesIO()
     with zipfile.ZipFile(ke_buf, "w", zipfile.ZIP_DEFLATED) as dst_zip:
         for fname, data in processed_files.items():
             dst_zip.writestr(fname, data)
     KE_EPUB.write_bytes(ke_buf.getvalue())
+    purge_xray_from_epub(KE_EPUB)
     print("✅ 100% Translated [k-e] edition saved.")
-    
+
     # 2. Update [study]
     study_path = LIB_ROOT / "[study]" / "#Top 10 dark romance" / "[study] Tears of Tess - Pepper Winters.epub"
     study_path.write_bytes(ke_buf.getvalue())
+    purge_xray_from_epub(study_path)
     print("✅ 100% Translated [study] edition saved.")
-    
+
     # 3. Update [k] (Korean-only)
     k_buf = io.BytesIO()
     with zipfile.ZipFile(k_buf, "w", zipfile.ZIP_DEFLATED) as dst_k:
@@ -156,11 +164,12 @@ def repair_all_html_files():
                 dst_k.writestr(fname, str(soup).encode("utf-8"))
             else:
                 dst_k.writestr(fname, data)
-                
+
     k_path = LIB_ROOT / "[k]" / "#Top 10 dark romance" / "[k] Tears of Tess - Pepper Winters.epub"
     k_path.write_bytes(k_buf.getvalue())
+    purge_xray_from_epub(k_path)
     print("✅ 100% Pure Korean [k] edition saved.")
-    
+
     # 4. Update [e-s]
     es_buf = io.BytesIO()
     with zipfile.ZipFile(es_buf, "w", zipfile.ZIP_DEFLATED) as dst_es:
@@ -173,15 +182,17 @@ def repair_all_html_files():
                 dst_es.writestr(fname, str(soup).encode("utf-8"))
             else:
                 dst_es.writestr(fname, data)
-                
+
     es_path = LIB_ROOT / "[e-s]" / "#Top 10 dark romance" / "[e-s] Tears of Tess - Pepper Winters.epub"
     es_path.write_bytes(es_buf.getvalue())
+    purge_xray_from_epub(es_path)
     print("✅ 100% English Study [e-s] edition saved.")
-    
+
     # 5. Overwrite SD Card [k]
     sd_k_target = SD_ROOT / "[k]" / "#Top 10 dark romance" / "[k] Tears of Tess - Pepper Winters.epub"
     if SD_ROOT.exists():
         sd_k_target.write_bytes(k_path.read_bytes())
+        purge_xray_from_epub(sd_k_target)
         print(f"💾 MicroSD Card [k] updated: {sd_k_target}")
 
     print("\n==================================================================")

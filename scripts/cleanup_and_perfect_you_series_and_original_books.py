@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import re
 import shutil
 from pathlib import Path
 
@@ -41,7 +40,7 @@ CLEANUP_RULES = [
         "author_folder": "#E. Lockhart",
         "target_parent": "#original books/#E. Lockhart" # Prime Video Series
     },
-    
+
     # 3. Non-adaptation or Specific Genre Books to restore to their Canonical Genres
     {
         "keywords": ["we love you, bunny", "we love you bunny"],
@@ -99,9 +98,9 @@ def find_cleanup_target(fname: str) -> str | None:
 def process_edition_cleanup(ed_root: Path):
     if not ed_root.exists():
         return
-        
+
     print(f"\n📂 Reviewing and perfecting {ed_root.relative_to(LIB_ROOT)}...")
-    
+
     # Check all files currently under #original books/#Caroline Kepnes or anywhere in edition
     epubs = list(ed_root.rglob("*.epub"))
     for ep in epubs:
@@ -109,7 +108,7 @@ def process_edition_cleanup(ed_root: Path):
         if dest_rel:
             target_dir = ed_root / dest_rel
             target_file = target_dir / ep.name
-            
+
             # If not already in target dir, move it
             if ep.parent != target_dir:
                 target_dir.mkdir(parents=True, exist_ok=True)
@@ -118,18 +117,18 @@ def process_edition_cleanup(ed_root: Path):
                     shutil.move(str(ep), str(target_file))
                 else:
                     ep.unlink()
-                
+
                 # Clean old parent if empty
                 try:
                     if not any(ep.parent.iterdir()):
                         ep.parent.rmdir()
-                except: pass
-
+                except Exception:
+                    pass
 def main():
     print("==================================================================")
     print("🌟 PERFECTING `YOU: A NOVEL` SERIES & SCREEN ADAPTATIONS TAXONOMY")
     print("==================================================================")
-    
+
     editions = [
         LIB_ROOT / "[k]",
         LIB_ROOT / "[k-e]",
@@ -139,10 +138,10 @@ def main():
         LIB_ROOT / "[xteink]" / "[study]",
         LIB_ROOT / "[xteink]" / "[e-s]",
     ]
-    
+
     for ed in editions:
         process_edition_cleanup(ed)
-        
+
     print("\n==================================================================")
     print("🎉 `YOU` SERIES & ALL ADAPTATIONS 100% PERFECTLY ALIGNED!")
     print("==================================================================")

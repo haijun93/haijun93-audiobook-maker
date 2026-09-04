@@ -32,7 +32,11 @@ from final_epub_dialogue_consistency_review import review_dialogue_consistency
 from final_epub_tone_review import review_epub_tone
 from remove_readrobe_text_from_epubs import scrub_epub, scrub_text
 from safe_xml import safe_fromstring
-from translation_quality_checks import assess_translations, extract_segment_sources
+from translation_quality_checks import (
+    assess_translations,
+    extract_segment_sources,
+    strict_untranslated_output_findings,
+)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -597,13 +601,13 @@ def read_spine(epub_path: Path) -> tuple[str, str, list[str], dict[str, bytes]]:
                 continue
             href = unquote(item.get("href", ""))
             spine_hrefs.append(str(Path(opf_dir, href)) if opf_dir else href)
-            
+
         resources = {}
         for name in archive.namelist():
             try:
                 # Read text, opf, and cover images safely
                 resources[name] = archive.read(name)
-            except Exception as e:
+            except Exception:
                 # Skip non-essential corrupted assets without crashing the whole book pipeline
                 pass
     return title, creator, spine_hrefs, resources
@@ -797,6 +801,52 @@ def parse_epub3_nav(resources: dict[str, bytes], spine_hrefs: list[str]) -> list
         label = clean_text(anchor_tag.get_text(" ", strip=True))
         if label:
             nav.append((label, full_href, anchor, spine_hrefs.index(full_href)))
+    return dedupe_nav_entries(nav)
+
+
+def parse_internal_heading_nav(
+    resources: dict[str, bytes], spine_hrefs: list[str]
+) -> list[tuple[str, str, str, int]]:
+    """Recover a usable TOC when a source EPUB has only a generic ``Start``.
+
+    Some Kindle-derived EPUBs display section numbers in the rendered pages
+    but ship no useful EPUB navigation.  Their semantic ``h2`` headings still
+    provide the author's real structure.  We use only non-numeric h1-h3
+    headings and a short leading label such as ``Synopsis:``; h4 page/scene
+    numbers and legal-document labels are intentionally left in the body.
+    """
+    nav: list[tuple[str, str, str, int]] = []
+    first_index = None
+    first_blocks: list[str] = []
+    for index, href in enumerate(spine_hrefs):
+        if href not in resources or Path(href).name.casefold() in {"nav.xhtml", "toc.ncx"}:
+            continue
+        candidate_blocks = blocks_from_xhtml(resources[href])
+        if candidate_blocks:
+            first_index = index
+            first_blocks = candidate_blocks
+            break
+    if first_index is not None:
+        if first_blocks:
+            first = clean_text(first_blocks[0])
+            if (
+                len(first) <= 80
+                and first.endswith(":")
+                and first[:-1].strip().casefold() not in {"contents", "table of contents"}
+            ):
+                nav.append((first[:-1].strip(), spine_hrefs[first_index], "", first_index))
+
+    for index, href in enumerate(spine_hrefs):
+        data = resources.get(href)
+        if not data:
+            continue
+        soup = BeautifulSoup(data, "html.parser")
+        for heading in soup.find_all(["h1", "h2", "h3"]):
+            label = clean_text(heading.get_text(" ", strip=True))
+            if not label or len(label) > 100 or label.isdigit():
+                continue
+            anchor = (heading.get("id") or "").strip()
+            nav.append((label, href, anchor, index))
     return dedupe_nav_entries(nav)
 
 
@@ -1196,6 +1246,18 @@ def expand_oversized_nav_gaps(
     a gap of 2+ files whose combined byte size dominates the whole spine gets split the same way."""
     if not nav or len(spine_hrefs) < 5:
         return nav
+    # A few legitimate source EPUBs expose a deliberately minimal official
+    # NCX (for example a single ``Start`` entry).  Expanding that entry into
+    # synthetic ``Chapter N`` points changes the author's navigation and can
+    # also surface duplicate/OCR headings.  Preserve the source TOC exactly;
+    # a later repair or source-aware publisher may map that one entry to the
+    # target's first reading document.
+    if len(nav) == 1 and nav[0][0].strip().casefold() in {
+        "start",
+        "begin reading",
+        "begin",
+    }:
+        return nav
     total_files = len(spine_hrefs)
     sizes = [len(resources.get(href, b"")) for href in spine_hrefs]
     total_size = sum(sizes) or 1
@@ -1242,11 +1304,22 @@ def dedupe_sections_by_filename(sections: list[SourceSection]) -> list[SourceSec
 
 def extract_sections(epub_path: Path) -> tuple[str, str, list[SourceSection]]:
     title, creator, spine_hrefs, resources = read_spine(epub_path)
+    recovered_from_internal_headings = False
     nav = parse_ncx_nav(resources, spine_hrefs)
     if not nav:
         nav = parse_epub3_nav(resources, spine_hrefs)
     if not nav:
         nav = [(Path(href).stem, href, "", index) for index, href in enumerate(spine_hrefs)]
+    if len(nav) == 1 and nav[0][0].strip().casefold() in {"start", "begin reading", "begin"}:
+        recovered_nav = parse_internal_heading_nav(resources, spine_hrefs)
+        if len(recovered_nav) >= 3:
+            nav = recovered_nav
+            recovered_from_internal_headings = True
+            print(
+                f"ℹ️  원본 EPUB의 일반화된 '{nav[0][0] if nav else 'Start'}' 항목 대신 "
+                f"본문의 의미 있는 제목 {len(nav)}개로 목차를 복구했습니다.",
+                flush=True,
+            )
     inbody_chapters, inbody_source_href = parse_inbody_chapter_index(resources, spine_hrefs)
     if inbody_chapters:
         covered_hrefs = {href for _, href, _ in inbody_chapters}
@@ -1257,7 +1330,8 @@ def extract_sections(epub_path: Path) -> tuple[str, str, list[SourceSection]]:
             nav = [(label, href, anchor, index) for label, href, anchor, index in nav if href not in excluded_hrefs]
             nav.extend((label, href, "", index) for label, href, index in inbody_chapters)
             nav.sort(key=lambda row: row[3])
-    nav = expand_oversized_nav_gaps(nav, spine_hrefs, resources)
+    if not recovered_from_internal_headings:
+        nav = expand_oversized_nav_gaps(nav, spine_hrefs, resources)
     sections: list[SourceSection] = []
     block_index = 1
     position = 0
@@ -1367,6 +1441,14 @@ def translate_title(title: str) -> str:
         "Epilogue": "에필로그",
         "Acknowledgments": "감사의 말",
         "Copyright": "판권",
+        "Synopsis": "시놉시스",
+        "PRESUMED INNOCENT": "무죄추정",
+        "SCOTT TUROW": "스콧 투로",
+        "Opening Statement": "모두 진술",
+        "SPRING": "봄",
+        "SUMMER": "여름",
+        "FALL": "가을",
+        "Closing Argument": "최종 변론",
         "Part I": "1부",
         "Part II": "2부",
         "Part III": "3부",
@@ -1914,6 +1996,19 @@ def validate_chunk_translations(
 ) -> dict:
     sources = extract_segment_sources(chunk.text)
     assessment = assess_translations(sources, translations)
+    # The broad source audit intentionally allows official metadata to remain
+    # literal. That is useful for diagnostics, but unsafe for a published
+    # Korean edition: a raw copyright sentence or prologue line must never be
+    # placed in the Korean translation span merely because a study note exists.
+    strict_findings = strict_untranslated_output_findings(sources, translations)
+    existing_codes = {(finding.block_id, finding.code) for finding in assessment.findings}
+    for finding in strict_findings:
+        if (finding.block_id, finding.code) in existing_codes:
+            continue
+        assessment.findings.append(finding)
+        assessment.severe_count += 1
+        if finding.block_id not in assessment.severe_ids:
+            assessment.severe_ids.append(finding.block_id)
     blocking = [
         finding
         for finding in assessment.findings
@@ -2184,9 +2279,20 @@ def capture_worker_screenshot(page, work_dir: Path | None):
         return
     try:
         ss_file = Path(work_dir) / "latest_screenshot.png"
-        page.screenshot(path=str(ss_file), timeout=3000)
-    except Exception:
-        pass
+        page.screenshot(path=str(ss_file), timeout=10000, full_page=False)
+    except Exception as exc:
+        # Keep the translation alive, but leave forensic evidence explaining
+        # why the visual monitor could not obtain a browser frame.
+        try:
+            error_file = Path(work_dir) / "screenshot_errors.jsonl"
+            with error_file.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps({
+                    "timestamp": time.time(),
+                    "error": str(exc)[:500],
+                    "page_url": str(getattr(page, "url", ""))[:500],
+                }, ensure_ascii=False) + "\n")
+        except (OSError, TypeError):
+            pass
 
 
 def execute_translation_prompt_on_web(
@@ -2426,8 +2532,29 @@ WEB_REFUSAL_MARKERS = (
     "i'm unable to help",
     "i’m unable to help",
     "i cannot assist",
+    "i'm sorry, it appears i can't help",
+    "i’m sorry, it appears i can’t help",
+    "can't help with this particular request",
+    "can’t help with this particular request",
+    "against my guidelines",
+    "go against my guidelines",
+    "against my safety guidelines",
+    "violates our safety guidelines",
+    "violates our policies",
+    "against our policies",
+    "cannot fulfill this request",
+    "unable to process this request",
+    "미성년자가 포함된 성적 내용의 번역·변환은 도와드릴 수 없습니다",
+    "미성년자가 포함된 성적 내용의 번역",
+    "미성년자가 포함된",
+    "성적 내용의 번역·변환은 도와드릴 수 없습니다",
+    "성적 내용의 번역은 도와드릴 수 없습니다",
+    "도와드릴 수 없습니다",
+    "도와드릴 수 없어요",
     "요청하신 내용에는 도움을 드릴 수 없",
     "해당 요청에는 응답할 수 없",
+    "안전 가이드라인에 위배",
+    "정책상 제공해 드릴 수 없",
 )
 # Gemini occasionally declines an entire chunk with a copyright objection instead of a generic
 # safety refusal - e.g. "저작권이 있는 출판 도서의 본문을 직접 전량 번역하거나 행 단위로
@@ -2618,6 +2745,7 @@ def request_web_translation(
                 conversation_id = extract_chatgpt_conversation_id(page.url)
                 if not message_id:
                     raise RuntimeError("웹 번역 응답의 message_id를 찾지 못했습니다.")
+            capture_worker_screenshot(page, work_dir)
             if not normalized_file_text(response):
                 raise RuntimeError(f"{provider.title()} 번역 응답이 비어 있습니다.")
             raise_if_web_provider_error(response, provider)
@@ -2630,6 +2758,7 @@ def request_web_translation(
             return conversation_id, response
         except Exception as exc:
             last_error = exc
+            capture_worker_screenshot(page, work_dir)
             beat_heartbeat(heartbeat, stage="translation_attempt_error", label=label, section_prefix=prefix, attempt=attempt, detail=str(exc)[:300])
             diagnosis_result: dict[str, object] | None = None
             if work_dir is not None:
@@ -2750,6 +2879,7 @@ def request_web_translation_on_prepared_page(
         conversation_id = extract_chatgpt_conversation_id(page.url)
         if not message_id:
             raise RuntimeError("웹 번역 응답의 message_id를 찾지 못했습니다.")
+    capture_worker_screenshot(page, work_dir)
     if not normalized_file_text(response):
         raise RuntimeError(f"{provider.title()} 번역 응답이 비어 있습니다.")
     raise_if_web_provider_error(response, provider)
@@ -3370,6 +3500,7 @@ def translate_missing_chunks_reusing_conversations(
                         break
                     except Exception as exc:
                         last_error = exc
+                        capture_worker_screenshot(page, work_dir)
                         append_adaptive_error_event(
                             work_dir,
                             prefix=prefix,
@@ -3581,12 +3712,20 @@ def xhtml_for_section(
 ) -> str:
     title = html.escape(strip_source_watermarks(translate_title(section.title)))
     rows: list[str] = []
-    
-    for idx, block in enumerate(section.blocks, start=1):
+
+    for block in section.blocks:
         english = strip_source_watermarks(block.text)
-        korean, study_note = split_translation_and_note(strip_source_watermarks(translations.get(block.id, "")))
+        raw_translation = strip_source_watermarks(translations.get(block.id, ""))
+        korean, study_note = split_translation_and_note(raw_translation)
         if not korean:
-            korean = "" if not english else "[번역 누락] " + english
+            raise RuntimeError(f"번역 누락으로 EPUB를 만들 수 없습니다: {block.id}")
+        strict_findings = strict_untranslated_output_findings(
+            {block.id: english}, {block.id: raw_translation}
+        )
+        if strict_findings:
+            raise RuntimeError(
+                f"영문 원문 누출로 EPUB를 만들 수 없습니다: {block.id}"
+            )
 
         if len(english) <= 80 and english.upper() == english and re.search(r"[A-Z]", english):
             rows.append(
@@ -3689,12 +3828,12 @@ def ncx(
         scenes = (section_scenes_map or {}).get(section.filename, [])
         sec_title = html.escape(strip_source_watermarks(translate_title(section.title)))
         first_src = f"{html.escape(section.filename)}#{scenes[0][1]}" if scenes else html.escape(section.filename)
-        
+
         np_str = f'''  <navPoint id="navpoint-{index:03d}" playOrder="{play_order}">
     <navLabel><text>{sec_title}</text></navLabel>
     <content src="{first_src}"/>'''
         play_order += 1
-        
+
         if scenes:
             sub_points = []
             for stitle, sid in scenes:
@@ -3708,9 +3847,9 @@ def ncx(
             np_str += "\n" + "\n".join(sub_points) + "\n  </navPoint>"
         else:
             np_str += "\n  </navPoint>"
-            
+
         points.append(np_str)
-        
+
     return f'''<?xml version="1.0" encoding="utf-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="ko">
 <head>
@@ -4344,13 +4483,13 @@ def _main() -> int:
                 target_edition="k-e"
             )
             if is_dup and existing_path and existing_path.exists() and existing_path != output_epub:
-                print(f"\n==================================================================")
-                print(f"🛡️ [DEDUPLICATION GUARD] 중복 작업 사전 차단 (SKIP)")
+                print("\n==================================================================")
+                print("🛡️ [DEDUPLICATION GUARD] 중복 작업 사전 차단 (SKIP)")
                 print(f"  • 대상 도서 : {input_epub.name}")
                 print(f"  • 차단 사유 : {reason}")
                 print(f"  • 기존 정본 : {existing_path}")
-                print(f"  (강제 재번역이 필요한 경우 --force-retranslate 플래그를 사용하세요)")
-                print(f"==================================================================\n")
+                print("  (강제 재번역이 필요한 경우 --force-retranslate 플래그를 사용하세요)")
+                print("==================================================================\n")
                 return 0
         except Exception as exc:
             print(f"[Deduplication Guard Warning] {exc}")
@@ -4381,6 +4520,25 @@ def _main() -> int:
     # belong in the body text, not in the book's title metadata or cover title.
     ko_book_title = args.book_title_ko or book_title
     blocks = all_blocks(sections)
+
+    # 🛡️ Pre-flight English Language Gate (AGENTS.md Rule 9)
+    sample_text = " ".join(b.text for b in blocks[:50])
+    sample_words = re.findall(r'[a-zA-ZáéíóúüñÁÉÍÓÚÜÑàèìòùÀÈÌÒÙäöüÄÖÜßçÇ]+', sample_text.lower())
+    if sample_words:
+        common_en = {"the", "and", "of", "to", "a", "in", "that", "is", "was", "he", "for", "it", "with", "as", "his", "on", "be", "at", "by", "i", "this", "had", "not", "are", "but", "from", "or", "have", "an", "they", "which", "one", "you", "were", "her", "all", "she", "there", "would", "their", "we", "him", "been", "has", "when", "who", "will", "more", "no", "if", "out", "so", "said", "what", "up", "its", "about", "into", "than", "them"}
+        common_foreign = {"que", "de", "no", "la", "el", "en", "y", "los", "del", "se", "las", "por", "un", "para", "con", "una", "su", "al", "lo", "como", "más", "pero", "sus", "le", "ya", "und", "der", "die", "das", "nicht", "von", "sie", "ist", "des", "sich", "mit", "dem", "dass", "er", "es", "ein", "ich", "auf", "so", "eine", "auch", "als", "an", "nach", "wie", "im", "für", "man", "aber", "aus", "durch", "wenn", "nur", "war", "noch", "werden", "bei", "hat", "wir", "was", "wird", "sein", "einen", "welche", "sind", "oder", "zur", "um", "haben", "einer", "mir", "ihm", "einem", "über", "les", "du", "qui", "dans", "par", "plus", "pas", "sur", "avec", "sont", "il", "ou", "aux", "son", "sa", "mais", "ont", "ses", "cette", "comme", "aussi", "tout", "nous", "leur", "elle", "deux", "bien", "ces", "sans", "peut", "faire", "tous", "fait"}
+        en_hits = sum(1 for w in sample_words if w in common_en)
+        foreign_hits = sum(1 for w in sample_words if w in common_foreign)
+        # Foreign only if foreign density exceeds English or foreign words dominate
+        if (foreign_hits > en_hits and foreign_hits >= 10) or (foreign_hits > 15 and en_hits < 10):
+            print("\n==================================================================")
+            print("🚫 [NON-ENGLISH SOURCE REJECTED] (Rule 9 Violation)")
+            print(f"  • 도서명: {input_epub.name}")
+            print(f"  • 사유: 영어 원서가 아닌 외국어 원서 감지 (Foreign words: {foreign_hits}, English words: {en_hits})")
+            print("  • 조치: 비영어 원서 번역 즉시 거부 및 종료 (SKIP)")
+            print("==================================================================\n")
+            return 0
+
     chunks = build_chunks(blocks, max(2000, args.max_chars_per_chunk))
     section_split_review = assess_section_split_quality(sections, book_title)
     write_json(
@@ -4449,6 +4607,17 @@ def _main() -> int:
     missing = [block.id for block in blocks if not translations.get(block.id)]
     if missing:
         raise SystemExit(f"번역 누락 또는 빈 블록 {len(missing)}개가 있어 EPUB를 만들 수 없습니다. 예: {', '.join(missing[:10])}")
+    # Re-run the same strict gate over the complete cache immediately before
+    # publication. This catches stale/legacy cache entries that predate the
+    # chunk-level validator and prevents them from becoming visible EPUB text.
+    all_sources = {block.id: block.text for block in blocks}
+    strict_failures = strict_untranslated_output_findings(all_sources, translations)
+    if strict_failures:
+        sample = ", ".join(finding.block_id for finding in strict_failures[:10])
+        raise SystemExit(
+            f"영문 원문 누출 가능성이 있는 번역 {len(strict_failures)}개로 EPUB를 만들 수 없습니다. "
+            f"재번역 대상: {sample}"
+        )
     diagnostics.progress(stage="build_epub", completed=len(chunks), total=len(chunks), success=True)
     build_epub(
         output_epub=output_epub,
@@ -4479,27 +4648,21 @@ def _main() -> int:
         study_cleanup = scrub_epub(study_output_epub)
         if str(study_cleanup.get("status") or "").startswith("error:"):
             raise RuntimeError(f"[study] EPUB 워터마크 삭제 검증에 실패했습니다: {study_cleanup['status']}")
-        
-        # Enforce 2-Tier Master Dual Inspector Protocol (Rule 12)
-        try:
-            # Tier 1: Master Quality Inspector
-            from audiobook_studio.master_quality_inspector import inspect_epub_quality
-            insp = inspect_epub_quality(study_output_epub, "[study]")
-            if not insp.passed:
-                print(f"⚠️ [TIER-1 INSPECTOR WARNING] Issues detected in {study_output_epub.name}: {insp.errors}")
-            else:
-                print(f"🛡️ [TIER-1 MASTER INSPECTOR] 100% Passed for {study_output_epub.name}!")
 
-            # Tier 2: Ultimate Integrity Sentinel (Senior Inspector)
-            from audiobook_studio.ultimate_integrity_sentinel import conduct_ultimate_integrity_audit, format_sentinel_report
-            sentinel_rep = conduct_ultimate_integrity_audit(study_output_epub, "[study]")
-            if not sentinel_rep.passed:
-                print(f"🚨 [TIER-2 SENTINEL REJECTION] Critical flaws in {study_output_epub.name}: {sentinel_rep.critical_flaws}")
+        # Enforce 3-Tier Master Inspector Team Protocol (Rule 13)
+        try:
+            from audiobook_studio.master_inspector_team import run_master_inspector_team
+            team_rep = run_master_inspector_team(study_output_epub, "[study]")
+            if team_rep.unanimous_seal:
+                print(f"🌟 [3-TIER MASTER TEAM APPROVAL] 100% Unanimous Digital Seal for {study_output_epub.name}!")
             else:
-                print(f"🏛️ [TIER-2 ULTIMATE SENTINEL] Digital Seal Granted (100% Absolute Integrity): {study_output_epub.name}!")
+                print(f"🚨 [3-TIER MASTER TEAM REJECTION] Issues found in {study_output_epub.name}:\n"
+                      f"  Tier 1 Passed: {team_rep.t1_report.passed}\n"
+                      f"  Tier 2 Passed: {team_rep.t2_report.passed}\n"
+                      f"  Tier 3 (Visual Screen) Passed: {team_rep.t3_report.passed}")
         except Exception as e:
-            print(f"⚠️ Dual Inspector hook notice: {e}")
-            
+            print(f"⚠️ 3-Tier Inspector Team hook notice: {e}")
+
         beat_heartbeat(heartbeat, stage="study_epub_complete", detail=str(study_output_epub))
         study_result = {"path": str(study_output_epub)}
 

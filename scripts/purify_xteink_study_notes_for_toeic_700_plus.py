@@ -11,14 +11,9 @@ TOEIC 700+ to 990 Target Standard:
 
 from __future__ import annotations
 
-import html
 import io
-import json
-import os
 import re
-import shutil
 import sys
-import time
 import zipfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -58,12 +53,12 @@ rt, rt.wordwise-hint {
 def clean_ruby_tags_in_html(html_str: str) -> tuple[str, int, int]:
     rubies_before = html_str.count("<ruby>")
     rubies_kept = 0
-    
+
     def repl_ruby(m):
         nonlocal rubies_kept
         rb_text = m.group(1).strip()
         rt_text = m.group(2).strip()
-        
+
         if is_valid_toeic_700_plus_target(rb_text):
             rubies_kept += 1
             return f'<ruby><rb>{rb_text}</rb><rt class="wordwise-hint">{rt_text}</rt></ruby>'
@@ -76,7 +71,7 @@ def clean_ruby_tags_in_html(html_str: str) -> tuple[str, int, int]:
         html_str,
         flags=re.DOTALL | re.IGNORECASE
     )
-    
+
     def repl_p(pm):
         p_content = pm.group(0)
         has_rubies = "<ruby>" in p_content
@@ -95,16 +90,16 @@ def clean_ruby_tags_in_html(html_str: str) -> tuple[str, int, int]:
 
 def purify_single_xteink_epub(ep_path_str: str) -> tuple[str, int, int, bool]:
     ep = Path(ep_path_str)
-    
+
     try:
         data = {}
         total_before = 0
         total_after = 0
-        
+
         with zipfile.ZipFile(ep, "r") as src_zip:
             for item in src_zip.infolist():
                 content = src_zip.read(item.filename)
-                
+
                 if item.filename.endswith((".xhtml", ".html")) and not any(k in item.filename.lower() for k in ["xray", "cover"]):
                     html_str = content.decode("utf-8", errors="ignore")
                     p_html, b_cnt, a_cnt = clean_ruby_tags_in_html(html_str)
@@ -115,7 +110,7 @@ def purify_single_xteink_epub(ep_path_str: str) -> tuple[str, int, int, bool]:
                     data[item.filename] = KINDLE_CSS.encode("utf-8")
                 else:
                     data[item.filename] = content
-                    
+
         # Write back
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as dst:
@@ -125,16 +120,16 @@ def purify_single_xteink_epub(ep_path_str: str) -> tuple[str, int, int, bool]:
                 dst.writestr("mimetype", b"application/epub+zip", compress_type=zipfile.ZIP_STORED)
             for fname, cdata in data.items():
                 dst.writestr(fname, cdata)
-                
+
         ep.write_bytes(buf.getvalue())
-        
+
         # Sync to GDrive
         if GDRIVE_ROOT.exists():
             rel = ep.relative_to(LIB_ROOT)
             gd_dest = GDRIVE_ROOT / rel
             gd_dest.parent.mkdir(parents=True, exist_ok=True)
             gd_dest.write_bytes(buf.getvalue())
-            
+
         return ep.name, total_before, total_after, True
     except Exception as e:
         return ep.name, 0, 0, False
@@ -144,14 +139,14 @@ def main():
     print("📱 PURIFYING [xteink] EDITIONS: STRICT TOEIC 700+ TO 990 STANDARD")
     print("==================================================================")
     print(f"🚫 Base Stoplist Active: {len(BASIC_VOCAB_STOPLIST):,} middle-school basic words will be stripped.")
-    
+
     epubs = [str(p) for p in XTEINK_ROOT.rglob("*.epub") if p.stat().st_size > 10000]
     print(f"📚 Purifying {len(epubs):,} [xteink] EPUBs across [study] & [e-s] (12 workers)...\n")
-    
+
     total_before = 0
     total_after = 0
     success = 0
-    
+
     with ProcessPoolExecutor(max_workers=12) as ex:
         futures = [ex.submit(purify_single_xteink_epub, ep) for ep in epubs]
         for fut in as_completed(futures):
@@ -163,7 +158,7 @@ def main():
                 diff = b_cnt - a_cnt
                 if b_cnt > 0 and diff > 0:
                     print(f"  ✨ [xteink Purified] {name[:45]:<45} | {b_cnt:>6,} ➔ {a_cnt:>6,} rubies (Stripped {diff:>5,} basic words)")
-                    
+
     print("\n==================================================================")
     print("🎉 ALL [xteink] EDITIONS 100% PURIFIED & SYNCHRONIZED!")
     print(f"  • Total Books Processed : {success:,} / {len(epubs):,} books")

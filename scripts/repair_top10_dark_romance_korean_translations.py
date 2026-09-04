@@ -98,29 +98,29 @@ def repair_book(epub_stem: str):
     if not ke_path.exists():
         print(f"❌ Not found: {ke_path}")
         return
-        
-    print(f"\n==================================================")
+
+    print("\n==================================================")
     print(f"🔧 Repairing: {epub_stem}")
-    print(f"==================================================")
-    
+    print("==================================================")
+
     with tempfile.TemporaryDirectory() as tmp_dir_str:
         tmp_dir = Path(tmp_dir_str)
         with zipfile.ZipFile(ke_path, "r") as zin:
             zin.extractall(tmp_dir)
-            
+
         modified_count = 0
         for xhtml_f in tmp_dir.glob("**/*.xhtml"):
             content = xhtml_f.read_text(encoding="utf-8", errors="ignore")
             soup = BeautifulSoup(content, "html.parser")
             mod = False
-            
+
             for p in soup.find_all("p", class_="pair"):
                 en_s = p.find("span", class_="en")
                 ko_s = p.find("span", class_="ko")
                 if en_s and ko_s:
                     en_t = en_s.get_text(strip=True)
                     ko_t = ko_s.get_text(strip=True)
-                    
+
                     if en_t in MASTER_TRANSLATIONS:
                         ko_s.string = MASTER_TRANSLATIONS[en_t]
                         mod = True
@@ -130,13 +130,13 @@ def repair_book(epub_stem: str):
                                 ko_s.string = v
                                 mod = True
                                 break
-                                
+
             if mod:
                 xhtml_f.write_text(str(soup), encoding="utf-8")
                 modified_count += 1
-                
+
         print(f"  ✅ Repaired {modified_count} chapters in [k-e].")
-        
+
         # Re-pack [k-e]
         ke_temp = tmp_dir / "repack.epub"
         with zipfile.ZipFile(ke_temp, "w") as zout:
@@ -147,27 +147,27 @@ def repair_book(epub_stem: str):
                 if f.is_file() and f != ke_temp and f.name != "mimetype":
                     zout.write(f, f.relative_to(tmp_dir), compress_type=zipfile.ZIP_DEFLATED)
         shutil.copy2(ke_temp, ke_path)
-        
+
     # Re-derive [study], [k], [e-s], and [xteink]
     study_path = LIB_ROOT / f"[study]/#Top 10 dark romance/[study] {epub_stem}.epub"
     k_path = LIB_ROOT / f"[k]/#Top 10 dark romance/[k] {epub_stem}.epub"
     es_path = LIB_ROOT / f"[e-s]/#Top 10 dark romance/[e-s] {epub_stem}.epub"
     xteink_study = LIB_ROOT / f"[xteink]/[study]/#Top 10 dark romance/[study] {epub_stem}.epub"
     xteink_es = LIB_ROOT / f"[xteink]/[e-s]/#Top 10 dark romance/[e-s] {epub_stem}.epub"
-    
+
     print("  📦 Rebuilding [study]...")
     process_single_epub((str(ke_path), str(study_path)))
-    
+
     print("  📦 Rebuilding [k] (Korean-only)...")
     make_korean(ke_path, k_path, overwrite=True)
-    
+
     print("  📦 Rebuilding [e-s]...")
     make_english_study(study_path, es_path, overwrite=True)
-    
+
     for src, dst in [(study_path, xteink_study), (es_path, xteink_es)]:
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
-        
+
     print(f"  🎉 Completed all 6 editions for: {epub_stem}")
 
 def main():

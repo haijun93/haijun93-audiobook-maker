@@ -15,7 +15,7 @@ modern_books = []
 for ep in study_epubs:
     if ep.name.startswith("._"):
         continue
-        
+
     try:
         with zipfile.ZipFile(ep) as z:
             total_pairs = 0
@@ -31,7 +31,7 @@ for ep in study_epubs:
                     ko_span = p.find("span", class_="ko")
                     if ko_span and ko_span.get_text(strip=True):
                         total_ko_len += len(ko_span.get_text(strip=True))
-                        
+
             # Check if true modern full context translation
             is_modern = total_pairs > 50 and total_ko_len > 10000
             if is_modern:

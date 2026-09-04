@@ -7,7 +7,6 @@ by injecting high-yield TOEIC 700+ vocabulary notes using the 215,000+ Master St
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import re
@@ -27,7 +26,7 @@ STOPWORDS = {
     "a", "an", "the", "and", "or", "but", "if", "then", "else", "when", "at", "from",
     "by", "for", "with", "about", "against", "between", "into", "through", "during",
     "before", "after", "above", "below", "to", "of", "up", "down", "in", "out", "on",
-    "off", "over", "under", "again", "further", "then", "once", "here", "there", "all",
+    "off", "over", "under", "again", "further", "once", "here", "there", "all",
     "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
     "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will",
     "just", "don", "should", "now", "i", "you", "he", "she", "it", "we", "they", "me",
@@ -184,11 +183,11 @@ def main():
         if not target_study.exists():
             tasks.append((str(ep), str(target_study)))
 
-    print(f"===============================================================")
-    print(f"🚀 Launching Batch Library Study Notes Injection Engine")
+    print("===============================================================")
+    print("🚀 Launching Batch Library Study Notes Injection Engine")
     print(f"   • Total Books to Process : {len(tasks):,} books")
     print(f"   • Master Lexicon Entries : {len(get_lexicon()):,} entries")
-    print(f"===============================================================")
+    print("===============================================================")
 
     success = 0
     total_notes = 0
@@ -206,11 +205,11 @@ def main():
                 print(f"❌ Failed: {name} ({count})")
 
     print("\n===============================================================")
-    print(f"🎉 Batch Study Generation Completed Successfully!")
+    print("🎉 Batch Study Generation Completed Successfully!")
     print(f"   • Total Books Processed : {success:,} / {len(tasks):,}")
     print(f"   • Total TOEIC Notes     : {total_notes:,} notes injected")
     print(f"   • Elapsed Time          : {time.time() - t0:.2f} seconds")
-    print(f"===============================================================")
+    print("===============================================================")
 
 
 if __name__ == "__main__":

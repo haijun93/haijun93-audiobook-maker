@@ -13,7 +13,6 @@ Cleans and normalizes all EPUB filenames across the entire library:
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import unicodedata
@@ -39,35 +38,35 @@ def main():
     print("==================================================================")
     print("🧹 FIXING REPEATED PREFIXES & CLEANING DUPLICATES IN LIBRARY")
     print("==================================================================")
-    
+
     editions = {
         "[k]": "[k]",
         "[k-e]": "[k-e]",
         "[study]": "[study]",
         "[e-s]": "[e-s]"
     }
-    
+
     total_cleaned = 0
     total_renamed = 0
     total_removed_duplicates = 0
-    
+
     for ed_key, ed_tag in editions.items():
         ed_dir = lib_root / ed_key
         if not ed_dir.exists():
             continue
-            
+
         print(f"\n📂 Processing Edition: {ed_key}")
         epubs = [p for p in ed_dir.rglob("*.epub") if not p.name.startswith("._")]
-        
+
         for epub in sorted(epubs):
             pure_name = clean_title(epub.name)
             expected_name = f"{ed_tag} {pure_name}"
-            
+
             if epub.name == expected_name:
                 continue
-                
+
             target_path = epub.with_name(expected_name)
-            
+
             if target_path.exists() and target_path != epub:
                 # Target clean file already exists, this is an erroneous duplicate -> remove it
                 epub.unlink()
@@ -78,13 +77,13 @@ def main():
                 epub.rename(target_path)
                 total_renamed += 1
                 print(f"  ✏️ Renamed: {epub.name} -> {expected_name}")
-                
-    print(f"\n==================================================================")
-    print(f"🎉 LOCAL LIBRARY PREFIX CLEANUP COMPLETE!")
+
+    print("\n==================================================================")
+    print("🎉 LOCAL LIBRARY PREFIX CLEANUP COMPLETE!")
     print(f"  - Removed Duplicates : {total_removed_duplicates}")
     print(f"  - Renamed Files      : {total_renamed}")
-    print(f"==================================================================")
-    
+    print("==================================================================")
+
     # Mirror & clean on Google Drive
     print("\n☁️ Synchronizing cleanup to Google Drive #Books...")
     for ed_key in editions:
@@ -92,7 +91,7 @@ def main():
         l_ed_dir = lib_root / ed_key
         if not g_ed_dir.exists() or not l_ed_dir.exists():
             continue
-            
+
         # Clean obsolete files on GDrive
         for g_epub in g_ed_dir.rglob("*.epub"):
             if g_epub.name.startswith("._"):
@@ -105,7 +104,7 @@ def main():
                     print(f"  ☁️ Removed obsolete GDrive file: {g_epub.name}")
                 except Exception:
                     pass
-                    
+
         # Copy newly renamed or clean files to GDrive
         for l_epub in l_ed_dir.rglob("*.epub"):
             if l_epub.name.startswith("._"):

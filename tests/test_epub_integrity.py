@@ -219,6 +219,48 @@ def test_extract_sections_uses_epub3_nav_labels_when_no_ncx_is_present(tmp_path:
     ]
 
 
+def test_extract_sections_recovers_internal_headings_from_generic_start_ncx(tmp_path: Path) -> None:
+    # A valid but useless NCX with only Start must not become synthetic Chapter N
+    # sections when the reading documents contain meaningful semantic headings.
+    epub_path = tmp_path / "generic_start.epub"
+    package = """<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="book-id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Generic Start</dc:title></metadata>
+  <manifest>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ch2" href="ch2.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ch3" href="ch3.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+  </manifest>
+  <spine toc="ncx"><itemref idref="ch1"/><itemref idref="ch2"/><itemref idref="ch3"/></spine>
+</package>"""
+    ncx = """<?xml version="1.0" encoding="utf-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>
+  <navPoint id="start" playOrder="1"><navLabel><text>Start</text></navLabel><content src="ch1.xhtml"/></navPoint>
+</navMap></ncx>"""
+    with zipfile.ZipFile(epub_path, "w") as archive:
+        archive.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        archive.writestr("META-INF/container.xml", CONTAINER)
+        archive.writestr("OEBPS/content.opf", package)
+        archive.writestr("OEBPS/toc.ncx", ncx)
+        for number, heading in enumerate(("SPRING", "SUMMER", "FALL"), start=1):
+            archive.writestr(
+                f"OEBPS/ch{number}.xhtml",
+                f'<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml">'
+                f"<body><h2 id=\"heading-{number}\">{heading}</h2>"
+                f"<p>Substantial prose for {heading.lower()}.</p></body></html>",
+            )
+
+    _title, _creator, sections = extract_sections(epub_path)
+
+    assert [section.title for section in sections] == ["SPRING", "SUMMER", "FALL"]
+    assert [section.filename for section in sections] == [
+        "001-spring.xhtml",
+        "002-summer.xhtml",
+        "003-fall.xhtml",
+    ]
+
+
 def test_extract_sections_recovers_chapters_from_inbody_contents_page_when_official_nav_is_broken(
     tmp_path: Path,
 ) -> None:

@@ -472,16 +472,16 @@ class JobManager:
             )
             default_output = source / "audiobooks"
         summary = scan_folder_sources(source, operation=operation, recursive=bool(normalized.get("recursive")))
-        
+
         # 배치 번역 작업일 때 이미 번역된 파일들을 제외
         if operation == "batch_translation":
             korean_root = Path("/Users/hyeokjunkong/Desktop/소설2/[k]").expanduser().resolve()
             existing_books = get_existing_korean_books(korean_root)
-            
+
             # 이미 번역된 파일들을 샘플에서 제외
             if existing_books and summary["sample"]:
                 summary["sample"] = [f for f in summary["sample"] if f not in existing_books]
-        
+
         if summary["total"] <= 0:
             raise JobValidationError("No supported source files were found in the selected folder")
         output = Path(output_dir).expanduser().resolve() if str(output_dir or "").strip() else default_output

@@ -14,8 +14,6 @@ Rigorous, paragraph-by-paragraph classifier for [study] vs [study-]:
 
 from __future__ import annotations
 
-import json
-import os
 import re
 import shutil
 import unicodedata
@@ -73,21 +71,21 @@ def inspect_single_epub(epub_path_str: str, verified_cache_keys: set[str]) -> di
     rel_str = str(rel_p)
     clean_stem = re.sub(r'\[.*?\]\s*', '', ep.stem)
     clean_k = re.sub(r'[^a-zA-Z0-9가-힣]', '', clean_stem.lower())
-    
+
     # Check 1: Known Series Match
     if any(pat.lower() in rel_str.lower() for pat in KNOWN_NEW_SERIES):
         return {"path": epub_path_str, "is_new": True, "reason": "Verified Full-Catalogue AI Series"}
-        
+
     # Check 2: Work Cache Match
     for ck in verified_cache_keys:
         if len(clean_k) >= 6 and (clean_k in ck or ck in clean_k):
             return {"path": epub_path_str, "is_new": True, "reason": f"Work Cache Match ({ck[:20]})"}
-            
+
     # Check 3: Deep Paragraph Content Analysis
     static_dict_hits = 0
     ai_context_hits = 0
     total_notes = 0
-    
+
     try:
         with zipfile.ZipFile(ep, "r") as z:
             htmls = [n for n in z.namelist() if n.endswith((".xhtml", ".html"))]
@@ -125,25 +123,25 @@ def main():
     print("==================================================================")
     print("🔬 RIGOROUS LIBRARY-WIDE [study] vs [study-] CLASSIFICATION")
     print("==================================================================")
-    
+
     verified_keys = get_verified_work_cache_keys()
     print(f"Verified AI Translation Work Cache Keys: {len(verified_keys):,}")
-    
+
     all_study_epubs = sorted(study_dir.glob("**/*.epub"))
     print(f"Total Study EPUBs to Classify: {len(all_study_epubs):,}")
-    
+
     tasks = [str(p) for p in all_study_epubs]
-    
+
     new_version_list = []
     old_version_list = []
-    
+
     with ProcessPoolExecutor(max_workers=8) as ex:
         futures = [ex.submit(inspect_single_epub, t, verified_keys) for t in tasks]
         for fut in as_completed(futures):
             res = fut.result()
             ep = Path(res["path"])
             is_new = res["is_new"]
-            
+
             if is_new:
                 # Must have [study] prefix
                 pure_name = ep.name.replace("[study-] ", "[study] ").replace("[study-]", "[study] ")
@@ -161,7 +159,7 @@ def main():
                     shutil.move(str(ep), str(target_p))
                 old_version_list.append((target_p, res["reason"]))
 
-    print(f"\nClassification Finished:")
+    print("\nClassification Finished:")
     print(f"  • Confirmed New-Version AI Web Translations ([study])  : {len(new_version_list):,} books")
     print(f"  • Confirmed Old-Version Static Lexicon Translations ([study-]): {len(old_version_list):,} books")
 
@@ -169,8 +167,8 @@ def main():
     print("\nSynchronizing to Google Drive #Books/[study]...")
     for gd_f in gdrive_study.glob("**/*.epub"):
         try: gd_f.unlink()
-        except: pass
-        
+        except Exception:
+            pass
     local_all = list(study_dir.glob("**/*.epub"))
     for lp in local_all:
         rel = lp.relative_to(study_dir)
@@ -184,7 +182,7 @@ def main():
     print("\n--- SAMPLE NEW-VERSION [study] (AUTHENTIC AI) BOOKS ---")
     for p, r in new_version_list[:10]:
         print(f"  🌟 {p.parent.name} / {p.name} | ({r})")
-        
+
     print("\n--- SAMPLE OLD-VERSION [study-] (STATIC LEXICON) BOOKS ---")
     for p, r in old_version_list[:10]:
         print(f"  🏷️ {p.parent.name} / {p.name} | ({r})")

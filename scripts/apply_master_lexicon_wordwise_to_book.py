@@ -8,11 +8,9 @@ directly into `[study]` and `[e-s]` editions of Tears of Tess.
 
 from __future__ import annotations
 
-import html
 import io
 import json
 import re
-import shutil
 import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -51,7 +49,7 @@ STOPWORDS = {
     "a", "an", "the", "and", "or", "but", "if", "then", "else", "when", "at", "from",
     "by", "for", "with", "about", "against", "between", "into", "through", "during",
     "before", "after", "above", "below", "to", "of", "up", "down", "in", "out", "on",
-    "off", "over", "under", "again", "further", "then", "once", "here", "there", "all",
+    "off", "over", "under", "again", "further", "once", "here", "there", "all",
     "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
     "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will",
     "just", "don", "should", "now", "i", "you", "he", "she", "it", "we", "they", "me",
@@ -73,9 +71,9 @@ def annotate_en_sentence(en_text: str, lexicon: dict[str, str]) -> tuple[str, bo
     tokens = re.findall(r"\b[a-zA-Z]+(?:'[a-zA-Z]+)?\b", en_text)
     if not tokens:
         return en_text, False
-        
+
     candidates = []
-    
+
     # 1. 2-word & 3-word collocations
     words_lower = [t.lower() for t in tokens]
     for i in range(len(words_lower) - 1):
@@ -86,18 +84,18 @@ def annotate_en_sentence(en_text: str, lexicon: dict[str, str]) -> tuple[str, bo
             trigram = f"{words_lower[i]} {words_lower[i+1]} {words_lower[i+2]}"
             if trigram in lexicon:
                 candidates.append((trigram, lexicon[trigram], 15))
-                
+
     # 2. Single words
     for w in words_lower:
         if len(w) >= 4 and w not in STOPWORDS and w in lexicon:
             candidates.append((w, lexicon[w], 5))
-            
+
     if not candidates:
         return en_text, False
-        
+
     # Sort candidates by priority and length
     candidates.sort(key=lambda x: (x[2], len(x[0])), reverse=True)
-    
+
     selected = []
     seen = set()
     for w, m, _ in candidates:
@@ -106,7 +104,7 @@ def annotate_en_sentence(en_text: str, lexicon: dict[str, str]) -> tuple[str, bo
             selected.append((w, m))
         if len(selected) >= 4:  # Max 4 Word Wise hints per sentence for clean layout
             break
-            
+
     annotated = en_text
     has_ruby = False
     for w, m in selected:
@@ -118,33 +116,33 @@ def annotate_en_sentence(en_text: str, lexicon: dict[str, str]) -> tuple[str, bo
             ruby_str = f'<ruby><rb>{orig_word}</rb><rt class="wordwise-hint">{m}</rt></ruby>'
             annotated = pattern.sub(ruby_str, annotated, count=1)
             has_ruby = True
-            
+
     return annotated, has_ruby
 
 def process_study_and_es_epubs():
     print("==================================================================")
     print("⚡ INJECTING KINDLE GENUINE WORD WISE INTO TEARS OF TESS")
     print("==================================================================")
-    
+
     lexicon = load_lexicon()
     print(f"Loaded {len(lexicon):,} Master Study Lexicon entries.\n")
-    
+
     if not STUDY_EPUB.exists():
         print(f"❌ Target [study] EPUB not found: {STUDY_EPUB}")
         return
-        
+
     processed_study_files = {}
     processed_es_files = {}
     total_rubies = 0
-    
+
     with zipfile.ZipFile(STUDY_EPUB, "r") as src_zip:
         for item in src_zip.infolist():
             content = src_zip.read(item.filename)
-            
+
             if item.filename.endswith((".xhtml", ".html")) and "chapter" in item.filename:
                 soup_study = BeautifulSoup(content.decode("utf-8"), "html.parser")
                 soup_es = BeautifulSoup(content.decode("utf-8"), "html.parser")
-                
+
                 # Update pairs in study
                 for p in soup_study.find_all(class_=lambda c: c and "pair" in c):
                     en_span = p.find("span", class_="en")
@@ -158,7 +156,7 @@ def process_study_and_es_epubs():
                             en_span.replace_with(new_en_soup.span)
                             p["class"] = "pair has-ww"
                             total_rubies += annotated_en.count("<ruby>")
-                            
+
                 # Update pairs in es (strip korean)
                 for p in soup_es.find_all(class_=lambda c: c and "pair" in c):
                     en_span = p.find("span", class_="en")
@@ -175,17 +173,17 @@ def process_study_and_es_epubs():
                             new_en_soup = BeautifulSoup(f'<span class="en has-ww" xml:lang="en">{annotated_en}</span>', "html.parser")
                             en_span.replace_with(new_en_soup.span)
                             p["class"] = "pair has-ww"
-                            
+
                 processed_study_files[item.filename] = str(soup_study).encode("utf-8")
                 processed_es_files[item.filename] = str(soup_es).encode("utf-8")
-                
+
             elif item.filename.endswith(".css"):
                 processed_study_files[item.filename] = KINDLE_CSS.encode("utf-8")
                 processed_es_files[item.filename] = KINDLE_CSS.encode("utf-8")
             else:
                 processed_study_files[item.filename] = content
                 processed_es_files[item.filename] = content
-                
+
     # 1. Save [study]
     buf_study = io.BytesIO()
     with zipfile.ZipFile(buf_study, "w", zipfile.ZIP_DEFLATED) as dst_study:
@@ -193,7 +191,7 @@ def process_study_and_es_epubs():
             dst_study.writestr(fname, data)
     STUDY_EPUB.write_bytes(buf_study.getvalue())
     print(f"✅ Saved [study] edition with {total_rubies:,} overhead Word Wise hints: {STUDY_EPUB.name}")
-    
+
     # 2. Save [e-s]
     buf_es = io.BytesIO()
     with zipfile.ZipFile(buf_es, "w", zipfile.ZIP_DEFLATED) as dst_es:
@@ -201,7 +199,7 @@ def process_study_and_es_epubs():
             dst_es.writestr(fname, data)
     ES_EPUB.write_bytes(buf_es.getvalue())
     print(f"✅ Saved [e-s] edition with pure English + Word Wise hints: {ES_EPUB.name}")
-    
+
     # 3. Sync to [xteink]
     if XTEINK_STUDY.parent.exists():
         XTEINK_STUDY.write_bytes(buf_study.getvalue())
@@ -209,7 +207,7 @@ def process_study_and_es_epubs():
     if XTEINK_ES.parent.exists():
         XTEINK_ES.write_bytes(buf_es.getvalue())
         print(f"📱 Updated Xteink [e-s]: {XTEINK_ES.name}")
-        
+
     print("\n==================================================================")
     print("🎉 KINDLE GENUINE WORD WISE FULLY IMPLEMENTED FOR TEARS OF TESS!")
     print("==================================================================")

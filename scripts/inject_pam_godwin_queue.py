@@ -67,7 +67,7 @@ def inject_queue():
             continue
 
         task_id = f"stage0_pam_{make_slug(matched.stem)}"
-        
+
         # Remove existing if already present
         tasks = [t for t in tasks if t["id"] != task_id]
 

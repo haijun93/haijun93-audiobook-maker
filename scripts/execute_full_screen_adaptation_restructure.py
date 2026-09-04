@@ -10,8 +10,6 @@
 
 from __future__ import annotations
 
-import json
-import re
 import shutil
 from pathlib import Path
 
@@ -89,37 +87,37 @@ OTHER_SCREEN_ADAPTATION_RULES = [
 def determine_target_destination(fname: str, parent_str: str) -> str | None:
     fn_lower = fname.lower()
     full_lower = f"{parent_str.lower()}/{fn_lower}"
-    
+
     # 1. Check Apple TV+ first
     for item in APPLE_TV_RULES:
         if any(kw in fn_lower or kw in full_lower for kw in item["keywords"]):
             return f"#apple tv original/{item['author_folder']}"
-            
+
     # 2. Check Other Screen Adaptations
     for item in OTHER_SCREEN_ADAPTATION_RULES:
         if any(kw in fn_lower or kw in full_lower for kw in item["keywords"]):
             return f"#original books/{item['author_folder']}"
-            
+
     return None
 
 def restructure_edition(ed_root: Path):
     if not ed_root.exists():
         return
-        
+
     print(f"\n📂 Restructuring edition: {ed_root.relative_to(LIB_ROOT)}...")
     epubs = list(ed_root.rglob("*.epub"))
     moved_count = 0
-    
+
     for ep in epubs:
         # Don't touch dedicated full-catalogue authors (Pam Godwin, Freida McFadden, Leigh Rivers, Top 10 dark romance)
         if any(p in str(ep) for p in ["#Freida McFadden", "#Pam Godwin", "#Leigh Rivers", "#Top 10 dark romance"]):
             continue
-            
+
         target_dest = determine_target_destination(ep.name, str(ep.parent))
         if target_dest:
             target_dir = ed_root / target_dest
             target_file = target_dir / ep.name
-            
+
             if ep.parent != target_dir:
                 target_dir.mkdir(parents=True, exist_ok=True)
                 print(f"  🎬 Moving: {ep.name}\n     -> {target_dest}/")
@@ -128,7 +126,7 @@ def restructure_edition(ed_root: Path):
                 else:
                     ep.unlink()
                 moved_count += 1
-                
+
                 # Cleanup empty parent dir
                 try:
                     p = ep.parent
@@ -138,8 +136,8 @@ def restructure_edition(ed_root: Path):
                             p = p.parent
                         else:
                             break
-                except: pass
-                
+                except Exception:
+                    pass
     print(f"   ✨ Successfully relocated {moved_count} screen adaptation books in {ed_root.name}")
 
 def main():
@@ -148,7 +146,7 @@ def main():
     print("   • Apple TV+ Originals -> `#apple tv original/`")
     print("   • All Other Screen Adaptations -> `#original books/`")
     print("==================================================================")
-    
+
     editions = [
         LIB_ROOT / "[k]",
         LIB_ROOT / "[k-e]",
@@ -158,10 +156,10 @@ def main():
         LIB_ROOT / "[xteink]" / "[study]",
         LIB_ROOT / "[xteink]" / "[e-s]",
     ]
-    
+
     for ed in editions:
         restructure_edition(ed)
-        
+
     # GDrive Sync
     if GDRIVE_ROOT.exists():
         print("\n☁️ Synchronizing with Google Drive #Books...")

@@ -9,12 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
-import shutil
 import unicodedata
 import zipfile
-from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,7 +70,7 @@ def extract_notes_from_epub(epub_path: Path) -> dict[str, str]:
                                         or len(v_clean) > len(extracted[k_clean])
                                     ):
                                         extracted[k_clean] = v_clean
-                                        
+
                     # 2. Native Daily English playlist entry format: <div class="entry"><p class="phrase">...</p><p class="meaning">...</p></div>
                     if 'class="entry"' in content or 'class="phrase"' in content:
                         from bs4 import BeautifulSoup
@@ -146,13 +143,13 @@ def update_master_lexicon(verbose: bool = True) -> dict[str, str]:
         )
 
     if verbose:
-        print(f"=== Master Study Lexicon Update Summary ===")
+        print("=== Master Study Lexicon Update Summary ===")
         print(f"  • Total Books Scanned   : {len(scanned_epubs):,} [study] EPUBs")
         print(f"  • Previous Lexicon Size : {initial_count:,} entries")
         print(f"  • New Vocab Added       : +{new_entries_count:,} entries")
         print(f"  • Descriptions Enhanced : +{updated_entries_count:,} entries")
         print(f"  • Current Lexicon Size  : {len(lexicon):,} entries")
-        print(f"  • Synced to MD Collections across Local & Google Drive")
+        print("  • Synced to MD Collections across Local & Google Drive")
 
     return lexicon
 

@@ -9,7 +9,6 @@ Old-Version (pre-August legacy / dictionary-free simple bilingual without authen
 from __future__ import annotations
 
 import json
-import os
 import re
 import zipfile
 from collections import defaultdict
@@ -63,7 +62,7 @@ def main():
 
     # 1. Collect all books in library
     all_books = {}  # clean_key -> dict of edition paths
-    
+
     for ed_name, ed_root in [("study", STUDY_ROOT), ("ke", KE_ROOT), ("k", K_ROOT), ("es", ES_ROOT)]:
         if not ed_root.exists():
             continue

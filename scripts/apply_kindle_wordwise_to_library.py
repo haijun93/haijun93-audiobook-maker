@@ -9,7 +9,6 @@ from __future__ import annotations
 import html
 import os
 import re
-import sys
 import tempfile
 import time
 import zipfile
@@ -122,7 +121,7 @@ def parse_authentic_study_note(note_text: str) -> list[tuple[str, str]]:
             continue
         w = parts[0].strip()
         m = parts[1].strip()
-        
+
         w_clean = re.sub(r"^\([^)]*\)\s*", "", w).strip()
         w_clean = re.sub(r"\s*\([^)]*\)$", "", w_clean).strip()
         # Clean meaning: preserve complete natural phrases without hard length slicing
@@ -132,7 +131,7 @@ def parse_authentic_study_note(note_text: str) -> list[tuple[str, str]]:
             m_clean = m_clean.split("/")[0].strip()
         elif "," in m_clean:
             m_clean = m_clean.split(",")[0].strip()
-            
+
         if w_clean and m_clean and not "장" in w_clean and not "Chapter" in w_clean and not "생략" in m_clean:
             pairs.append((w_clean, m_clean))
     return pairs
@@ -141,23 +140,23 @@ def fast_transform_html(html_str: str, edition_type: str) -> str:
     # Pattern to match <p class="pair">...</p> or <p>...</p>
     def repl_p(m):
         full_p = m.group(0)
-        
+
         # Check for study note
         note_match = re.search(r'<span[^>]*class=["\']study-note["\'][^>]*>(.*?)</span>', full_p, flags=re.DOTALL)
         en_match = re.search(r'<span[^>]*class=["\']en["\'][^>]*>(.*?)</span>', full_p, flags=re.DOTALL)
         ko_match = re.search(r'<span[^>]*class=["\']ko["\'][^>]*>(.*?)</span>', full_p, flags=re.DOTALL)
-        
+
         raw_note = note_match.group(1).strip() if note_match else ""
         raw_en = en_match.group(1).strip() if en_match else ""
         raw_ko = ko_match.group(1).strip() if ko_match else ""
-        
+
         # Check embedded note in ko
         if "※" in raw_ko:
             parts = raw_ko.split("※", 1)
             raw_ko = parts[0].strip()
             emb = "※" + parts[1].strip()
             raw_note = (raw_note + " ; " + emb) if raw_note else emb
-            
+
         # If [e-s] and no spans but has ※ in paragraph text
         if edition_type == "e-s" and not en_match and not ko_match and "※" in full_p:
             p_inner = re.sub(r"^<p[^>]*>|</p>$", "", full_p).strip()
@@ -165,12 +164,12 @@ def fast_transform_html(html_str: str, edition_type: str) -> str:
                 parts = p_inner.split("※", 1)
                 raw_en = parts[0].strip()
                 raw_note = "※" + parts[1].strip()
-                
+
         if not raw_note and not ("<ruby>" in raw_en):
             return full_p
-            
+
         pairs = parse_authentic_study_note(raw_note) if raw_note else []
-        
+
         # Annotate raw_en with Word Wise
         annotated_en = raw_en
         for w, mean in pairs:
@@ -182,10 +181,10 @@ def fast_transform_html(html_str: str, edition_type: str) -> str:
             new_en = re.sub(pattern, ruby_tag, annotated_en, count=1, flags=re.IGNORECASE)
             if new_en != annotated_en:
                 annotated_en = new_en
-                
+
         has_ruby = "<ruby>" in annotated_en
         en_cls = "en has-ww" if has_ruby else "en"
-        
+
         if edition_type == "study":
             if annotated_en and raw_ko:
                 return f'<p class="pair"><span class="{en_cls}" xml:lang="en">{annotated_en}</span><br /><span class="ko" xml:lang="ko">{raw_ko}</span></p>'
@@ -198,14 +197,14 @@ def fast_transform_html(html_str: str, edition_type: str) -> str:
             clean_en = annotated_en or raw_en
             p_cls = ' class="has-ww"' if has_ruby else ''
             return f'<p{p_cls}><span class="{en_cls}" xml:lang="en">{clean_en}</span></p>'
-            
+
     return re.sub(r"<p\b[^>]*>.*?</p>", repl_p, html_str, flags=re.DOTALL)
 
 def process_epub_file(epub_path: Path) -> bool:
     is_study = "/[study]/" in str(epub_path) or epub_path.name.startswith("[study]")
     edition_type = "study" if is_study else "e-s"
     kindle_css = get_kindle_css()
-    
+
     tmp_file = None
     try:
         with zipfile.ZipFile(epub_path, "r") as zin:
@@ -213,7 +212,7 @@ def process_epub_file(epub_path: Path) -> bool:
             fd, tmp_path_str = tempfile.mkstemp(suffix=".epub", dir=epub_path.parent)
             os.close(fd)
             tmp_file = Path(tmp_path_str)
-            
+
             with zipfile.ZipFile(tmp_file, "w") as zout:
                 zout.comment = zin.comment
                 if "mimetype" in in_names:
@@ -222,12 +221,12 @@ def process_epub_file(epub_path: Path) -> bool:
                         zin.read("mimetype"),
                         compress_type=zipfile.ZIP_STORED
                     )
-                    
+
                 for name in in_names:
                     if name == "mimetype":
                         continue
                     data = zin.read(name)
-                    
+
                     if name.lower().endswith(".css"):
                         zout.writestr(name, kindle_css, compress_type=zipfile.ZIP_DEFLATED)
                     elif name.endswith((".xhtml", ".html", ".htm")):
@@ -239,7 +238,7 @@ def process_epub_file(epub_path: Path) -> bool:
                             zout.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
                     else:
                         zout.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
-                        
+
         tmp_file.replace(epub_path)
         return True
     except Exception as e:
@@ -252,14 +251,14 @@ def main():
     print("==================================================================", flush=True)
     print("🌟 BATCH APPLYING KINDLE GENUINE WORD WISE ACROSS [study] & [e-s]", flush=True)
     print("==================================================================", flush=True)
-    
+
     study_files = sorted(list((LIB_ROOT / "[study]").rglob("*.epub")))
     es_files = sorted(list((LIB_ROOT / "[e-s]").rglob("*.epub")))
-    
+
     print(f"📚 [study] Books: {len(study_files)}", flush=True)
     print(f"📚 [e-s] Books:   {len(es_files)}", flush=True)
     print(f"📚 Total Books:   {len(study_files) + len(es_files)}\n", flush=True)
-    
+
     print("🚀 1/2: Processing [study] edition books...", flush=True)
     study_ok = 0
     for i, f in enumerate(study_files, 1):
@@ -267,7 +266,7 @@ def main():
             study_ok += 1
         if i % 100 == 0 or i == len(study_files):
             print(f"   -> [study] Progress: {i}/{len(study_files)} ({study_ok} updated)", flush=True)
-            
+
     print("\n🚀 2/2: Processing [e-s] edition books...", flush=True)
     es_ok = 0
     for i, f in enumerate(es_files, 1):
@@ -275,7 +274,7 @@ def main():
             es_ok += 1
         if i % 100 == 0 or i == len(es_files):
             print(f"   -> [e-s] Progress: {i}/{len(es_files)} ({es_ok} updated)", flush=True)
-            
+
     elapsed = time.time() - t0
     print("\n==================================================================", flush=True)
     print(f"🎉 COMPLETED in {elapsed:.1f}s! Successfully enhanced {study_ok + es_ok}/{len(study_files) + len(es_files)} books!", flush=True)

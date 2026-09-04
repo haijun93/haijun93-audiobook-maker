@@ -7,7 +7,6 @@ the 609 canonical [k-e] bilingual editions using the 216,400+ Master Study Lexic
 
 from __future__ import annotations
 
-import html as html_mod
 import json
 import os
 import re
@@ -21,13 +20,20 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 ROOT = Path(__file__).resolve().parents[1]
+import sys
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
+
 LEXICON_PATH = ROOT / "data" / "master_study_lexicon.json"
 
 STOPWORDS = {
     "a", "an", "the", "and", "or", "but", "if", "then", "else", "when", "at", "from",
     "by", "for", "with", "about", "against", "between", "into", "through", "during",
     "before", "after", "above", "below", "to", "of", "up", "down", "in", "out", "on",
-    "off", "over", "under", "again", "further", "then", "once", "here", "there", "all",
+    "off", "over", "under", "again", "further", "once", "here", "there", "all",
     "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
     "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will",
     "just", "don", "should", "now", "i", "you", "he", "she", "it", "we", "they", "me",
@@ -100,7 +106,7 @@ def build_study_and_es_from_ke(task_info: tuple[str, str, str]) -> tuple[bool, s
             z.extractall(tmp_dir)
 
         injected_count = 0
-        
+
         # 1. Inject study notes into all xhtml
         for html_file in tmp_dir.glob("**/*.xhtml"):
             content = html_file.read_text(encoding="utf-8")
@@ -149,6 +155,7 @@ def build_study_and_es_from_ke(task_info: tuple[str, str, str]) -> tuple[bool, s
                     rel_p = full_p.relative_to(tmp_dir)
                     z_out.write(full_p, str(rel_p))
         shutil.move(str(tmp_study_epub), str(dest_study))
+        purge_xray_from_epub(dest_study)
 
         # 3. Create [e-s] by removing <span class="ko"> and preceding <br/>
         dest_es.parent.mkdir(parents=True, exist_ok=True)
@@ -178,6 +185,7 @@ def build_study_and_es_from_ke(task_info: tuple[str, str, str]) -> tuple[bool, s
                     rel_p = full_p.relative_to(tmp_dir)
                     z_out.write(full_p, str(rel_p))
         shutil.move(str(tmp_es_epub), str(dest_es))
+        purge_xray_from_epub(dest_es)
 
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return (True, dest_study.name, injected_count)
@@ -216,7 +224,7 @@ def main():
         tasks.append((str(ke_epub), str(dest_study_epub), str(dest_es_epub)))
 
     print("==================================================================")
-    print(f"🚀 Launching Full [study] & [e-s] Master Rebuild Engine")
+    print("🚀 Launching Full [study] & [e-s] Master Rebuild Engine")
     print(f"   • Total Source [k-e] Books: {len(tasks):,}")
     print(f"   • Master Study Lexicon    : {len(get_lexicon()):,} entries")
     print("==================================================================")
@@ -237,7 +245,7 @@ def main():
                 print(f"❌ Failed {name}: {count}")
 
     print("\n==================================================================")
-    print(f"🎉 Full Library [study] & [e-s] Rebuild Completed Successfully!")
+    print("🎉 Full Library [study] & [e-s] Rebuild Completed Successfully!")
     print(f"   • Total Books Built   : {success:,} / {len(tasks):,}")
     print(f"   • Total Study Notes   : {total_notes:,} TOEIC 700+ notes injected")
     print(f"   • Execution Time      : {time.time() - t0:.2f} seconds")

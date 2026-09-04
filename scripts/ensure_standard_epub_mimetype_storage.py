@@ -18,7 +18,7 @@ def fix_mimetype_in_epub(ep_path_str: str) -> bool:
         with zipfile.ZipFile(ep, "r") as z:
             for item in z.infolist():
                 data[item.filename] = z.read(item.filename)
-                
+
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
             if "mimetype" in data:

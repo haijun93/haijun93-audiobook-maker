@@ -116,7 +116,7 @@ def rebuild_all_editions_for_rise_of_ink_and_smoke():
     print("==================================================================")
     print("🔧 REPAIRING RISE OF INK AND SMOKE TRANSLATIONS & 6 EDITIONS")
     print("==================================================================")
-    
+
     ke_path = LIB_ROOT / "[k-e]/#Pam Godwin/[k-e] Rise of Ink and Smoke Pam Godwin.epub"
     if not ke_path.exists():
         print(f"❌ Cannot find base k-e: {ke_path}")
@@ -127,13 +127,13 @@ def rebuild_all_editions_for_rise_of_ink_and_smoke():
         tmp_dir = Path(tmp_dir_str)
         with zipfile.ZipFile(ke_path, "r") as zin:
             zin.extractall(tmp_dir)
-            
+
         for xhtml_f in tmp_dir.glob("**/*.xhtml"):
             if "001" in xhtml_f.name or "002" in xhtml_f.name or "003" in xhtml_f.name:
                 repaired = repair_xhtml_content(xhtml_f.read_text(encoding="utf-8"))
                 xhtml_f.write_text(repaired, encoding="utf-8")
                 print(f"  ✅ Repaired [k-e] chapter: {xhtml_f.name}")
-                
+
         # Re-pack [k-e] with proper mimetype first
         ke_temp = tmp_dir / "repacked_ke.epub"
         with zipfile.ZipFile(ke_temp, "w") as zout:
@@ -154,16 +154,16 @@ def rebuild_all_editions_for_rise_of_ink_and_smoke():
     study_path = LIB_ROOT / "[study]/#Pam Godwin/[study] Rise of Ink and Smoke Pam Godwin.epub"
     k_path = LIB_ROOT / "[k]/#Pam Godwin/[k] Rise of Ink and Smoke Pam Godwin.epub"
     es_path = LIB_ROOT / "[e-s]/#Pam Godwin/[e-s] Rise of Ink and Smoke Pam Godwin.epub"
-    
+
     xteink_study = LIB_ROOT / "[xteink]/[study]/#Pam Godwin/[study] Rise of Ink and Smoke Pam Godwin.epub"
     xteink_es = LIB_ROOT / "[xteink]/[e-s]/#Pam Godwin/[e-s] Rise of Ink and Smoke Pam Godwin.epub"
 
     print("\n📦 Generating authentic [study] with Word Wise notes...")
     process_single_epub((str(ke_path), str(study_path)))
-    
+
     print("📦 Generating [k] Korean-only edition...")
     make_korean(ke_path, k_path, overwrite=True)
-    
+
     print("📦 Generating [e-s] English study edition...")
     make_english_study(study_path, es_path, overwrite=True)
 

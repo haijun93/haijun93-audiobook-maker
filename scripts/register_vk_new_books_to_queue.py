@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import zipfile
 from pathlib import Path
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
@@ -98,32 +97,32 @@ def register_and_queue():
     print("==================================================================")
     print("🚀 REGISTERING 8 NEW VK BOOKS & ENQUEUEING FOR TRANSLATION")
     print("==================================================================")
-    
+
     # 1. Load supervisor config
     cfg = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {"tasks": []}
     existing_tasks = cfg.get("tasks", [])
     existing_ids = {t["id"] for t in existing_tasks}
-    
+
     new_tasks = []
-    
+
     for item in NEW_BOOK_MAP:
         pat = item["src_pattern"]
         matched = list(VK_DIR.glob(f"*{pat}*.epub"))
         if not matched:
             print(f"  ⚠️ File matching {pat} not found in {VK_DIR}")
             continue
-            
+
         src_epub = matched[0]
         # Target path in 소설2/[e]/
         target_e = LIB_ROOT / "[e]" / item["genre"] / item["author_folder"] / f"[e] {item['standard_title']}.epub"
         target_e.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src_epub, target_e)
-        
+
         target_ke = LIB_ROOT / "[k-e]" / item["genre"] / item["author_folder"] / f"[k-e] {item['standard_title']}.epub"
         target_study = LIB_ROOT / "[study]" / item["genre"] / item["author_folder"] / f"[study] {item['standard_title']}.epub"
-        
+
         task_id = "stage1_vk_" + re.sub(r"[^a-zA-Z0-9]", "", item["standard_title"].lower())[:30]
-        
+
         task_entry = {
             "id": task_id,
             "title": f"[e] {item['standard_title']}.epub",
@@ -135,7 +134,7 @@ def register_and_queue():
             "status": "pending",
             "provider": item["provider"]
         }
-        
+
         # Add to list if not already there
         if task_id not in existing_ids:
             new_tasks.append(task_entry)
@@ -149,7 +148,7 @@ def register_and_queue():
     all_tasks = sorted(all_tasks, key=lambda t: t.get("priority", 0), reverse=True)
     cfg["tasks"] = all_tasks
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
-    
+
     print(f"\n📦 Updated {CONFIG_PATH} with {len(all_tasks):,} total queued tasks.\n")
 
 if __name__ == "__main__":

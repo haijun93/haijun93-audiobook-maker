@@ -34,7 +34,7 @@ FOUND_BOOKS = [
 def main():
     cfg = json.loads(CONFIG_PATH.read_text())
     tasks = cfg.get("tasks", [])
-    
+
     for item in FOUND_BOOKS:
         src = item["src"]
         if src.exists():
@@ -43,14 +43,14 @@ def main():
             dest_f = dest_dir / item["title_e"]
             shutil.copy2(src, dest_f)
             print(f"✅ Copied English Edition to library: {dest_f.relative_to(LIB_ROOT)}")
-            
+
             clean_stem = dest_f.name.replace("[e] ", "").replace(".epub", "")
             tid = f"stage1_replace_non_en_{re.sub(r'[^a-zA-Z0-9]', '', item['title_e'].lower())}"
-            
+
             # Check duplicate
             if any(t.get("id") == tid for t in tasks):
                 continue
-                
+
             new_task = {
                 "id": tid,
                 "input_epub": str(dest_f),
@@ -69,7 +69,7 @@ def main():
             }
             tasks.insert(0, new_task)
             print(f"🚀 Queued: {item['title_ko']} (Priority 3000)")
-            
+
     cfg["tasks"] = tasks
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
 

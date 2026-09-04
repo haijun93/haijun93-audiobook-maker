@@ -184,7 +184,7 @@ def main() -> int:
         status_data["tasks"] = updated_status_tasks
         STATUS_PATH.write_text(json.dumps(status_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"Successfully configured 10 VK Dark Romance books with PRIORITY -1000!")
+    print("Successfully configured 10 VK Dark Romance books with PRIORITY -1000!")
     for idx, (author, title, stem, rank) in enumerate(VK_DARK_BOOKS, 1):
         print(f"  {rank} {title} -> {DEST_CATEGORY}")
 

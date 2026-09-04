@@ -7,7 +7,6 @@ using authentic new-version study EPUBs from '/Users/hyeokjunkong/Desktop/소설
 
 from __future__ import annotations
 
-import html as html_mod
 import os
 import re
 import shutil

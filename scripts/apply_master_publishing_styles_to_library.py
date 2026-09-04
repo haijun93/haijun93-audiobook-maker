@@ -12,7 +12,6 @@ Includes:
 from __future__ import annotations
 
 import os
-import re
 import sys
 import tempfile
 import zipfile
@@ -22,7 +21,7 @@ LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 
 def build_master_css(edition_type: str) -> str:
     margin_val = "0.5em"  # Unified 0.5em golden standard across all editions
-    
+
     return f'''@charset "utf-8";
 html, body {{
   margin: 0;
@@ -131,7 +130,7 @@ def get_edition_type(path: Path) -> str:
 def process_epub(epub_path: Path) -> bool:
     ed_type = get_edition_type(epub_path)
     master_css_bytes = build_master_css(ed_type).encode("utf-8")
-    
+
     tmp_file = None
     try:
         with zipfile.ZipFile(epub_path, "r") as zin:
@@ -139,7 +138,7 @@ def process_epub(epub_path: Path) -> bool:
             fd, tmp_path_str = tempfile.mkstemp(suffix=".epub", dir=epub_path.parent)
             os.close(fd)
             tmp_file = Path(tmp_path_str)
-            
+
             with zipfile.ZipFile(tmp_file, "w") as zout:
                 zout.comment = zin.comment
                 # Preserve uncompressed mimetype at offset 0
@@ -149,7 +148,7 @@ def process_epub(epub_path: Path) -> bool:
                         zin.read("mimetype"),
                         compress_type=zipfile.ZIP_STORED
                     )
-                
+
                 for name in in_names:
                     if name == "mimetype":
                         continue
@@ -159,7 +158,7 @@ def process_epub(epub_path: Path) -> bool:
                     else:
                         data = zin.read(name)
                         zout.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
-                    
+
         # Replace atomically
         tmp_file.replace(epub_path)
         return True
@@ -173,18 +172,18 @@ def main():
     print("==================================================================")
     print("🌟 APPLYING PUBLISHING MASTER STYLESHEET ACROSS ENTIRE LIBRARY")
     print("==================================================================")
-    
+
     editions = ["[k]", "[k-e]", "[study]", "[e-s]"]
     total_processed = 0
     total_success = 0
-    
+
     for ed in editions:
         ed_dir = LIB_ROOT / ed
         if not ed_dir.exists():
             continue
         epub_files = list(ed_dir.rglob("*.epub"))
         print(f"\n🎨 Enhancing {ed} ({len(epub_files)} books)...")
-        
+
         success_cnt = 0
         for ep in epub_files:
             if process_epub(ep):
@@ -192,7 +191,7 @@ def main():
         print(f"   -> Successfully updated {success_cnt}/{len(epub_files)} EPUBs in {ed}")
         total_processed += len(epub_files)
         total_success += success_cnt
-        
+
     print("\n==================================================================")
     print(f"🎉 MASTER STYLES APPLIED: Successfully enhanced {total_success}/{total_processed} EPUBs!")
     print("==================================================================")

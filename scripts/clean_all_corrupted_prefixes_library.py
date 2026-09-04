@@ -15,7 +15,6 @@ Comprehensive Prefix Sanitizer across the entire 4-edition library:
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import unicodedata
@@ -36,14 +35,14 @@ def extract_pure_title(filename: str) -> str:
     name = filename
     if name.lower().endswith(".epub"):
         name = name[:-5]
-        
+
     while True:
         m = CORRUPTED_PREFIX_PATTERN.match(name)
         if m:
             name = name[m.end():].strip()
         else:
             break
-            
+
     # Also strip any accidental leading dashes or symbols after prefix
     name = re.sub(r"^[-_–—\s]+", "", name).strip()
     return name + ".epub"
@@ -53,36 +52,36 @@ def main():
     print("==================================================================")
     print("🧹 COMPREHENSIVE PREFIX SANITIZATION & DEDUPLICATION (LIBRARY)")
     print("==================================================================")
-    
+
     editions = {
         "[k]": "[k]",
         "[k-e]": "[k-e]",
         "[study]": "[study]",
         "[e-s]": "[e-s]"
     }
-    
+
     total_scanned = 0
     total_renamed = 0
     total_duplicates_removed = 0
-    
+
     for ed_key, ed_prefix in editions.items():
         ed_dir = lib_root / ed_key
         if not ed_dir.exists():
             continue
-            
+
         print(f"\n📂 Sanitizing Edition: {ed_key}")
         epubs = [p for p in ed_dir.rglob("*.epub") if not p.name.startswith("._")]
         total_scanned += len(epubs)
-        
+
         for epub in sorted(epubs):
             pure_title = extract_pure_title(epub.name)
             clean_name = f"{ed_prefix} {pure_title}"
-            
+
             if epub.name == clean_name:
                 continue
-                
+
             clean_path = epub.with_name(clean_name)
-            
+
             if clean_path.exists() and clean_path != epub:
                 # Clean version already exists -> remove duplicate corrupted version
                 epub.unlink()
@@ -93,14 +92,14 @@ def main():
                 epub.rename(clean_path)
                 total_renamed += 1
                 print(f"  ✨ Renamed: {epub.name} \n           -> {clean_name}")
-                
+
     print("\n==================================================================")
-    print(f"🎉 LOCAL LIBRARY PREFIX SANITIZATION COMPLETE!")
+    print("🎉 LOCAL LIBRARY PREFIX SANITIZATION COMPLETE!")
     print(f"  - Total Files Scanned        : {total_scanned}")
     print(f"  - Files Renamed to Clean     : {total_renamed}")
     print(f"  - Corrupted Duplicates Purged: {total_duplicates_removed}")
     print("==================================================================")
-    
+
     # Sync with Google Drive #Books
     print("\n☁️ Synchronizing sanitization to Google Drive #Books...")
     for ed_key in editions:
@@ -108,7 +107,7 @@ def main():
         l_ed_dir = lib_root / ed_key
         if not g_ed_dir.exists() or not l_ed_dir.exists():
             continue
-            
+
         # 1. Remove obsolete corrupted files from GDrive
         for g_epub in g_ed_dir.rglob("*.epub"):
             if g_epub.name.startswith("._"):
@@ -121,7 +120,7 @@ def main():
                     print(f"  ☁️ Purged from GDrive: {g_epub.name}")
                 except Exception:
                     pass
-                    
+
         # 2. Upload clean files to GDrive
         for l_epub in l_ed_dir.rglob("*.epub"):
             if l_epub.name.startswith("._"):

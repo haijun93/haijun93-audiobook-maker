@@ -13,12 +13,19 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import sys
 import tempfile
 import unicodedata
 import zipfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from bs4 import BeautifulSoup
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
 
 desktop = Path("/Users/hyeokjunkong/Desktop")
 lib_root = next(p for p in desktop.iterdir() if "소설2" in unicodedata.normalize("NFC", p.name))
@@ -80,47 +87,47 @@ def derive_es_from_study(study_epub_str: str) -> dict:
     ep = Path(study_epub_str)
     rel_p = ep.relative_to(study_dir)
     clean_parent = sanitize_rel_parent(rel_p.parent)
-    
+
     # Determine target filename and prefix
     is_pure_new = ep.name.startswith("[study]") and not ep.name.startswith("[study-]")
     if is_pure_new:
         target_name = ep.name.replace("[study] ", "[e-s] ").replace("[study]", "[e-s]")
     else:
         target_name = ep.name.replace("[study-] ", "[e-s-] ").replace("[study-]", "[e-s-]")
-        
+
     out_epub = es_dir / clean_parent / target_name
     out_epub.parent.mkdir(parents=True, exist_ok=True)
-    
+
     try:
         tmp_dir = Path(tempfile.mkdtemp(prefix="make_es_"))
         with zipfile.ZipFile(ep, "r") as z:
             z.extractall(tmp_dir)
-            
+
         # Update CSS if exists or add ES_CUSTOM_CSS
         for css_f in tmp_dir.glob("**/*.css"):
             css_f.write_text(ES_CUSTOM_CSS, encoding="utf-8")
-            
+
         htmls = list(tmp_dir.glob("**/*.xhtml")) + list(tmp_dir.glob("**/*.html"))
         transformed_pairs = 0
-        
+
         for h in htmls:
             content = h.read_text(encoding="utf-8", errors="ignore")
             if "class=\"pair\"" not in content and "<p class=\"pair\"" not in content:
                 continue
-                
+
             soup = BeautifulSoup(content, "html.parser")
             h_mod = False
-            
+
             for p in soup.find_all(class_=lambda c: c and "pair" in c):
                 ko_span = p.find("span", class_="ko")
                 if ko_span:
                     ko_span.decompose() # Remove Korean text in [e-s] edition
                     transformed_pairs += 1
                     h_mod = True
-                    
+
             if h_mod:
                 h.write_text(str(soup), encoding="utf-8")
-                
+
         # Package into new e-s epub
         tmp_out = tmp_dir.parent / f"{ep.stem}_derived.epub"
         with zipfile.ZipFile(tmp_out, "w", zipfile.ZIP_DEFLATED) as z_out:
@@ -133,10 +140,11 @@ def derive_es_from_study(study_epub_str: str) -> dict:
                     rel_z = fp.relative_to(tmp_dir)
                     if str(rel_z) == "mimetype": continue
                     z_out.write(fp, str(rel_z))
-                    
+
         shutil.move(str(tmp_out), str(out_epub))
+        purge_xray_from_epub(out_epub)
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        
+
         return {
             "ok": True,
             "target": target_name,
@@ -154,16 +162,16 @@ def main():
     print("==================================================================")
     print("🚀 DERIVING & REPLACING ALL [e-s] EDITIONS FROM AUTHENTIC [study]")
     print("==================================================================")
-    
+
     all_study_epubs = sorted(study_dir.glob("**/*.epub"))
     print(f"Total Study EPUBs to derive [e-s] from: {len(all_study_epubs):,}")
-    
+
     tasks = [str(p) for p in all_study_epubs]
-    
+
     pure_es_count = 0
     dash_es_count = 0
     total_pairs = 0
-    
+
     with ProcessPoolExecutor(max_workers=8) as ex:
         futures = [ex.submit(derive_es_from_study, t) for t in tasks]
         for fut in as_completed(futures):
@@ -177,7 +185,7 @@ def main():
             else:
                 print(f"  ❌ Error building {res.get('target')}: {res.get('error')}")
 
-    print(f"\nDerived [e-s] Summary:")
+    print("\nDerived [e-s] Summary:")
     print(f"  • Pure '[e-s]'  (New Version AI Study Notes)    : {pure_es_count:,} books")
     print(f"  • Dash '[e-s-]' (Old Version Static Study Notes) : {dash_es_count:,} books")
     print(f"  • Total Transformed English Paragraphs           : {total_pairs:,} pairs")
@@ -191,14 +199,14 @@ def main():
             try:
                 es_f.unlink()
                 cleaned_orphans += 1
-            except: pass
-
+            except Exception:
+                pass
     # Synchronize 100% to Google Drive #Books/[e-s]
     print("\nSynchronizing clean 1:1 state to Google Drive #Books/[e-s]...")
     for gd_f in gdrive_es.glob("**/*.epub"):
         try: gd_f.unlink()
-        except: pass
-        
+        except Exception:
+            pass
     local_es_all = list(es_dir.glob("**/*.epub"))
     for lp in local_es_all:
         rel = lp.relative_to(es_dir)

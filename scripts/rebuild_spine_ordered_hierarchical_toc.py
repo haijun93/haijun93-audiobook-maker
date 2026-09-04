@@ -15,7 +15,6 @@ import html
 import os
 import re
 import shutil
-import sys
 import tempfile
 import unicodedata
 import zipfile
@@ -23,7 +22,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from bs4 import BeautifulSoup, NavigableString
+from bs4 import BeautifulSoup
 
 desktop = Path("/Users/hyeokjunkong/Desktop")
 lib_root = next(p for p in desktop.iterdir() if "소설2" in unicodedata.normalize("NFC", p.name))
@@ -70,34 +69,34 @@ def get_first_valid_sentence(tag) -> str:
 def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
     if not epub_path.exists() or epub_path.name.startswith("._"):
         return epub_path.name, False, "skipped"
-        
+
     try:
         with tempfile.TemporaryDirectory() as tmp_dir_str:
             tmp_dir = Path(tmp_dir_str)
             with zipfile.ZipFile(epub_path, "r") as zin:
                 zin.extractall(tmp_dir)
-                
+
             # 1. Locate OPF and get exact Spine order
             opf_files = list(tmp_dir.rglob("*.opf"))
             if not opf_files:
                 return epub_path.name, False, "no_opf"
-                
+
             opf_path = opf_files[0]
             opf_dir = opf_path.parent
-            
+
             try:
                 opf_tree = ET.parse(opf_path)
                 opf_root = opf_tree.getroot()
             except Exception:
                 return epub_path.name, False, "opf_parse_error"
-                
+
             manifest = {}
             for item in opf_root.findall(".//{http://www.idpf.org/2007/opf}item"):
                 item_id = item.attrib.get("id")
                 item_href = item.attrib.get("href")
                 if item_id and item_href:
                     manifest[item_id] = item_href
-                    
+
             spine_itemrefs = opf_root.findall(".//{http://www.idpf.org/2007/opf}itemref")
             spine_files = []
             for itemref in spine_itemrefs:
@@ -108,26 +107,26 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
                     file_path = (opf_dir / href).resolve()
                     if file_path.exists() and file_path.suffix.lower() in [".xhtml", ".html"]:
                         spine_files.append((file_path, href))
-                        
+
             if not spine_files:
                 return epub_path.name, False, "no_spine_files"
-                
+
             # 2. Iterate spine files in EXACT reading play order
             global_scene_counter = 1
             toc_structure = [] # List of {title, href, scenes: [{title, anchor_id}]}
-            
+
             for file_path, rel_href in spine_files:
                 # Skip nav.xhtml, cover.xhtml from internal scene splitting unless legitimate chapter
                 is_nav = "nav.xhtml" in file_path.name.lower() or "toc.xhtml" in file_path.name.lower()
                 is_cover = "cover.xhtml" in file_path.name.lower()
-                
+
                 try:
                     content = file_path.read_text(encoding="utf-8", errors="ignore")
                 except Exception:
                     continue
-                    
+
                 soup = BeautifulSoup(content, "html.parser")
-                
+
                 # Check / update CSS
                 style_tag = soup.find("style")
                 if style_tag:
@@ -141,7 +140,7 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
                         new_style = soup.new_tag("style")
                         new_style.string = f"\n{CLEAN_CSS}\n"
                         head.append(new_style)
-                        
+
                 # Extract chapter main title
                 chap_title = ""
                 h1 = soup.find("h1")
@@ -152,15 +151,15 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
                 else:
                     # fallback from filename
                     chap_title = file_path.stem.replace("-", " ").replace("_", " ").title()
-                    
+
                 chap_title = clean_summary_text(chap_title, max_len=40)
                 if not chap_title:
                     chap_title = f"Chapter {len(toc_structure) + 1}"
-                    
+
                 # Clean any previous duplicate/stale scene subheadings
                 for h3 in soup.find_all("h3", class_="scene-subheading"):
                     h3.decompose()
-                    
+
                 # If cover or nav, don't inject scene subheadings
                 if is_nav or is_cover:
                     toc_structure.append({
@@ -170,7 +169,7 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
                     })
                     file_path.write_text(str(soup), encoding="utf-8")
                     continue
-                    
+
                 # Find scene separation points
                 # 1) Look for explicit delimiters (hr, p with ***, etc)
                 delimiters = []
@@ -181,7 +180,7 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
                         txt = p_tag.get_text(strip=True)
                         if txt and SEP_PATTERN.match(txt):
                             delimiters.append(p_tag)
-                            
+
                 # Merge consecutive delimiters
                 filtered_delims = []
                 for d in delimiters:
@@ -190,12 +189,12 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
                         if prev.find_next_sibling() == d or d.find_previous_sibling() == prev:
                             continue
                     filtered_delims.append(d)
-                    
+
                 file_scenes = []
-                
+
                 # Check if file is large (>25 paragraphs) and has 0 delimiters -> chunk by 25 paragraphs
                 all_paras = [p for p in soup.find_all("p") if p.get_text(strip=True) and not SEP_PATTERN.match(p.get_text(strip=True))]
-                
+
                 if len(filtered_delims) > 0:
                     for d in filtered_delims:
                         anchor_id = f"sc-{global_scene_counter:03d}"
@@ -204,11 +203,11 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
                             scene_title = f"제{global_scene_counter}막: {first_sentence}"
                         else:
                             scene_title = f"제{global_scene_counter}막"
-                            
+
                         h3_tag = soup.new_tag("h3", attrs={"class": "scene-subheading", "id": anchor_id})
                         h3_tag.string = scene_title
                         d.insert_after(h3_tag)
-                        
+
                         file_scenes.append({"title": scene_title, "anchor_id": anchor_id})
                         global_scene_counter += 1
                 elif len(all_paras) >= 30:
@@ -221,22 +220,22 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
                             scene_title = f"제{global_scene_counter}막: {first_sentence}"
                         else:
                             scene_title = f"제{global_scene_counter}막"
-                            
+
                         h3_tag = soup.new_tag("h3", attrs={"class": "scene-subheading", "id": anchor_id})
                         h3_tag.string = scene_title
                         p_target.insert_before(h3_tag)
-                        
+
                         file_scenes.append({"title": scene_title, "anchor_id": anchor_id})
                         global_scene_counter += 1
-                        
+
                 toc_structure.append({
                     "title": chap_title,
                     "href": rel_href,
                     "scenes": file_scenes
                 })
-                
+
                 file_path.write_text(str(soup), encoding="utf-8")
-                
+
             # 3. Generate Perfectly Spine-Ordered toc.ncx and nav.xhtml
             # NCX
             ncx_files = list(tmp_dir.rglob("*.ncx"))
@@ -244,12 +243,12 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
                 ncx_path = ncx_files[0]
                 ncx_play_order = 1
                 nav_points_xml = []
-                
+
                 for chap in toc_structure:
                     chap_np_id = f"navPoint-{ncx_play_order}"
                     chap_src = chap["href"]
                     chap_title_esc = html.escape(chap["title"])
-                    
+
                     sub_points_xml = []
                     ncx_play_order += 1
                     for sc in chap["scenes"]:
@@ -261,7 +260,7 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
       <content src="{sub_src}"/>
     </navPoint>""")
                         ncx_play_order += 1
-                        
+
                     if sub_points_xml:
                         subs_str = "\n".join(sub_points_xml)
                         nav_points_xml.append(f"""  <navPoint id="{chap_np_id}" playOrder="{ncx_play_order}">
@@ -274,7 +273,7 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
     <navLabel><text>{chap_title_esc}</text></navLabel>
     <content src="{chap_src}"/>
   </navPoint>""")
-                        
+
                 ncx_full_xml = f"""<?xml version="1.0" encoding="utf-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
   <head>
@@ -289,7 +288,7 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
   </navMap>
 </ncx>"""
                 ncx_path.write_text(ncx_full_xml, encoding="utf-8")
-                
+
             # NAV XHTML
             nav_files = list(tmp_dir.rglob("nav.xhtml")) + list(tmp_dir.rglob("toc.xhtml"))
             if nav_files:
@@ -313,7 +312,7 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
       </li>""")
                     else:
                         nav_lis.append(f'      <li><a href="{chap_src}">{chap_title_esc}</a></li>')
-                        
+
                 nav_full_xhtml = f"""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
@@ -338,7 +337,7 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
 </body>
 </html>"""
                 nav_path.write_text(nav_full_xhtml, encoding="utf-8")
-                
+
             # 4. Pack EPUB
             with zipfile.ZipFile(epub_path, "w") as zout:
                 mimetype_file = tmp_dir / "mimetype"
@@ -351,7 +350,7 @@ def process_single_epub(epub_path: Path) -> tuple[str, bool, str]:
                         if str(rel_p) == "mimetype":
                             continue
                         zout.write(full_p, str(rel_p), compress_type=zipfile.ZIP_DEFLATED)
-                        
+
         return epub_path.name, True, f"scenes: {global_scene_counter - 1}"
     except Exception as e:
         return epub_path.name, False, f"error: {e}"
@@ -361,13 +360,13 @@ def main():
     print("==================================================================")
     print("🌟 REBUILDING SPINE-ORDERED 2-LEVEL HIERARCHICAL TOC (ENTIRE LIBRARY)")
     print("==================================================================")
-    
+
     # 1. First test directly on The Intruder
     target_intruder = lib_root / "[k]/#Freida McFadden/[k] The Intruder Freida McFadden 3 (3.00).epub"
     if target_intruder.exists():
         name, ok, msg = process_single_epub(target_intruder)
         print(f"🎯 Target Fixed: {name} -> {ok} ({msg})")
-        
+
     all_epubs = []
     for ed in ["[k]", "[k-e]", "[study]", "[e-s]"]:
         ed_dir = lib_root / ed
@@ -375,24 +374,24 @@ def main():
             epubs = [p for p in ed_dir.rglob("*.epub") if not p.name.startswith("._")]
             all_epubs.extend(epubs)
             print(f"  Found {len(epubs):4} EPUBs in {ed}")
-            
+
     print(f"\nTotal EPUBs to re-align & build spine TOC: {len(all_epubs)}")
-    
+
     success_count = 0
     with ProcessPoolExecutor(max_workers=8) as executor:
         futures = {executor.submit(process_single_epub, epub): epub for epub in all_epubs}
-        
+
         for i, future in enumerate(as_completed(futures), start=1):
             name, ok, msg = future.result()
             if ok:
                 success_count += 1
             if i % 300 == 0 or i == len(all_epubs):
                 print(f"  [{i:4}/{len(all_epubs)}] Processed {success_count} books in strict spine order...")
-                
-    print(f"\n🎉 ALL SPINE-ORDERED TOCs REBUILT SUCCESSFULLY!")
+
+    print("\n🎉 ALL SPINE-ORDERED TOCs REBUILT SUCCESSFULLY!")
     print(f"  - Total Processed: {len(all_epubs)}")
     print(f"  - Success: {success_count}")
-    
+
     print("\n☁️ Synchronizing spine-ordered library to Google Drive #Books...")
     for epub in all_epubs:
         try:

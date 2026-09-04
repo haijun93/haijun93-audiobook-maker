@@ -16,8 +16,6 @@ Zero-Tolerance Inspection Protocols:
 
 from __future__ import annotations
 
-import io
-import json
 import re
 import sys
 import zipfile
@@ -25,12 +23,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from bs4 import BeautifulSoup
+from audiobook_studio.epub_xray_policy import archive_has_xray
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
-from audiobook_studio.study_filter import is_valid_toeic_700_plus_target, BASIC_VOCAB_STOPLIST
+from audiobook_studio.study_filter import is_valid_toeic_700_plus_target, BASIC_VOCAB_STOPLIST  # noqa: E402
 
 @dataclass
 class SentinelAuditReport:
@@ -45,16 +44,24 @@ class SentinelAuditReport:
 def conduct_ultimate_integrity_audit(epub_path: Path | str, edition_type: str = "[study]") -> SentinelAuditReport:
     p = Path(epub_path)
     report = SentinelAuditReport(passed=True, book_title=p.name, edition=edition_type)
-    
+
     if not p.exists() or p.stat().st_size < 15000:
         report.passed = False
         report.critical_flaws.append(f"Physical file missing or truncated (<15KB): {p.stat().st_size if p.exists() else 0} bytes")
         return report
-        
+
     try:
         with zipfile.ZipFile(p, "r") as z:
             names = set(z.namelist())
-            
+
+            has_xray = archive_has_xray(p)
+            if has_xray:
+                report.passed = False
+                report.critical_flaws.append(
+                    "Zero X-Ray Violation: dossier or X-Ray navigation reference remains."
+                )
+            report.detailed_metrics["has_xray"] = has_xray
+
             # --- 1. W3C Strict XML Parsing Guard ---
             xml_files_checked = 0
             for fname in sorted(names):
@@ -66,7 +73,7 @@ def conduct_ultimate_integrity_audit(epub_path: Path | str, edition_type: str = 
                         report.passed = False
                         report.critical_flaws.append(f"W3C XML Parsing Error in '{fname}': {e}")
             report.detailed_metrics["xml_files_checked"] = xml_files_checked
-            
+
             # --- 2. HD Cover Gate Guard ---
             cover_img_files = [n for n in names if "cover" in n.lower() and n.lower().endswith((".jpg", ".jpeg", ".png"))]
             has_cover_img = False
@@ -75,26 +82,37 @@ def conduct_ultimate_integrity_audit(epub_path: Path | str, edition_type: str = 
                 cover_data = z.read(cover_img_files[0])
                 cover_size = len(cover_data)
                 has_cover_img = cover_size >= 10000
-                
+
             has_cover_page = any("000-cover.xhtml" in n or "cover.xhtml" in n.lower() for n in names)
             report.detailed_metrics["has_cover_page"] = has_cover_page
             report.detailed_metrics["has_cover_img"] = has_cover_img
             report.detailed_metrics["cover_bytes"] = cover_size
-            
+
             if not has_cover_img:
                 report.quality_warnings.append(f"Cover image is missing or below high-definition threshold ({cover_size} bytes).")
             if not has_cover_page:
                 report.quality_warnings.append("Cover viewing XHTML page is missing.")
-                
+
             # --- 3. TOC-Spine Synchronization Guard ---
             ncx_pts = 0
             nav_links = 0
             broken_links = 0
-            
+            minimal_original_toc = False
+
             if "OEBPS/toc.ncx" in names:
                 try:
                     root_ncx = ET.fromstring(z.read("OEBPS/toc.ncx"))
-                    for np in root_ncx.findall(".//{http://www.daisy.org/z3986/2005/ncx/}navPoint"):
+                    nav_points = root_ncx.findall(".//{http://www.daisy.org/z3986/2005/ncx/}navPoint")
+                    minimal_original_toc = (
+                        len(nav_points) == 1
+                        and root_ncx.findtext(
+                            ".//{http://www.daisy.org/z3986/2005/ncx/}navLabel/"
+                            "{http://www.daisy.org/z3986/2005/ncx/}text",
+                            "",
+                        ).strip().casefold()
+                        == "start"
+                    )
+                    for np in nav_points:
                         ncx_pts += 1
                         c = np.find("{http://www.daisy.org/z3986/2005/ncx/}content")
                         if c is not None:
@@ -103,7 +121,7 @@ def conduct_ultimate_integrity_audit(epub_path: Path | str, edition_type: str = 
                                 broken_links += 1
                 except Exception:
                     pass
-                    
+
             if "OEBPS/nav.xhtml" in names:
                 try:
                     soup_nav = BeautifulSoup(z.read("OEBPS/nav.xhtml"), "html.parser")
@@ -114,65 +132,45 @@ def conduct_ultimate_integrity_audit(epub_path: Path | str, edition_type: str = 
                             broken_links += 1
                 except Exception:
                     pass
-                    
+
             report.detailed_metrics["ncx_navigation_points"] = ncx_pts
             report.detailed_metrics["nav_html_links"] = nav_links
             report.detailed_metrics["broken_toc_links"] = broken_links
-            
+
             if broken_links > 0:
                 report.passed = False
                 report.critical_flaws.append(f"TOC Synchronization Failure: Found {broken_links} broken chapter links pointing to non-existent files.")
-            if ncx_pts < 3 and nav_links < 3:
+            if ncx_pts < 3 and nav_links < 3 and not minimal_original_toc:
                 report.passed = False
                 report.critical_flaws.append(f"Incomplete TOC: Found only {max(ncx_pts, nav_links)} chapters (Minimum 3 required).")
-                
-            # --- 4. X-Ray Quad-Section Guard ---
-            xray_files = [n for n in names if "xray" in n.lower()]
-            has_xray = len(xray_files) > 0
-            xray_complete = False
-            if has_xray:
-                xray_txt = z.read(xray_files[0]).decode("utf-8", "ignore")
-                sec1 = "등장인물" in xray_txt
-                sec2 = "관계도" in xray_txt or "갈등" in xray_txt
-                sec3 = "무대" in xray_txt or "배경" in xray_txt
-                sec4 = "테마" in xray_txt or "세계관" in xray_txt
-                xray_complete = sec1 and sec2 and sec3 and sec4
-                report.detailed_metrics["xray_sections"] = {"characters": sec1, "relationships": sec2, "settings": sec3, "themes": sec4}
-            report.detailed_metrics["has_xray"] = has_xray
-            report.detailed_metrics["xray_complete"] = xray_complete
-            
-            if not has_xray:
-                report.quality_warnings.append("X-Ray Dramatis Personae dossier is not attached.")
-            elif not xray_complete:
-                report.quality_warnings.append("X-Ray dossier is missing one or more of the 4 mandatory authentic sections.")
-                
-            # --- 5. Lexicon Purity & Zero-Leak Deep Inspection ---
+
+            # --- 4. Lexicon Purity & Zero-Leak Deep Inspection ---
             total_paragraphs = 0
             total_rubies = 0
             basic_stoplist_hits = []
             truncated_rubies = []
             untranslated_ko_sentences = []
-            
+
             for n in sorted(names):
-                if n.endswith((".xhtml", ".html")) and not any(k in n.lower() for k in ["cover", "xray", "nav"]):
+                if n.endswith((".xhtml", ".html")) and not any(k in n.lower() for k in ["cover", "nav"]):
                     soup = BeautifulSoup(z.read(n), "html.parser")
                     for p_tag in soup.find_all("p"):
                         total_paragraphs += 1
-                        
+
                         # Inspect rubies
                         for rb in p_tag.find_all("ruby"):
                             total_rubies += 1
                             rb_word = rb.find("rb").get_text().strip() if rb.find("rb") else ""
                             rt_mean = rb.find("rt").get_text().strip() if rb.find("rt") else ""
-                            
+
                             # Check basic stoplist
                             if rb_word.lower() in BASIC_VOCAB_STOPLIST and not is_valid_toeic_700_plus_target(rb_word):
                                 basic_stoplist_hits.append((n, rb_word, rt_mean))
-                                
+
                             # Check truncation
                             if rt_mean.endswith("...") or rt_mean.endswith("…"):
                                 truncated_rubies.append((n, rb_word, rt_mean))
-                                
+
                         # Inspect Korean translations
                         if edition_type in ["[study]", "[k-e]", "[k]"]:
                             ko_span = p_tag.find("span", class_="ko")
@@ -180,34 +178,34 @@ def conduct_ultimate_integrity_audit(epub_path: Path | str, edition_type: str = 
                             if ko_span:
                                 ko_val = ko_span.get_text().strip()
                                 en_val = en_span.get_text().strip() if en_span else ""
-                                
+
                                 # Strict check for zero Korean in text longer than 2 chars
                                 if ko_val and not re.search(r'[가-힣]', ko_val) and len(ko_val) > 2 and not re.match(r'^[\*\s\-_•~Q0-9\(\)]+$', ko_val):
                                     if ko_val.lower() == en_val.lower():
                                         untranslated_ko_sentences.append((n, en_val[:50], ko_val[:50]))
-                                        
+
             report.detailed_metrics["total_paragraphs"] = total_paragraphs
             report.detailed_metrics["total_rubies"] = total_rubies
             report.detailed_metrics["basic_stoplist_hits_count"] = len(basic_stoplist_hits)
             report.detailed_metrics["truncated_rubies_count"] = len(truncated_rubies)
             report.detailed_metrics["untranslated_ko_sentences_count"] = len(untranslated_ko_sentences)
-            
+
             if len(basic_stoplist_hits) > 0:
                 report.passed = False
                 report.critical_flaws.append(f"Lexicon Purity Violation: Found {len(basic_stoplist_hits)} basic middle-school words in Word Wise hints.")
-                
+
             if len(truncated_rubies) > 0:
                 report.passed = False
                 report.critical_flaws.append(f"Ruby Truncation Violation: Found {len(truncated_rubies)} truncated meanings ending in dots (...).")
-                
+
             if len(untranslated_ko_sentences) > 0:
                 report.passed = False
                 report.critical_flaws.append(f"Absolute Zero-Leak Violation: Found {len(untranslated_ko_sentences)} raw English sentences in Korean spans.")
-                
+
     except Exception as e:
         report.passed = False
         report.critical_flaws.append(f"Catastrophic failure during Tier-2 inspection: {e}")
-        
+
     return report
 
 def format_sentinel_report(rep: SentinelAuditReport) -> str:

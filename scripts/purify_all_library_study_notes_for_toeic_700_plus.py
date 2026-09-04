@@ -14,14 +14,9 @@ TOEIC 700+ to 990 Target Standard:
 
 from __future__ import annotations
 
-import html
 import io
-import json
-import os
 import re
-import shutil
 import sys
-import time
 import zipfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -61,12 +56,12 @@ rt, rt.wordwise-hint {
 
 def clean_ruby_tags(html_str: str, is_es: bool = False) -> tuple[str, int]:
     rubies_kept = 0
-    
+
     def repl_ruby(m):
         nonlocal rubies_kept
         rb_text = m.group(1).strip()
         rt_text = m.group(2).strip()
-        
+
         # Check if the word is a valid TOEIC 700+ target
         if is_valid_toeic_700_plus_target(rb_text):
             rubies_kept += 1
@@ -82,17 +77,17 @@ def clean_ruby_tags(html_str: str, is_es: bool = False) -> tuple[str, int]:
         html_str,
         flags=re.DOTALL | re.IGNORECASE
     )
-    
+
     # 2. Update paragraph / span classes dynamically
     def repl_p(pm):
         p_content = pm.group(0)
         has_rubies = "<ruby>" in p_content
-        
+
         if is_es:
             # For [e-s], remove Korean translations if present
             p_content = re.sub(r'<span[^>]*class=["\']ko["\'][^>]*>.*?</span>', '', p_content, flags=re.DOTALL)
             p_content = re.sub(r'<br\s*/?>', '', p_content)
-            
+
         if has_rubies:
             p_content = re.sub(r'<p\b(?![^>]*class=["\'][^"\']*has-ww)([^>]*)class=["\']([^"\']*)["\']', r'<p\1class="\2 has-ww"', p_content)
             p_content = re.sub(r'<span\b(?![^>]*class=["\'][^"\']*has-ww)([^>]*)class=["\']en["\']', r'<span\1class="en has-ww"', p_content)
@@ -101,7 +96,7 @@ def clean_ruby_tags(html_str: str, is_es: bool = False) -> tuple[str, int]:
             p_content = re.sub(r'class=["\']\s+["\']', '', p_content)
             p_content = re.sub(r'class=["\']pair\s+["\']', 'class="pair"', p_content)
             p_content = re.sub(r'class=["\']en\s+["\']', 'class="en"', p_content)
-            
+
         return p_content
 
     purified_html = re.sub(r'<p\b[^>]*>.*?</p>', repl_p, purified_html, flags=re.DOTALL)
@@ -109,26 +104,26 @@ def clean_ruby_tags(html_str: str, is_es: bool = False) -> tuple[str, int]:
 
 def process_study_epub(epub_path_str: str) -> tuple[str, int, int, bool]:
     study_p = Path(epub_path_str)
-    
+
     try:
         processed_study = {}
         processed_es = {}
         original_rubies = 0
         retained_rubies = 0
-        
+
         with zipfile.ZipFile(study_p, "r") as src_zip:
             for item in src_zip.infolist():
                 content = src_zip.read(item.filename)
-                
+
                 if item.filename.endswith((".xhtml", ".html")) and not any(k in item.filename.lower() for k in ["xray", "cover"]):
                     html_str = content.decode("utf-8", errors="ignore")
                     original_rubies += html_str.count("<ruby>")
-                    
+
                     # Purify for [study]
                     s_html, s_cnt = clean_ruby_tags(html_str, is_es=False)
                     # Purify for [e-s]
                     es_html, _ = clean_ruby_tags(html_str, is_es=True)
-                    
+
                     retained_rubies += s_cnt
                     processed_study[item.filename] = s_html.encode("utf-8")
                     processed_es[item.filename] = es_html.encode("utf-8")
@@ -138,14 +133,14 @@ def process_study_epub(epub_path_str: str) -> tuple[str, int, int, bool]:
                 else:
                     processed_study[item.filename] = content
                     processed_es[item.filename] = content
-                    
+
         # Write [study]
         buf_s = io.BytesIO()
         with zipfile.ZipFile(buf_s, "w", zipfile.ZIP_DEFLATED) as dst_s:
             for fname, data in processed_study.items():
                 dst_s.writestr(fname, data)
         study_p.write_bytes(buf_s.getvalue())
-        
+
         # Write [e-s]
         rel = study_p.relative_to(STUDY_ROOT)
         es_p = ES_ROOT / rel.parent / f"[e-s] {study_p.name.replace('[study] ', '')}"
@@ -155,7 +150,7 @@ def process_study_epub(epub_path_str: str) -> tuple[str, int, int, bool]:
             for fname, data in processed_es.items():
                 dst_es.writestr(fname, data)
         es_p.write_bytes(buf_es.getvalue())
-        
+
         # Sync to Google Drive #Books
         if GDRIVE_ROOT.exists():
             gd_study = GDRIVE_ROOT / "[study]" / rel
@@ -164,7 +159,7 @@ def process_study_epub(epub_path_str: str) -> tuple[str, int, int, bool]:
             gd_es.parent.mkdir(parents=True, exist_ok=True)
             gd_study.write_bytes(buf_s.getvalue())
             gd_es.write_bytes(buf_es.getvalue())
-            
+
         return study_p.name, original_rubies, retained_rubies, True
     except Exception as e:
         return study_p.name, 0, 0, False
@@ -174,14 +169,14 @@ def main():
     print("🧹 PURIFYING ALL LIBRARY STUDY NOTES: STRICT TOEIC 700+ TO 990 TARGET")
     print("==================================================================")
     print(f"🚫 Base Stoplist Active: {len(BASIC_VOCAB_STOPLIST):,} middle-school words will be stripped.")
-    
+
     epubs = [str(p) for p in STUDY_ROOT.rglob("*.epub") if p.stat().st_size > 30000]
     print(f"📚 Purifying and optimizing {len(epubs):,} [study] & [e-s] EPUBs across whole library (12 workers)...\n")
-    
+
     total_before = 0
     total_after = 0
     success_count = 0
-    
+
     with ProcessPoolExecutor(max_workers=12) as ex:
         futures = [ex.submit(process_study_epub, ep) for ep in epubs]
         for fut in as_completed(futures):
@@ -193,7 +188,7 @@ def main():
                 diff = orig_r - kept_r
                 if orig_r > 0:
                     print(f"  ✨ [Purified] {name[:45]:<45} | {orig_r:>6,} ➔ {kept_r:>6,} rubies (Stripped {diff:>5,} basic words)")
-                    
+
     print("\n==================================================================")
     print("🎉 FULL LIBRARY STUDY NOTE PURIFICATION 100% COMPLETED!")
     print(f"  • Total Books Processed : {success_count:,} / {len(epubs):,} books")

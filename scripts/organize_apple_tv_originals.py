@@ -24,7 +24,6 @@
 
 from __future__ import annotations
 
-import re
 import shutil
 from pathlib import Path
 
@@ -142,60 +141,64 @@ def match_apple_tv_original(fname: str, parent_path: str) -> dict | None:
 def process_edition(ed_root: Path):
     if not ed_root.exists():
         return
-        
+
     print(f"\n📂 Processing edition: {ed_root.relative_to(LIB_ROOT)}...")
     apple_root = ed_root / "#apple tv original"
-    
+
     # Scan all epubs in edition
     epubs = list(ed_root.rglob("*.epub"))
     moved_count = 0
     for ep in epubs:
         if "#apple tv original" in str(ep):
             continue
-            
+
         matched = match_apple_tv_original(ep.name, str(ep.parent))
         if matched:
             target_dir = apple_root / matched["author_folder"]
             target_dir.mkdir(parents=True, exist_ok=True)
             target_file = target_dir / ep.name
-            
+
             print(f"  📺 Moving [{matched['title']}]: {ep.name} -> #apple tv original/{matched['author_folder']}/")
             if not target_file.exists() or target_file.stat().st_size != ep.stat().st_size:
                 shutil.move(str(ep), str(target_file))
             else:
                 ep.unlink()
             moved_count += 1
-            
+
             # Clean empty old parent dir if empty
             try:
                 if not any(ep.parent.iterdir()):
                     ep.parent.rmdir()
-            except: pass
-            
+            except Exception:
+                pass
     print(f"   ✨ Relocated {moved_count} Apple TV+ original books in {ed_root.name}")
 
 def main():
     print("==================================================================")
     print("🌟 ORGANIZING APPLE TV+ ORIGINAL NOVELS INTO `#apple tv original`")
     print("==================================================================")
-    
+
     editions = [
         LIB_ROOT / "[k]",
         LIB_ROOT / "[k-e]",
         LIB_ROOT / "[study]",
         LIB_ROOT / "[e-s]",
         LIB_ROOT / "[e]",
-        LIB_ROOT / "[xteink]" / "[study]",
-        LIB_ROOT / "[xteink]" / "[e-s]",
+        LIB_ROOT / "[xteink]" / "[study_x]",
+        LIB_ROOT / "[xteink]" / "[e-s_x]",
     ]
-    
+
+    # 1. Clean existing Apple TV folders
+    for ed_dir in editions:
+        clean_target_author(ed_dir, "#apple tv original")
+
     for ed in editions:
         process_edition(ed)
-        
+
     # GDrive Sync
     if GDRIVE_ROOT.exists():
         print("\n☁️ Synchronizing with Google Drive #Books...")
-        for ed_rel in ["[k]", "[k-e]", "[study]", "[e-s]", "[e]", "[xteink]/[study]", "[xteink]/[e-s]"]:
+        for ed_rel in ["[k]", "[k-e]", "[study]", "[e-s]", "[e]", "[xteink]/[study_x]", "[xteink]/[e-s_x]"]:
             g_target = GDRIVE_ROOT / ed_rel / "#apple tv original"
             g_target.mkdir(parents=True, exist_ok=True)
             print(f"  ☁️ Created GDrive folder: {ed_rel}/#apple tv original")

@@ -32,11 +32,9 @@ Rules:
    Every book must have the EXACT SAME relative directory path across [k], [k-e], [study], [e-s], and [e].
 """
 
-import os
 import re
 import shutil
 from pathlib import Path
-from collections import defaultdict
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 EDITIONS = ["[k]", "[k-e]", "[study]", "[e-s]", "[e]"]
@@ -165,19 +163,19 @@ def extract_author_from_filename(name: str) -> str | None:
     clean = re.sub(r"^\[.*?\]\s*", "", name)
     clean = re.sub(r"\.epub$", "", clean, flags=re.IGNORECASE).strip()
     clean = re.sub(r"\(\d+\.\d+\)", "", clean).strip()
-    
+
     # 1. Check known authors
     for auth in list(ROOT_EXCEPTIONS) + list(CANONICAL_GENRES.keys()):
         raw_auth = auth[1:] if auth.startswith("#") else auth
         if raw_auth.lower() in clean.lower():
             return raw_auth
-            
+
     # 2. Check "by Author" or " - Author"
     if " by " in clean:
         return clean.split(" by ")[-1].strip()
     if " - " in clean:
         return clean.split(" - ")[-1].strip()
-        
+
     return None
 
 def determine_canonical_rel_dir(file_path: Path, current_rel_dir: Path) -> Path:
@@ -299,10 +297,10 @@ def realign_library(dry_run: bool = False):
                 if p.is_dir() and not any(p.iterdir()):
                     try:
                         p.rmdir()
-                    except:
+                    except Exception:
                         pass
 
-    print(f"\n==================================================================")
+    print("\n==================================================================")
     print(f"🎉 Taxonomy Re-alignment Completed! Total Moves: {moves_count}")
     print("==================================================================")
 

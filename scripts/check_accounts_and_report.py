@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from webui.storage import atomic_write_json
-import audiobook_maker
+from webui.storage import atomic_write_json  # noqa: E402
+import audiobook_maker  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,12 +50,12 @@ def check_account_login_health(account_id: str, provider: str, profile_dir: Path
                 page = context.new_page()
                 page.goto("https://gemini.google.com/app", wait_until="domcontentloaded", timeout=25000)
                 page.wait_for_timeout(3500)
-                
+
                 # Check guest login button
                 btn_text = audiobook_maker.GEMINI_WEB_GUEST_MODE_LOGIN_BUTTON_TEXT
                 buttons = page.get_by_text(btn_text, exact=True)
                 guest_detected = any(buttons.nth(i).is_visible() for i in range(buttons.count()))
-                
+
                 if guest_detected:
                     cookie_file = audiobook_maker.WEB_ACCOUNT_BOOTSTRAP_COOKIE_FILES.get(account_id)
                     if cookie_file and cookie_file.is_file():
@@ -70,10 +70,8 @@ def check_account_login_health(account_id: str, provider: str, profile_dir: Path
                                 guest_detected = any(buttons.nth(i).is_visible() for i in range(buttons.count()))
                         except Exception:
                             pass
-                
+
                 has_prompt = page.locator('rich-textarea, div[contenteditable="true"]').count() > 0
-                has_account = "haijun" in page.content() or "ngaytot9" in page.content() or not guest_detected
-                
                 context.close()
                 return {
                     "logged_in": not guest_detected and has_prompt,
@@ -83,7 +81,7 @@ def check_account_login_health(account_id: str, provider: str, profile_dir: Path
                 }
         except Exception as exc:
             return {"logged_in": False, "error": str(exc), "checked_at": time.time()}
-            
+
     elif provider == "chatgpt":
         chatgpt_dir = profile_dir / "chatgpt" if not str(profile_dir).endswith("chatgpt") else profile_dir
         if not chatgpt_dir.is_dir():
@@ -100,10 +98,10 @@ def check_account_login_health(account_id: str, provider: str, profile_dir: Path
                 page = context.new_page()
                 page.goto("https://chatgpt.com", wait_until="domcontentloaded", timeout=25000)
                 page.wait_for_timeout(3500)
-                
+
                 has_prompt = page.locator('#prompt-textarea, div[contenteditable="true"]').count() > 0
                 has_login_btn = page.locator('button[data-testid="login-button"]').count() > 0
-                
+
                 context.close()
                 return {
                     "logged_in": has_prompt and not has_login_btn,
@@ -112,21 +110,21 @@ def check_account_login_health(account_id: str, provider: str, profile_dir: Path
                 }
         except Exception as exc:
             return {"logged_in": False, "error": str(exc), "checked_at": time.time()}
-            
+
     return {"logged_in": True, "provider": provider, "checked_at": time.time()}
 
 
 def generate_status_and_health_report() -> dict[str, Any]:
     state = json.loads(STATE_FILE.read_text(encoding="utf-8")) if STATE_FILE.is_file() else {}
     config = json.loads(CONFIG_FILE.read_text(encoding="utf-8")) if CONFIG_FILE.is_file() else {}
-    
+
     accounts = config.get("accounts", [])
     account_health: dict[str, Any] = {}
     active_accounts = {
         aid for aid, astate in state.get("accounts", {}).items()
         if astate.get("status") in ("running", "external", "active") and astate.get("pid")
     }
-    
+
     for acc in accounts:
         aid = acc["id"]
         prov = acc["provider"]
@@ -140,7 +138,7 @@ def generate_status_and_health_report() -> dict[str, Any]:
             "profile_dir": str(prof),
             **health,
         }
-    
+
     # Task progress summary
     tasks_summary: list[dict[str, Any]] = []
     task_states = state.get("tasks", {})
@@ -149,18 +147,18 @@ def generate_status_and_health_report() -> dict[str, Any]:
         tstate = task_states.get(tid, {})
         work_dir = Path(tspec.get("work_dir", ""))
         heartbeat_file = work_dir / "heartbeat.json"
-        
+
         hb = {}
         if heartbeat_file.is_file():
             try:
                 hb = json.loads(heartbeat_file.read_text(encoding="utf-8"))
             except Exception:
                 pass
-                
+
         completed = hb.get("completed_chunks", hb.get("completed", 0))
         total = hb.get("total_chunks", hb.get("total", 0))
         pct = round((completed / total * 100), 1) if total > 0 else 0.0
-        
+
         tasks_summary.append({
             "id": tid,
             "title": tspec.get("title", tid),
@@ -171,13 +169,13 @@ def generate_status_and_health_report() -> dict[str, Any]:
             "progress_percent": pct,
             "last_error": tstate.get("error"),
         })
-        
+
     report = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "account_health": account_health,
         "tasks": tasks_summary,
     }
-    
+
     atomic_write_json(REPORT_OUTPUT_FILE, report)
 
     # Automatically update and sync Master Study Lexicon if study books were modified
@@ -194,12 +192,11 @@ def generate_status_and_health_report() -> dict[str, Any]:
     except Exception:
         pass
 
-    # Automatically ensure 100% of newly finalized fiction books have authentic X-Ray dossiers
-    try:
-        from scripts.inject_rich_korean_xray_to_all_library import inject_all_fiction_library
-        inject_all_fiction_library()
-    except Exception:
-        pass
+    # X-Ray is permanently disabled by the library policy.  Do not invoke the
+    # legacy whole-library injector here: it now only purges X-Ray artifacts,
+    # so calling it every health interval would rescan and repack thousands of
+    # EPUBs for no useful work.  Publication builders and inspectors enforce
+    # the same policy at their boundaries.
 
     # Automatically purge and heal non-standard subdirectories ([e], finished, non-english, Uncategorized)
     try:

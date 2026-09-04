@@ -8,7 +8,8 @@ Captures screenshots of all 4 browser profiles every 60 seconds for 5 minutes:
   4. ChatGPT (ChatGPT Profile 1)
 """
 
-import time, os, sys, json
+import time
+import json
 from pathlib import Path
 
 ARTIFACT_DIR = Path("/Users/hyeokjunkong/.gemini/antigravity-ide/brain/0bf3f7cc-1ca3-467f-8edb-d8cfe588aca5/4account_visual_monitor_5m")
@@ -48,34 +49,34 @@ PROFILES = [
 
 def capture_round(round_idx: int):
     t_str = time.strftime("%H:%M:%S")
-    print(f"\n========================================================")
+    print("\n========================================================")
     print(f"📸 [Round {round_idx}/5 | {t_str}] Capturing 4 Account Visual States...")
-    print(f"========================================================")
-    
+    print("========================================================")
+
     for prof in PROFILES:
         p_id = prof["id"]
         p_name = prof["name"]
         w_dir = Path(prof["work_dir"])
-        
+
         # Read heartbeat
         hb_data = {}
         hb_file = w_dir / "heartbeat.json"
         if hb_file.exists():
             try:
                 hb_data = json.loads(hb_file.read_text())
-            except:
+            except Exception:
                 pass
-                
+
         stage = hb_data.get("stage", "idle/init")
         label = hb_data.get("label", "none")
         detail = str(hb_data.get("detail", ""))[:70]
-        
+
         # Snapshot record
         screenshot_filename = f"round{round_idx:02d}_{p_id}_{int(time.time())}.png"
         screenshot_path = ARTIFACT_DIR / screenshot_filename
-        
+
         print(f"[{p_name}] Stage: {stage} | Label: {label} | Detail: {detail}")
-        
+
         # Create an informative visual status card artifact image if browser is locked
         # or capture live if accessible
         with open(ARTIFACT_DIR / f"summary_round{round_idx:02d}.txt", "a", encoding="utf-8") as f:

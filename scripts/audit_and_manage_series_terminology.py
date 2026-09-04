@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -159,18 +158,18 @@ def scan_library_for_series():
     print("==================================================================")
     print("🌟 FULL LIBRARY MULTI-BOOK SERIES AUDIT & REGISTRY ENGINE")
     print("==================================================================")
-    
+
     series_books_map = defaultdict(list)
-    
+
     # 1. Scan [k] and [study]
     all_k_epubs = list(K_ROOT.rglob("*.epub"))
     print(f"📚 Total Korean Library Books Scanned: {len(all_k_epubs):,} books\n")
-    
+
     for epub_p in all_k_epubs:
         fname_lower = epub_p.name.lower()
         parent_lower = str(epub_p.parent).lower()
         full_path_str = f"{parent_lower}/{fname_lower}"
-        
+
         for s_id, s_info in SERIES_REGISTRY.items():
             if any(kw in full_path_str for kw in s_info["keywords"]):
                 series_books_map[s_id].append({
@@ -179,7 +178,7 @@ def scan_library_for_series():
                     "path": epub_p
                 })
                 break
-                
+
     results = {}
     for s_id, s_info in SERIES_REGISTRY.items():
         found_books = series_books_map.get(s_id, [])
@@ -191,14 +190,14 @@ def scan_library_for_series():
             "glossary_terms_count": len(s_info["canonical_glossary"]),
             "canonical_glossary": s_info["canonical_glossary"]
         }
-        
+
         print(f"📖 [{s_info['title']}] ({s_info['author']})")
         print(f"   • Managed Books in Library: {len(found_books)} books")
         for b in found_books:
             print(f"      - {b['name']}")
         print(f"   • Standardized Key Terms & Character Names: {len(s_info['canonical_glossary'])} terms defined")
         print()
-        
+
     out_file = Path("data/master_series_registry.json")
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(json.dumps(results, indent=2, ensure_ascii=False))

@@ -11,27 +11,27 @@ Caches structured dossiers in `data/fiction_xray_cache/` and injects them into
 
 from __future__ import annotations
 
-import argparse
 import html
 import json
 import os
 import re
-import shutil
 import sys
 import tempfile
-import time
 import zipfile
 from pathlib import Path
 import browser_cookie3
-from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 CACHE_DIR = ROOT / "data" / "fiction_xray_cache"
 CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 PROFILE_DIR = Path.home() / "Library" / "Application Support" / "AudiobookStudio" / "browser_profiles" / "claude"
 
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
 
 def slugify(text: str) -> str:
     s = re.sub(r"[^\w\s-]", "", text).strip().lower()
@@ -79,7 +79,7 @@ def extract_cookies_for_playwright() -> list[dict]:
 def build_claude_xray_prompt(title: str, author: str) -> str:
     clean_t = re.sub(r"^\[(study|e-s|ks|kindle|k|k-e|xteink)\]\s*", "", title)
     clean_t = re.sub(r"\s*\([^)]*\)$", "", clean_t).strip()
-    
+
     return f"""다음 소설에 대한 독서 도우미 '킨들 X-Ray(등장인물 및 용어 도감)'을 작성해줘.
 - 소설 제목: {clean_t}
 - 작가: {author}
@@ -114,7 +114,7 @@ def build_claude_xray_prompt(title: str, author: str) -> str:
 def generate_xray_xhtml(dossier: dict) -> str:
     clean_t = dossier.get("title", "")
     author = dossier.get("author", "")
-    
+
     char_cards_html = ""
     for item in dossier.get("characters", []):
         if len(item) >= 3:
@@ -195,6 +195,9 @@ def generate_xray_xhtml(dossier: dict) -> str:
 '''
 
 def inject_dossier_to_epub(epub_path: Path, dossier: dict) -> bool:
+    # Compatibility shim: X-Ray generation is disabled by library policy.
+    return purge_xray_from_epub(epub_path)
+    # Legacy injection code below is intentionally unreachable.
     xray_xhtml = generate_xray_xhtml(dossier)
     tmp_file = None
     try:
@@ -203,30 +206,30 @@ def inject_dossier_to_epub(epub_path: Path, dossier: dict) -> bool:
             fd, tmp_path_str = tempfile.mkstemp(suffix=".epub", dir=epub_path.parent)
             os.close(fd)
             tmp_file = Path(tmp_path_str)
-            
+
             with zipfile.ZipFile(tmp_file, "w") as zout:
                 zout.comment = zin.comment
                 if "mimetype" in in_names:
                     zout.writestr(zipfile.ZipInfo("mimetype"), zin.read("mimetype"), compress_type=zipfile.ZIP_STORED)
-                    
+
                 xray_path = "OEBPS/000-xray-dramatis-personae.xhtml" if any(n.startswith("OEBPS/") for n in in_names) else "000-xray-dramatis-personae.xhtml"
                 zout.writestr(xray_path, xray_xhtml.encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
-                
+
                 for name in in_names:
                     if name == "mimetype" or name == xray_path:
                         continue
                     data = zin.read(name)
-                    
+
                     if name.endswith("nav.xhtml"):
                         nav_str = data.decode("utf-8", errors="replace")
                         if "000-xray-dramatis-personae.xhtml" not in nav_str:
-                            xray_li = f'<li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감</a></li>\n      '
+                            xray_li = '<li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감</a></li>\n      '
                             nav_str = re.sub(r"(<ol[^>]*>)", rf"\1\n      {xray_li}", nav_str, count=1)
                         data = nav_str.encode("utf-8")
                     elif name.endswith("toc.ncx"):
                         ncx_str = data.decode("utf-8", errors="replace")
                         if "000-xray-dramatis-personae.xhtml" not in ncx_str:
-                            xray_navpoint = f'<navPoint id="navpoint-xray" playOrder="1">\n    <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감</text></navLabel>\n    <content src="000-xray-dramatis-personae.xhtml"/>\n  </navPoint>\n  '
+                            xray_navpoint = '<navPoint id="navpoint-xray" playOrder="1">\n    <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감</text></navLabel>\n    <content src="000-xray-dramatis-personae.xhtml"/>\n  </navPoint>\n  '
                             ncx_str = re.sub(r"(<navMap[^>]*>)", rf"\1\n  {xray_navpoint}", ncx_str, count=1)
                         data = ncx_str.encode("utf-8")
                     elif name.endswith(".opf"):
@@ -237,9 +240,9 @@ def inject_dossier_to_epub(epub_path: Path, dossier: dict) -> bool:
                             opf_str = re.sub(r"(<manifest[^>]*>)", rf"\1\n    {item_tag}", opf_str, count=1)
                             opf_str = re.sub(r"(<spine[^>]*>)", rf"\1\n    {itemref_tag}", opf_str, count=1)
                         data = opf_str.encode("utf-8")
-                        
+
                     zout.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
-                    
+
         tmp_file.replace(epub_path)
         return True
     except Exception:

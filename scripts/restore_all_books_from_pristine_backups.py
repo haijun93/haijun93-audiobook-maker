@@ -7,12 +7,9 @@ then re-derives all compliant editions ([k], [study], [e-s], [xteink]) with stri
 
 from __future__ import annotations
 
-import os
-import re
 import shutil
 import zipfile
 from pathlib import Path
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 BACKUP_DIR = LIB_ROOT / "[backup_data] 20260807"
@@ -32,12 +29,12 @@ def restore_master_ke():
     print("==================================================================")
     print("🔄 RESTORING MASTER [k-e] ARCHIVES FROM PRISTINE BACKUPS")
     print("==================================================================")
-    
+
     ke_dest = LIB_ROOT / "[k-e]"
-    
+
     # 1. Build map of pristine [k-e] files from backup directories
     pristine_map = {}
-    
+
     for bdir in [BACKUP_DIR / "[k-e]", CHATGPT_DIR, STAGE_DIR]:
         if bdir.exists():
             for ep in bdir.rglob("*.epub"):
@@ -47,7 +44,7 @@ def restore_master_ke():
                         pristine_map[ep.name] = ep
 
     print(f"📦 Total unique pristine [k-e] sources found: {len(pristine_map):,}\n")
-    
+
     restored = 0
     # Restore any missing or invalid [k-e] in target
     for target_ep in list(ke_dest.rglob("*.epub")):

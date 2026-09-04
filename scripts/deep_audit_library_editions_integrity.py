@@ -16,7 +16,6 @@ Inspects EVERY CHAPTER / TOC file inside every EPUB across all CPU cores.
 from __future__ import annotations
 
 import json
-import os
 import re
 import zipfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -28,14 +27,14 @@ LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 def audit_single_epub(epub_path_str: str) -> dict:
     epub_path = Path(epub_path_str)
     rel_path = str(epub_path.relative_to(LIB_ROOT))
-    
+
     # Determine expected edition type
     ed_type = "unknown"
     for t in ["[k]", "[k-e]", "[study]", "[e-s]", "[e]", "[ks]", "[xteink]"]:
         if t in rel_path:
             ed_type = t
             break
-            
+
     if "[xteink]" in rel_path:
         if "[study]" in rel_path:
             ed_type = "[xteink]/[study]"
@@ -47,11 +46,11 @@ def audit_single_epub(epub_path_str: str) -> dict:
     issues = []
     total_chapters = 0
     total_paras = 0
-    
+
     try:
         with zipfile.ZipFile(epub_path, "r") as z:
             names = z.namelist()
-            
+
             # Check mimetype
             if "mimetype" not in names:
                 issues.append("Missing mimetype")
@@ -59,24 +58,24 @@ def audit_single_epub(epub_path_str: str) -> dict:
                 info = z.getinfo("mimetype")
                 if info.compress_type != zipfile.ZIP_STORED:
                     issues.append("mimetype is compressed (must be ZIP_STORED)")
-                    
+
             xhtml_files = [n for n in names if n.endswith((".xhtml", ".html")) and "xray" not in n and "cover" not in n]
             total_chapters = len(xhtml_files)
-            
+
             for ch_name in xhtml_files:
                 content = z.read(ch_name).decode("utf-8", "ignore")
-                
+
                 # Skip front/back meta pages if short
                 is_meta_page = any(m in ch_name.lower() for m in ["copyright", "nav.", "toc.", "about", "also-by", "author", "connect", "playlist", "dedication"])
-                
+
                 soup = BeautifulSoup(content, "html.parser")
                 paras = soup.find_all(["p", "div", "li", "h1", "h2", "h3"])
                 ch_paras_count = len(paras)
                 total_paras += ch_paras_count
-                
+
                 if ch_paras_count == 0:
                     continue
-                    
+
                 # 1. Audit [k] (Korean-only)
                 if ed_type == "[k]":
                     # Check for residual pair markup
@@ -88,7 +87,7 @@ def audit_single_epub(epub_path_str: str) -> dict:
                         if ko_count / ch_paras_count < 0.4:
                             sample = [p.get_text(strip=True)[:50] for p in paras[:3] if len(p.get_text(strip=True)) > 5]
                             issues.append(f"{ch_name}: Low Korean content ({ko_count}/{ch_paras_count} Korean) -> Sample: {sample}")
-                            
+
                 # 2. Audit [k-e] (Bilingual)
                 elif ed_type == "[k-e]":
                     pairs = soup.find_all("p", class_="pair")
@@ -153,13 +152,13 @@ def main():
     print("==================================================================")
     print("🔬 COMPREHENSIVE DEEP AUDIT OF ALL LIBRARY EDITIONS ([k], [e], [e-s], [k-e], [study])")
     print("==================================================================")
-    
+
     all_epubs = sorted([str(p) for p in LIB_ROOT.rglob("*.epub") if "_translation_stage" not in str(p) and "_chatgpt_translate_work" not in str(p)])
     print(f"📚 Total EPUBs queued for chapter-by-chapter deep audit: {len(all_epubs):,}\n")
-    
+
     flawed_books = []
     total_inspected = 0
-    
+
     with ProcessPoolExecutor(max_workers=8) as ex:
         futures = {ex.submit(audit_single_epub, ep): ep for ep in all_epubs}
         for fut in as_completed(futures):
@@ -180,7 +179,7 @@ def main():
     print(f"   ✅ Fully Valid EPUBs: {total_inspected - len(flawed_books):,}")
     print(f"   🚨 Flawed EPUBs needing remediation: {len(flawed_books):,}")
     print("==================================================================")
-    
+
     report_file = Path("data/library_deep_audit_report.json")
     report_file.parent.mkdir(parents=True, exist_ok=True)
     report_file.write_text(json.dumps(flawed_books, ensure_ascii=False, indent=2), encoding="utf-8")

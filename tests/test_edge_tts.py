@@ -1,11 +1,9 @@
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import argparse
 
 from audiobook_maker import (
     EDGE_TTS_VOICES,
-    EDGE_TTS_DEFAULT_VOICE,
     edge_tts_voice_choices,
     default_edge_tts_voice,
     normalize_voice_name,

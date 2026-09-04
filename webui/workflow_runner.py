@@ -38,6 +38,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from export_pdf_to_kindle_epub import build_epub as build_reflow_epub  # noqa: E402
+from build_xteink_dedicated_editions import build_xteink_book_pair  # noqa: E402
 from make_english_study_epubs import convert_epub as convert_epub_to_english_study  # noqa: E402
 from make_korean_only_epubs import convert_epub, output_name  # noqa: E402
 from translate_epub_with_chatgpt_web_to_study_epub import all_blocks, extract_sections  # noqa: E402
@@ -81,6 +82,7 @@ K_COLLECTION_HTML = Path("/Users/hyeokjunkong/Desktop/소설2/k_collection_blog.
 # [k] 서재 폴더 자체. 배치 시작 시마다 이 폴더를 직접(재귀적으로) 스캔해 정적 스냅샷보다
 # 최신인 중복(예: 배치 도중 서재로 분류·이동된 책)까지 잡아낸다.
 K_LIBRARY_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2/[k]")
+LIBRARY_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 
 
 def utc_now() -> str:
@@ -404,13 +406,28 @@ def translate_one(
         if wants_korean and (args.overwrite or translated or not korean_output.is_file()):
             beat(heartbeat_file, stage="korean_epub_start", label=title)
             convert_epub(bilingual_output, korean_output, True)
-        if (
+    if (
             wants_english_study
             and (args.overwrite or translated or not english_study_output.is_file())
             and study_output.is_file()
         ):
             beat(heartbeat_file, stage="english_study_epub_start", label=title)
             convert_epub_to_english_study(study_output, english_study_output, True)
+
+    # The dedicated Xteink editions are derived locally from the completed
+    # [study]/[e-s] pair.  Previously they were produced only by a separate
+    # full-library batch, which allowed an updated book to retain stale
+    # [xteink]/[study_x] and [xteink]/[e-s_x] copies.  Limit this hook to the
+    # canonical library root so unit-test/custom output roots are untouched.
+    if (
+        split_output_dirs
+        and output_root == LIBRARY_ROOT
+        and wants_study
+        and study_output.is_file()
+        and english_study_output.is_file()
+    ):
+        beat(heartbeat_file, stage="xteink_epub_start", label=title)
+        build_xteink_book_pair(study_output, english_study_output, xteink_root=output_root / "[xteink]")
 
     artifacts: list[dict[str, str]] = []
     if wants_english and english_output.is_file():
@@ -583,7 +600,7 @@ def source_files(
         except (ValueError, IndexError):
             pass
         files.append(path.resolve())
-    
+
     # 배치 번역일 때 이미 번역된 파일들을 제외
     if operation == "batch_translation":
         korean_root = Path("/Users/hyeokjunkong/Desktop/소설2/[k]").expanduser().resolve()

@@ -21,7 +21,6 @@ Position:
 
 from __future__ import annotations
 
-import concurrent.futures
 import html
 import os
 import re
@@ -30,6 +29,12 @@ import tempfile
 import time
 import zipfile
 from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub
 
 LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 
@@ -119,12 +124,12 @@ def is_fiction_book(p: Path) -> bool:
 def extract_fiction_dossier(epub_path: Path, title: str, author: str) -> dict:
     clean_t = re.sub(r"^\[(study|e-s|ks|kindle|k|k-e|xteink)\]\s*", "", title)
     clean_t_lower = clean_t.lower()
-    
+
     # Check masterpiece dossiers
     for k, v in FICTION_DOSSIERS.items():
         if k in clean_t_lower:
             return v
-            
+
     # Dynamic NLP extraction from fiction chapters
     names = []
     try:
@@ -146,24 +151,24 @@ def extract_fiction_dossier(epub_path: Path, title: str, author: str) -> dict:
             names = [n for n, c in sorted_n[:6] if c >= 3]
     except Exception:
         pass
-        
+
     p1 = names[0] if len(names) > 0 else "주인공 (Protagonist)"
     p2 = names[1] if len(names) > 1 else "핵심 상대역 (Key Character)"
     p3 = names[2] if len(names) > 2 else "주요 조력자 (Supporting Lead)"
     p4 = names[3] if len(names) > 3 else "주변 인물군 (Supporting Cast)"
-    
+
     return {
         "title": clean_t,
         "characters": [
-            (f"{p1}", "주인공 / 서사의 중심", f"작품의 사건과 갈등을 이끌어가는 핵심 주역. 내면의 결핍과 목표를 향해 나아가며 극적인 선택의 기로에 선다."),
-            (f"{p2}", "핵심 상대역 / 대립·조력자", f"주인공과 가장 긴밀하게 얽히며 서사의 긴장감과 반전을 촉발하는 핵심 인물."),
-            (f"{p3}", "주요 조력자 / 관찰자", f"주인공의 결정을 지지하거나 사건의 결정적 단서를 제공하는 주요 인물."),
-            (f"{p4}", "주변 인물군", f"작품의 배경과 긴장감을 풍성하게 구성하는 조연 인물진.")
+            (f"{p1}", "주인공 / 서사의 중심", "작품의 사건과 갈등을 이끌어가는 핵심 주역. 내면의 결핍과 목표를 향해 나아가며 극적인 선택의 기로에 선다."),
+            (f"{p2}", "핵심 상대역 / 대립·조력자", "주인공과 가장 긴밀하게 얽히며 서사의 긴장감과 반전을 촉발하는 핵심 인물."),
+            (f"{p3}", "주요 조력자 / 관찰자", "주인공의 결정을 지지하거나 사건의 결정적 단서를 제공하는 주요 인물."),
+            (f"{p4}", "주변 인물군", "작품의 배경과 긴장감을 풍성하게 구성하는 조연 인물진.")
         ],
         "relationships": [
             f"• {p1} ↔ {p2}: 서로의 운명을 뒤바꾸는 치밀한 심리적 상호작용 및 갈등 구조",
             f"• {p1} ↔ {p3}: 위기의 순간 조력과 신뢰를 형성하는 핵심 파트너십",
-            f"• 서사적 긴장감: 숨겨진 비밀과 복선이 풀려나며 변화하는 인물 간 역학 관계"
+            "• 서사적 긴장감: 숨겨진 비밀과 복선이 풀려나며 변화하는 인물 간 역학 관계"
         ],
         "locations": [
             ("주요 공간적 배경", "인물들의 감정과 갈등이 극대화되는 핵심 무대이자 사건의 중심지."),
@@ -178,7 +183,7 @@ def extract_fiction_dossier(epub_path: Path, title: str, author: str) -> dict:
 def generate_full_korean_xray_xhtml(title: str, author: str, dossier: dict) -> str:
     clean_t = re.sub(r"^\[(study|e-s|ks|kindle|k|k-e|xteink)\]\s*", "", title)
     clean_t = re.sub(r"\s*\([^)]*\)$", "", clean_t).strip()
-    
+
     char_cards_html = ""
     for name, role, desc in dossier["characters"]:
         char_cards_html += f'''  <div class="xray-entity-card">
@@ -253,11 +258,16 @@ def generate_full_korean_xray_xhtml(title: str, author: str, dossier: dict) -> s
 '''
 
 def inject_xray_to_single_epub(epub_path: Path) -> bool:
+    # Historical entry point retained for compatibility. The library no longer
+    # permits any X-Ray dossier, so callers now get deterministic cleanup rather
+    # than a new injection.
+    return purge_xray_from_epub(epub_path)
+    # Legacy dossier-generation code below is intentionally unreachable.
     author = epub_path.parent.name.lstrip("#")
     book_title = epub_path.stem
     dossier = extract_fiction_dossier(epub_path, book_title, author)
     xray_xhtml = generate_full_korean_xray_xhtml(book_title, author, dossier)
-    
+
     tmp_file = None
     try:
         with zipfile.ZipFile(epub_path, "r") as zin:
@@ -265,38 +275,38 @@ def inject_xray_to_single_epub(epub_path: Path) -> bool:
             fd, tmp_path_str = tempfile.mkstemp(suffix=".epub", dir=epub_path.parent)
             os.close(fd)
             tmp_file = Path(tmp_path_str)
-            
+
             with zipfile.ZipFile(tmp_file, "w") as zout:
                 zout.comment = zin.comment
-                
+
                 # Write mimetype
                 if "mimetype" in in_names:
                     zout.writestr(zipfile.ZipInfo("mimetype"), zin.read("mimetype"), compress_type=zipfile.ZIP_STORED)
-                    
+
                 xray_path = "OEBPS/000-xray-dramatis-personae.xhtml" if any(n.startswith("OEBPS/") for n in in_names) else "000-xray-dramatis-personae.xhtml"
                 zout.writestr(xray_path, xray_xhtml.encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
-                
+
                 for name in in_names:
                     if name == "mimetype" or name == xray_path:
                         continue
                     data = zin.read(name)
-                    
+
                     # Update nav.xhtml
                     if name.endswith("nav.xhtml"):
                         nav_str = data.decode("utf-8", errors="replace")
                         if "000-xray-dramatis-personae.xhtml" not in nav_str:
-                            xray_li = f'<li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감</a></li>\n      '
+                            xray_li = '<li><a href="000-xray-dramatis-personae.xhtml">⚡ X-Ray: 등장인물 및 용어 도감</a></li>\n      '
                             nav_str = re.sub(r"(<ol[^>]*>)", rf"\1\n      {xray_li}", nav_str, count=1)
                         data = nav_str.encode("utf-8")
-                        
+
                     # Update toc.ncx
                     elif name.endswith("toc.ncx"):
                         ncx_str = data.decode("utf-8", errors="replace")
                         if "000-xray-dramatis-personae.xhtml" not in ncx_str:
-                            xray_navpoint = f'<navPoint id="navpoint-xray" playOrder="1">\n    <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감</text></navLabel>\n    <content src="000-xray-dramatis-personae.xhtml"/>\n  </navPoint>\n  '
+                            xray_navpoint = '<navPoint id="navpoint-xray" playOrder="1">\n    <navLabel><text>⚡ X-Ray: 등장인물 및 용어 도감</text></navLabel>\n    <content src="000-xray-dramatis-personae.xhtml"/>\n  </navPoint>\n  '
                             ncx_str = re.sub(r"(<navMap[^>]*>)", rf"\1\n  {xray_navpoint}", ncx_str, count=1)
                         data = ncx_str.encode("utf-8")
-                        
+
                     # Update .opf
                     elif name.endswith(".opf"):
                         opf_str = data.decode("utf-8", errors="replace")
@@ -306,9 +316,9 @@ def inject_xray_to_single_epub(epub_path: Path) -> bool:
                             opf_str = re.sub(r"(<manifest[^>]*>)", rf"\1\n    {item_tag}", opf_str, count=1)
                             opf_str = re.sub(r"(<spine[^>]*>)", rf"\1\n    {itemref_tag}", opf_str, count=1)
                         data = opf_str.encode("utf-8")
-                        
+
                     zout.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
-                    
+
         tmp_file.replace(epub_path)
         return True
     except Exception:
@@ -321,7 +331,7 @@ def inject_all_fiction_library():
     print("==================================================================")
     print("🌟 INJECTING KOREAN X-RAY DOSSIERS TO ALL FICTION NOVELS")
     print("==================================================================")
-    
+
     target_dirs = [
         LIB_ROOT / "[k]",
         LIB_ROOT / "[k-e]",
@@ -330,23 +340,23 @@ def inject_all_fiction_library():
         LIB_ROOT / "[xteink]" / "[study]",
         LIB_ROOT / "[xteink]" / "[e-s]",
     ]
-    
+
     all_fiction_epubs = []
     for d in target_dirs:
         if d.exists():
             files = [p for p in d.rglob("*.epub") if is_fiction_book(p)]
             print(f"📁 {d.name} ({len(files):,} fiction novels)")
             all_fiction_epubs.extend(files)
-            
+
     print(f"\n📚 Total Fiction Novels to Process: {len(all_fiction_epubs):,} across all editions\n")
-    
+
     success_count = 0
     for idx, epub_p in enumerate(all_fiction_epubs, 1):
         if inject_xray_to_single_epub(epub_p):
             success_count += 1
         if idx % 200 == 0 or idx == len(all_fiction_epubs):
             print(f"   -> Progress: {idx:,} / {len(all_fiction_epubs):,} ({success_count:,} dossiers injected)")
-            
+
     elapsed = time.time() - t0
     print("\n==================================================================")
     print(f"🎉 COMPLETED in {elapsed:.1f}s! Successfully injected Korean X-Ray into {success_count:,} Fiction Novels!")

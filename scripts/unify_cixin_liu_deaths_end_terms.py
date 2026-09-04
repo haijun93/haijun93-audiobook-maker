@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import io
 import re
-import shutil
 import zipfile
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -23,23 +22,23 @@ LIB_ROOT = Path("/Users/hyeokjunkong/Desktop/소설2")
 TERM_REPLACEMENTS = [
     # 1. Sophon -> 지자 (智子)
     ("지자", ["소폰", "지폰", "소포논"]),
-    
+
     # 2. Swordholder -> 검잡이 (執劍人)
     ("검잡이", ["집검인", "소드홀더", "소드 홀더"]),
-    
+
     # 3. Droplet -> 물방울 (水滴)
     ("물방울", ["수적(水滴)", "드롭릿"]),
-    
+
     # 4. Dark Forest -> 암흑의 숲 (黑暗森林)
     ("암흑의 숲", ["어두운 숲", "다크 포레스트", "다크포레스트"]),
-    
+
     # 5. Deterrence Era -> 억제 시대 (威懾紀元)
     ("억제 시대", ["위협 시대", "디터런스 시대"]),
     ("억제 후 시대", ["위협 후 시대", "포스트 디터런스 시대"]),
-    
+
     # 6. Two-Vector Foil -> 이방향박편 / 2차원 박편 (二向箔)
     ("2차원 박편", ["투벡터 포일", "투 벡터 포일", "투-벡터 포일", "이향박"]),
-    
+
     # 7. Character Names
     ("관이판", ["관일범", "관이반"]),
     ("뤄지", ["루오지", "뤄 지"]),
@@ -54,21 +53,21 @@ TERM_REPLACEMENTS = [
 def replace_terms_in_html(html_text: str, is_korean_only: bool = False) -> tuple[str, dict[str, int]]:
     counts = {}
     soup = BeautifulSoup(html_text, "html.parser")
-    
+
     # Only replace text inside text nodes, avoid touching tags and attributes
     for node in soup.find_all(text=True):
         if node.parent.name in ["script", "style"]:
             continue
         original_text = str(node)
         new_text = original_text
-        
+
         for canonical, variants in TERM_REPLACEMENTS:
             for var in variants:
                 if var in new_text:
                     c = new_text.count(var)
                     counts[f"{var} -> {canonical}"] = counts.get(f"{var} -> {canonical}", 0) + c
                     new_text = new_text.replace(var, canonical)
-                    
+
         # Special context check for Ding Yi (물리학자 정의 -> 딩이)
         # "정의 박사", "물리학자 정의", "정의가", "정의는", "정의에게" where it refers to Ding Yi
         ding_yi_patterns = [
@@ -81,19 +80,19 @@ def replace_terms_in_html(html_text: str, is_korean_only: bool = False) -> tuple
             if matches > 0:
                 counts[f"정의(Ding Yi) -> {rep}"] = counts.get(f"정의(Ding Yi) -> {rep}", 0) + matches
                 new_text = re.sub(pat, rep, new_text)
-                
+
         if new_text != original_text:
             node.replace_with(new_text)
-            
+
     return str(soup), counts
 
 def process_single_epub(epub_path: Path):
     print(f"\n⚡ Standardizing terminology in: {epub_path.name}")
     print(f"   📁 Location: {epub_path.parent.relative_to(LIB_ROOT)}")
-    
+
     total_modifications = {}
     temp_zip_buf = io.BytesIO()
-    
+
     with zipfile.ZipFile(epub_path, "r") as src_zip:
         with zipfile.ZipFile(temp_zip_buf, "w", zipfile.ZIP_DEFLATED) as dst_zip:
             for item in src_zip.infolist():
@@ -109,7 +108,7 @@ def process_single_epub(epub_path: Path):
                         dst_zip.writestr(item, content)
                 else:
                     dst_zip.writestr(item, content)
-                    
+
     if total_modifications:
         epub_path.write_bytes(temp_zip_buf.getvalue())
         print(f"   ✅ Successfully unified {sum(total_modifications.values()):,} terminology instances:")
@@ -122,7 +121,7 @@ def main():
     print("==================================================================")
     print("🌟 THREE BODY 3 (DEATH'S END) TERMINOLOGY STANDARDIZATION ENGINE")
     print("==================================================================")
-    
+
     # Target all editions of Death's End
     target_files = []
     for ed in ["[k]", "[k-e]", "[study]", "[xteink]/[study]", "[xteink]/[e-s]"]:
@@ -133,11 +132,11 @@ def main():
             for f in dir_p.glob("*death*.epub"):
                 if f not in target_files:
                     target_files.append(f)
-                    
+
     print(f"📚 Found {len(target_files)} target EPUBs across all library editions.\n")
     for epub_file in target_files:
         process_single_epub(epub_file)
-        
+
     print("\n==================================================================")
     print("🎉 ALL TERMINOLOGY & CHARACTER NAMES SUCCESSFULLY UNIFIED!")
     print("==================================================================")
