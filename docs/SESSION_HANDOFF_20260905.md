@@ -16,11 +16,13 @@
 ## 2. Completed Items & Key Decisions
 
 ### 1) Priority Realignment & Library Deduplication (완료)
-- **Rule 1 (Top Priority)**: Genuine **new novel translations** are assigned top priority (`P10000`).
-- **Rule 2 (Relegated Priority)**: Flawed study notes repair tasks are strictly demoted to the **lowest priority** (`P100`).
-- **Rule 3 (Strict Deduplication)**: Cross-referenced all existing 2,156 books in `/Users/hyeokjunkong/Desktop/소설2/` against the task scheduler (`.work/continuous_scheduler/config.json`).
-  - **435 duplicate tasks purged** immediately from the active queue.
-  - **7,148 genuine new translation tasks** prioritized at `P10000`.
+- **Rule 1 (Absolute Top Priority)**: **다크 로맨스(Dark Romance) 전 작품 104권 최우선 순위 승격 (`P50000`)**.
+  - 기존 큐의 다크로맨스 82권 + 2T 원서 풀의 신규 다크로맨스 22권(Leigh Rivers, Pam Godwin 등)을 최상단(`P50000`)으로 재배치 완료.
+  - Gemini 워커(계정 1, 2, 3)가 다크로맨스 작품들을 최우선으로 연속 디스패치하도록 조정.
+  - ChatGPT 워커는 안전 정책(Rule 6)에 따라 다크로맨스를 자동 회피하고 차순위 미스터리/스릴러(`P10000`)를 안정 번역하도록 연동.
+- **Rule 2 (Top Priority)**: 일반 **신규 도서 번역**은 차순위 우선순위 (`P10000`).
+- **Rule 3 (Lowest Priority)**: 기존 오류 학습정보 수정 작업은 **최후순위 (`P100`)**.
+- **Rule 4 (Strict Deduplication)**: 서재 2,156권과 대조하여 완료된 435건의 중복 작업을 영구 소거.
 
 ### 2) ChatGPT Web Normal Mode Guard (`ensure_chatgpt_normal_chat_mode`)
 - Solved weekly work quota exhaustion by enforcing standard `Chat` mode toggle button detection in `audiobook_maker.py`.
