@@ -28,7 +28,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from audiobook_studio.epub_xray_policy import purge_xray_from_epub
+from audiobook_studio.epub_xray_policy import purge_xray_from_epub  # noqa: E402
 
 
 XHTML_NS = "http://www.w3.org/1999/xhtml"

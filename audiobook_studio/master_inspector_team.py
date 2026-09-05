@@ -19,9 +19,9 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
-from audiobook_studio.master_quality_inspector import inspect_epub_quality, InspectionResult
-from audiobook_studio.ultimate_integrity_sentinel import conduct_ultimate_integrity_audit, SentinelAuditReport
-from audiobook_studio.visual_screen_sentinel import inspect_epub_visually, VisualAuditReport
+from audiobook_studio.master_quality_inspector import inspect_epub_quality, InspectionResult  # noqa: E402
+from audiobook_studio.ultimate_integrity_sentinel import conduct_ultimate_integrity_audit, SentinelAuditReport  # noqa: E402
+from audiobook_studio.visual_screen_sentinel import inspect_epub_visually, VisualAuditReport  # noqa: E402
 
 @dataclass
 class MasterTeamAuditReport:

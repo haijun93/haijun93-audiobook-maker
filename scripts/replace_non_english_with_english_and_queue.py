@@ -247,7 +247,9 @@ def register_task_in_config(target: dict, english_epub: Path):
     # Prepend to top of queue
     tasks.insert(0, new_task)
     cfg["tasks"] = tasks
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
+    tmp_path = CONFIG_PATH.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp_path.replace(CONFIG_PATH)
     print(f"  🚀 Queued high-priority retranslation task: '{new_task['book_title_ko']}' (Priority {new_task['priority']})")
 
 def main():

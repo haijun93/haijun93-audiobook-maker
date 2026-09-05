@@ -87,7 +87,6 @@ CURATED_GENRE_BY_TITLE: dict[str, str] = {
     "what lies between us|john marrs": "Mystery_Thriller_Crime",
     "when the moon hits your eye|john scalzi": "Fantasy_Science_Fiction",
     "the mistake|elle kennedy": "Romance",
-    "the complete foundation trilogy|asimov isaac": "Fantasy_Science_Fiction",
     "the long game|rachel reid": "Romance",
     "the rebel witch|ciccarelli kristen": "Fantasy_Science_Fiction",
     "mad mabel|hepworth sally": "Mystery_Thriller_Crime",
@@ -195,6 +194,7 @@ CATEGORY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
 _SUBJECT_SCORING_EXCLUDED_KEYWORDS = frozenset({"fiction", "a novel"})
 
 DEFAULT_GENRE = "Literary_General_Fiction"
+UNCATEGORIZED_DIR_NAME = "Uncategorized"
 
 # Goodreads에는 공개 API가 없고(2020년 종료) 스크레이핑은 이용 약관에 어긋나므로,
 # 같은 목적(장르/서가 분류)을 위해 Open Library와 Google Books의 공개 subject/category
@@ -327,7 +327,7 @@ def core_series_search_title(title: str, author: str) -> str | None:
     return None
 
 
-def guess_genre_online(filename: str, metadata: dict, *, use_network: bool = True) -> str:
+def guess_genre_online(filename: str, metadata: dict, *, use_network: bool = True, default_genre: str = DEFAULT_GENRE) -> str:
     """
     가능하면 Open Library / Google Books의 실제 서지 분류(subject/category)를 이용해 장르를
     추측하고, 조회에 실패하면 제목 키워드 추측으로 대체한다. (Goodreads는 공개 API가 없다.)
@@ -370,7 +370,7 @@ def guess_genre_online(filename: str, metadata: dict, *, use_network: bool = Tru
                     _save_category_cache(cache)
                     return genre
 
-    return guess_genre_from_title(filename, metadata)
+    return guess_genre_from_title(filename, metadata, default_genre=default_genre)
 
 
 def _rating_cache_path() -> Path:
@@ -505,7 +505,7 @@ def extract_metadata_from_epub(epub_path: Path) -> dict[str, str]:
     return metadata
 
 
-def guess_genre_from_title(filename: str, metadata: dict) -> str:
+def guess_genre_from_title(filename: str, metadata: dict, *, default_genre: str = DEFAULT_GENRE) -> str:
     """파일명과 메타데이터에서 /소설2 실제 폴더명 체계에 맞는 장르 추측"""
     search_text = (filename + " " + metadata.get("title", "")).lower()
 
@@ -513,7 +513,7 @@ def guess_genre_from_title(filename: str, metadata: dict) -> str:
         if any(keyword in search_text for keyword in keywords):
             return genre
 
-    return DEFAULT_GENRE
+    return default_genre
 
 
 def sanitize_folder_name(name: str) -> str:
@@ -614,7 +614,7 @@ def _find_established_genre_folder(target_root: Path, author_key: str) -> Path |
     genre_dirs = [
         child
         for child in target_root.iterdir()
-        if child.is_dir() and not child.name.startswith("#") and child.name != DEFAULT_GENRE
+        if child.is_dir() and not child.name.startswith("#") and child.name != UNCATEGORIZED_DIR_NAME
     ]
     for genre_dir in genre_dirs:
         if _existing_author_folder(genre_dir, author_key) is not None:
@@ -676,7 +676,13 @@ def organize_single_epub(
         else:
             genre_folder = _find_established_genre_folder(target_root, author_key) if author_key != unknown_key else None
             if genre_folder is None:
-                genre = guess_genre_online(filename, metadata, use_network=use_network)
+                uncat_path = target_root / UNCATEGORIZED_DIR_NAME
+                in_uncategorized = (
+                    epub_path.parent == uncat_path
+                    or (epub_path.parent.parent == uncat_path)
+                )
+                fallback_genre = UNCATEGORIZED_DIR_NAME if in_uncategorized else DEFAULT_GENRE
+                genre = guess_genre_online(filename, metadata, use_network=use_network, default_genre=fallback_genre)
                 genre_folder = target_root / sanitize_folder_name(genre)
 
         if curated_folder_name is None:
@@ -798,7 +804,7 @@ def reclassify_uncategorized(library_root: Path, *, use_network: bool = True, mo
         새 장르 폴더로 옮겨진 파일 수 (Open Library/Google Books가 여전히 장르를 찾지
         못해 Uncategorized에 그대로 남은 책은 세지 않는다)
     """
-    uncategorized_dir = library_root / DEFAULT_GENRE
+    uncategorized_dir = library_root / UNCATEGORIZED_DIR_NAME
     if not uncategorized_dir.exists():
         return 0
 
@@ -837,7 +843,7 @@ def audit_author_genre_placements(library_root: Path, *, use_network: bool = Tru
         return findings
 
     for genre_dir in sorted(library_root.iterdir()):
-        if not genre_dir.is_dir() or genre_dir.name.startswith("#") or genre_dir.name == DEFAULT_GENRE:
+        if not genre_dir.is_dir() or genre_dir.name.startswith("#") or genre_dir.name == UNCATEGORIZED_DIR_NAME:
             continue
         for author_dir in sorted(genre_dir.iterdir()):
             if not author_dir.is_dir():
@@ -847,7 +853,7 @@ def audit_author_genre_placements(library_root: Path, *, use_network: bool = Tru
                 continue
             metadata = extract_metadata_from_epub(representative)
             suggested = guess_genre_online(representative.name, metadata, use_network=use_network)
-            if suggested and suggested != DEFAULT_GENRE and suggested != genre_dir.name:
+            if suggested and suggested != UNCATEGORIZED_DIR_NAME and suggested != genre_dir.name:
                 findings.append(
                     {
                         "author": author_dir.name,

@@ -90,7 +90,16 @@ Between 07:00 and 16:00 KST, 7 additional novels were fully translated, quality-
 
 ---
 
-## 6. Synchronized Files Reference
+## 6. Codebase Improvements & Test Suite Perfection (100% Passed)
+- **Book Organizer (`webui/book_organizer.py`)**: Decoupled legacy `Uncategorized` directory handling from `DEFAULT_GENRE = "Literary_General_Fiction"`. Resolved 4 failing tests in `tests/test_book_organizer.py` and eliminated duplicate dictionary key.
+- **Mock Page Compatibility & Robust Automation (`audiobook_maker.py`)**: Safe attribute checking for `page.title` / `page.content`, defensive `button.hover()` error absorption, and unified text/header login detection in `prepare_gemini_web_page()`.
+- **Ruff Linter Cleanliness**: Fixed F841 unused variable and added `# noqa: E402` to intentional late imports across `audiobook_studio/master_inspector_team.py` and `scripts/make_english_study_epubs.py`.
+- **Atomic Config Writing (`scripts/replace_non_english_with_english_and_queue.py`)**: Guaranteed atomic writing of `config.json` via temporary swap to prevent concurrent supervisor JSON decode corruption.
+- **Full Test Suite Status**: **446 passed, 2 subtests passed, 0 failures in 34.94s (100% passing)**.
+
+---
+
+## 7. Synchronized Files Reference
 - `AGENTS.md` (Workspace root & `/Users/hyeokjunkong/Desktop/소설2/MD collection/AGENTS.md`)
 - `data/master_study_lexicon.json`
 - `data/master_library_catalog.json`

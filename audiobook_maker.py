@@ -5154,6 +5154,7 @@ def dismiss_chatgpt_web_modal_dialogs(page) -> bool:
             dismissed = True
     except Exception:
         pass
+    return dismissed
 
 def ensure_chatgpt_normal_chat_mode(page) -> bool:
     """ChatGPT 웹 UI에서 Work/Agent 모드 대신 일반 Chat(대화) 모드로 강제 전환한다."""
@@ -5235,9 +5236,10 @@ def prepare_chatgpt_web_page(
     dismiss_chatgpt_web_modal_dialogs(page)
 
     # ── Hot-Injection Session Self-Healing ─────────────────────────────────
-    curr_url = page.url or ""
-    curr_title = page.title() or ""
-    if "auth.openai.com" in curr_url or "로그인" in curr_title or "Log in" in curr_title or "unusual activity" in (page.content() or "").lower():
+    curr_url = getattr(page, "url", "") or ""
+    curr_title = (page.title() if hasattr(page, "title") else "") or ""
+    page_content = (page.content() if hasattr(page, "content") else "") or ""
+    if "auth.openai.com" in curr_url or "로그인" in curr_title or "Log in" in curr_title or "unusual activity" in page_content.lower():
         try:
             import browser_cookie3
             cj = browser_cookie3.chrome(domain_name="chatgpt.com")
@@ -5403,7 +5405,11 @@ def send_chatgpt_web_prompt(
             try:
                 button = page.locator(selector).first
                 if button.count() and button.is_visible() and button.is_enabled():
-                    button.hover()
+                    try:
+                        if hasattr(button, "hover"):
+                            button.hover()
+                    except Exception:
+                        pass
                     time.sleep(0.4)
                     button.click(timeout=5000)
                     sent = True
@@ -5942,24 +5948,36 @@ def prepare_gemini_web_page(
     # 사라짐) 쓰지 않는다. 이 확인이 없으면 세션이 끊긴 채로 계속 요청을 보내면서도 정상
     # 진행 중이라고 착각한다.
     try:
+        guest_login_button = page.get_by_text(
+            GEMINI_WEB_GUEST_MODE_LOGIN_BUTTON_TEXT, exact=True
+        )
+        login_btn_visible = any(
+            guest_login_button.nth(i).is_visible() for i in range(guest_login_button.count())
+        )
+    except Exception:
+        login_btn_visible = False
+
+    try:
         user_avatar = page.locator(
             'header a[href*="myaccount.google.com"], header a[aria-label*="Google 계정"], header a[aria-label*="Google Account"], header img[alt*="프로필"], header img[alt*="Profile"]'
         ).first
         avatar_visible = user_avatar.count() > 0 and user_avatar.is_visible()
+    except Exception:
+        avatar_visible = False
 
+    try:
         header_login = page.locator(
             'header a[href*="accounts.google.com"], header button:has-text("로그인"), a.sign-in-button, button[data-test-id="login-button"]'
         ).first
         header_login_visible = header_login.count() > 0 and header_login.is_visible()
-
-        if avatar_visible:
-            guest_mode_detected = False
-        elif header_login_visible:
-            guest_mode_detected = True
-        else:
-            # Fallback: Check if prompt input is ready and editable
-            guest_mode_detected = input_locator is None
     except Exception:
+        header_login_visible = False
+
+    if avatar_visible:
+        guest_mode_detected = False
+    elif login_btn_visible or header_login_visible:
+        guest_mode_detected = True
+    else:
         guest_mode_detected = False
 
     # -------------------------------------------------------------
