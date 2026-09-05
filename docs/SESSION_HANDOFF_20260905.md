@@ -1,4 +1,4 @@
-# Session Handoff — 2026-09-05
+# Session Handoff — 2026-09-05 (16:00 KST Updated)
 
 > **Target Agent**: Incoming AI Assistant (ChatGPT) resuming operations on `haijun93-audiobook-maker`.
 
@@ -6,58 +6,57 @@
 
 ## 1. Executive Summary & Core Context
 
-- **Current Repository State**: Clean working tree on branch `codex/extend-audiobook-workflows`, 100% synchronized and pushed to GitHub remote `origin/codex/extend-audiobook-workflows`.
-- **Python Environment**: Always use `.venv311/bin/python` for executing all scripts, audits, and CLI tools.
-- **Active Supervisor**: `continuous_worker_supervisor.py` is actively running in background (PID `86001`), orchestrating 4 browser profiles simultaneously (`main`, `account2`, `account3`, `chatgpt`).
+- **Current Repository State**: Clean working tree on branch `codex/extend-audiobook-workflows`, fully synchronized and pushed to GitHub remote `origin/codex/extend-audiobook-workflows`.
+- **Python Environment**: ALWAYS use `.venv311/bin/python` for executing all scripts, audits, and CLI tools.
+- **Active Supervisor**: `continuous_worker_supervisor.py` is actively running in the background (PID `86001`), orchestrating 4 browser profiles simultaneously (`main`, `account2`, `account3`, `chatgpt`).
+- **Production Throughput (Last 9h Today)**: 7 new books completed and published; 4 active workers running at ~90% capacity.
 
 ---
 
-## 2. Completed Items & Key Decisions in This Session
+## 2. Completed Items & Key Decisions
 
-### 1) Investigation of `Presumed Innocent - Scott Turow` & Study Notes Quality
-- Analyzed `/Users/hyeokjunkong/Desktop/소설2/[study]/#apple tv original/#Scott Turow/[study] Presumed Innocent - Scott Turow.epub`.
-- **Finding**: Identified that the vocabulary in this EPUB contained low-difficulty words (`words`, `smile`, `room`, `afraid`, `dinner`, `ticket`, `travel`) and truncated contextual meanings (`~할 수 있는 능...`, `...`) caused by older legacy extraction logic and static dictionary pollution prior to the adoption of the Pure AI TOEIC 700+ to 990 standard.
-- **Root Cause & Resolution Plan**: Clarified the timeline and workflow for re-translating and purifying flawed study editions.
-
-### 2) User Directive on Priority Realignment (최우선 업무 정책 변경)
-- **Rule 1**: Flawed study notes repair tasks are strictly demoted to the **lowest priority** (`P100`).
-- **Rule 2**: Genuine **new novel translations** are promoted to the **highest priority** (`P10000`).
+### 1) Priority Realignment & Library Deduplication (완료)
+- **Rule 1 (Top Priority)**: Genuine **new novel translations** are assigned top priority (`P10000`).
+- **Rule 2 (Relegated Priority)**: Flawed study notes repair tasks are strictly demoted to the **lowest priority** (`P100`).
 - **Rule 3 (Strict Deduplication)**: Cross-referenced all existing 2,156 books in `/Users/hyeokjunkong/Desktop/소설2/` against the task scheduler (`.work/continuous_scheduler/config.json`).
   - **435 duplicate tasks purged** immediately from the active queue.
-  - Total **7,148 genuine new translation tasks** prioritized at `P10000`.
-- **Rule 4 (Active Worker Verification)**: Verified all 4 live workers to confirm none were duplicating library books:
-  - Gemini 1 (`main`): *The Sentence - Louise Erdrich* (New book)
-  - Gemini 2 (`account2`): *The Master Butchers Singing Club - Louise Erdrich* (New book)
-  - Gemini 3 (`account3`): *LaRose - Louise Erdrich* (New book)
-  - ChatGPT (`chatgpt`): *The Round House - Louise Erdrich* (New book)
+  - **7,148 genuine new translation tasks** prioritized at `P10000`.
 
-### 3) ChatGPT Web Normal Mode Guard (`ensure_chatgpt_normal_chat_mode`)
-- **Problem**: ChatGPT web worker would occasionally land on or switch to the `Work` tab, which quickly exhausted weekly work quotas and locked out the worker.
-- **Solution**: Implemented `ensure_chatgpt_normal_chat_mode()` in `audiobook_maker.py`.
-  - Automatically detects and clicks the standard `Chat` mode toggle button.
-  - Automatically detects and waits out Cloudflare verification challenges without throwing fatal timeouts.
-  - Integrated into `prepare_chatgpt_web_page()` and `send_chatgpt_web_prompt()`.
+### 2) ChatGPT Web Normal Mode Guard (`ensure_chatgpt_normal_chat_mode`)
+- Solved weekly work quota exhaustion by enforcing standard `Chat` mode toggle button detection in `audiobook_maker.py`.
+- Cloudflare verification delay handling integrated without timeouts.
+- ChatGPT worker has been translating continuously without hitting weekly quota locks.
 
-### 4) Master Rules Protocol Updates (AGENTS.md)
+### 3) Master Rules Protocol (AGENTS.md)
 - **Rule 8 (Zero X-Ray Principle)**: Complete and permanent elimination of X-Ray dossier files (`000-xray-dramatis-personae.xhtml`) and TOC links across all editions. Pure narrative + TOEIC 700+ ruby hints focus.
 - **Rule 11 (Mandatory Pre-Publishing Quality Gate)**: 5-gate automated pre-publish check.
 - **Rule 12 (Tier-2 Ultimate Integrity Sentinel)**: 6-item zero-tolerance deep verification.
 - **Rule 13 (Tier-3 Visual Screen Sentinel)**: Headless Chromium rendering & visual screenshot inspection.
 
-### 5) Git Commit & Remote Push
-- Staged all architectural files, scripts, quality gates, dependency files, and tests.
-- Pushed commits `b0707ac` and `1126c7b` cleanly to `origin/codex/extend-audiobook-workflows`.
+---
+
+## 3. Today's Published Books (2026-09-05 Daytime)
+
+Between 07:00 and 16:00 KST, 7 additional novels were fully translated, quality-checked, and published to `소설2/[k-e]/` and `소설2/[study]/`:
+
+1. **Lucifer's Game** — Cristina Loggia (4.00) `[15:58]`
+2. **The Reckless Oath We Made** — Bryn Greenwood (3.98) `[15:56]`
+3. **The Sparsholt Affair** — Alan Hollinghurst (3.54) `[13:37]`
+4. **Dogs of God** — James Reston Jr. (0.00) `[13:17]`
+5. **All the Missing Girls** — Megan Miranda `[11:02]`
+6. **The Power** — Rhonda Byrne (4.08) `[09:48]`
+7. **The Darkest Passion** — Gena Showalter (4.34) `[09:27]`
 
 ---
 
-## 3. Current Active Infrastructure & Workers
+## 4. Current Active Workers (as of 16:00 KST)
 
-| Account / Profile | Target Genre / Role | Current Status | Notes |
+| Account / Profile | Target Novel | Progress | State / Notes |
 |---|---|---|---|
-| **Gemini 1 (`main`)** | Louise Erdrich / Nonfiction / Fiction | Active | Chrome Profile 1 (`haijun93@gmail.com`) |
-| **Gemini 2 (`account2`)** | Louise Erdrich / Fiction | Active | Chrome Profile 2 (`haijun2be@gmail.com`) |
-| **Gemini 3 (`account3`)** | Louise Erdrich / Fiction | Active | Chrome Profile 18 (`ngaytot9@gmail.com`) |
-| **ChatGPT (`chatgpt`)** | Louise Erdrich / General Fiction | Active | Chrome Profile 1 (`haijun93@gmail.com`), Non-Dark Romance only |
+| **Gemini 1 (`main`)** | *Lucifer's Game* (completed) → Next dispatching | Complete | Chrome Profile 1 (`haijun93@gmail.com`) |
+| **Gemini 2 (`account2`)** | *The Thirteenth Tale* — Diane Setterfield | **118 / 139 청크 (84.9%)** | Chrome Profile 2 (`haijun2be@gmail.com`) |
+| **Gemini 3 (`account3`)** | *The First Day of Spring* — Nancy Tucker | **1 / 101 청크** | Chrome Profile 18 (`ngaytot9@gmail.com`) |
+| **ChatGPT (`chatgpt`)** | *Indonesia, Etc.* — Elizabeth Pisani | **149 / 155 청크 (96.1%)** | Chrome Profile 1 (`haijun93@gmail.com`), Normal Chat Mode |
 
 - **Supervisor Process**: PID `86001` (`.venv311/bin/python -m scripts.continuous_worker_supervisor`)
 - **Supervisor Log**: `.work/continuous_scheduler/supervisor.log`
@@ -65,7 +64,7 @@
 
 ---
 
-## 4. Operational Guidelines for ChatGPT (Next Agent)
+## 5. Operational Guidelines for ChatGPT (Next Agent)
 
 1. **Python Environment**:
    ```bash
@@ -91,7 +90,8 @@
 
 ---
 
-## 5. Synchronized Files Reference
+## 6. Synchronized Files Reference
 - `AGENTS.md` (Workspace root & `/Users/hyeokjunkong/Desktop/소설2/MD collection/AGENTS.md`)
 - `data/master_study_lexicon.json`
+- `data/master_library_catalog.json`
 - `docs/SESSION_HANDOFF_20260905.md` (This document)
