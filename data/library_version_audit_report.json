@@ -1,0 +1,603 @@
+{
+  "total_books": 727,
+  "new_version_count": 385,
+  "old_version_count": 342,
+  "old_version_by_genre": {
+    "#Freida McFadden": [
+      "Never Lie Freida McFadden (4.08)"
+    ],
+    "#Pam Godwin": [
+      "Blood of Eve Pam Godwin (4.36)",
+      "Heart of Frost and Scars (Frozen Fate Book 3) Pam Godwin_dup",
+      "Three is a War Tangled Lies 3 Pam Godwin (4.06)_dup",
+      "Vanquish Pam Godwin (4.10)"
+    ],
+    "#original books/#Andrzej Sapkowski": [
+      "The Last Wish Andrzej Sapkowski"
+    ],
+    "#original books/#Andy Weir": [
+      "ProjectHailMary Andy Weir",
+      "The Martian by Andy Weir Andy Weir",
+      "마션 Andy Weir"
+    ],
+    "#original books/#Caroline Kepnes": [
+      "You Anthology Caroline Kepnes",
+      "You Series 00 Complete Series Caroline Kepnes",
+      "You Series 01 You Caroline Kepnes (3.96)",
+      "You Series 02 Hidden Bodies Caroline Kepnes (3.76)",
+      "You Series 03 You Love Me Caroline Kepnes (3.66)"
+    ],
+    "#original books/#Cixin Liu": [
+      "Deaths End The Three Body Problem Cixin Liu (4.42)"
+    ],
+    "#original books/#Colleen Hoover": [
+      "Verity Collen hoover Colleen Hoover"
+    ],
+    "#original books/#David Grann": [
+      "The Wager David Grann (4.17)"
+    ],
+    "#original books/#E. Lockhart": [
+      "We Were Liars E. Lockhart"
+    ],
+    "#original books/#Fredrik Backman": [
+      "A Man Called Ove A Novel Fredrik Backman (4.46)"
+    ],
+    "#original books/#J.K. Rowling": [
+      "Harry Potter Fenixuv rad - JKRowling (4.63)",
+      "Harry Potter Princ dvoji krve - JKRowling (4.63)",
+      "Harry Potter ve Zumruduanka Yoldasligi Turkish - J K Rowling (4.63)"
+    ],
+    "#original books/#J.R.R. Tolkien": [
+      "The Lord of the Rings JRR Tolkien"
+    ],
+    "#original books/#Jay Asher": [
+      "Thirteen Reasons Why Jay Asher Jay Asher"
+    ],
+    "#original books/#Kathryn Stockett": [
+      "The Help - Kathryn Stockett (4.47)"
+    ],
+    "#original books/#Markus Zusak": [
+      "The Book Thief - Markus Zusak (4.39)",
+      "The book theif - Markus Zusak (4.15)"
+    ],
+    "#original books/#Sarah Pinborough": [
+      "Cross Her Heart Sarah Pinborough (4.16)",
+      "Tales from the Kingdoms 01 Poison Sarah Pinborough (3.11)",
+      "Tales from the Kingdoms 02 Charm Sarah Pinborough (3.54)",
+      "Tales from the Kingdoms 03 Beauty Sarah Pinborough (3.57)",
+      "The Death House Sarah Pinborough (3.60)"
+    ],
+    "#original books/#Stieg Larsson": [
+      "The Girl Who Played with Fire - Stieg Larsson (4.16)",
+      "The Girl With the Dragon Tattoo Trilogy Bundle - Stieg Larsson (4.16)",
+      "The Girl with the Dragon Tattoo - Stieg Larsson (4.16)"
+    ],
+    "#original books/#Suzanne Collins": [
+      "Mockingjay - Suzanne Collins (4.08)"
+    ],
+    "#original books/#Taylor Jenkins Reid": [
+      "Atmosphere Taylor Jenkins Reid (5.00)"
+    ],
+    "Biography_Memoir": [
+      "Atomic Habits Tiny Changes, Remarkable Results James Clear (0.00)",
+      "BRAIDING SWEETGRASS Robin Wall Kimmerer (4.50)",
+      "How to Develop a Brilliant Memory Week by Week Dominic O Brien (3.95)",
+      "Limitless Jim Kwik (4.07)",
+      "Love, Mom Nicole Saphier, M.D.",
+      "Memory Craft Lynne Kelly (4.21)",
+      "Outlive Peter Attia MD (3.85)",
+      "Remember Lisa Genova (4.20)",
+      "The Anxious Generation Jonathan Haidt (4.30)",
+      "The Backyard Bird Chronicles Amy Tan (4.02)",
+      "The Body Keeps the Score Bessel van der Kolk MD (4.07)",
+      "The Boy the Mole the Fox and the Horse The Animated Story Charlie Mackesy (4.45)",
+      "The House of My Mother Shari Franke",
+      "Troublemaker Surviving Hollywood and Scientology Leah Remini",
+      "Unlimited Memory How to Use Advanced Learning Strategies to Learn Faster Remember More and be More Productive Mental Mastery Book 1 Kevin Horsley (4.01)",
+      "What If Randall Munroe (4.20)",
+      "the Psychology of money Morgan Housel (4.27)"
+    ],
+    "Biography_Memoir/#Anne Frank": [
+      "The Diary of a Young Girl Anne Frank Anne Frank Otto Frank Mirjam Pressler (4.20)"
+    ],
+    "Biography_Memoir/#Elie Wiesel": [
+      "Night - Elie Wiesel (4.38)"
+    ],
+    "Biography_Memoir/#Matthew McConaughey": [
+      "Greenlights - Matthew McConaughey (4.21)"
+    ],
+    "Biography_Memoir/#Tom Selleck": [
+      "You Never Know Tom Selleck"
+    ],
+    "Biography_Memoir/#Viktor Frankl": [
+      "Mans Search for Meaning - Viktor Frankl (4.15)"
+    ],
+    "Business_Economics": [
+      "Deep Work Cal Newport",
+      "The Power of Habit Why We Do What We Do in Life and Business Charles Duhigg",
+      "The Secrets to Writing A Successful Business Plan A Pro Shares A Step-By-Step Guide To Creating A Plan That Gets Results Shelton, Hal"
+    ],
+    "Business_Economics/#Cal Newport": [
+      "The Time-Block Planner - Cal Newport (4.15)"
+    ],
+    "Business_Economics/#Peter Thiel": [
+      "Zero to One Peter Thiel"
+    ],
+    "Business_Economics/#Steven D. Levitt": [
+      "When to Rob a Bank ...And 131 More Warped Suggestions and Well-Intended Rants Steven D. Levitt"
+    ],
+    "Classics": [
+      "Meditations Marcus Aurelius"
+    ],
+    "Dark_Romance": [
+      "The Mindfck Series Box Set 1 5 S T Abby"
+    ],
+    "Dark_Romance/#Callie Hart": [
+      "QUICKSILVER Callie Hart (4.30)"
+    ],
+    "Dark_Romance/#H D Carlton": [
+      "Does it hurt Hd carlton H D Carlton (3.88)",
+      "Haunting adelline H D Carlton"
+    ],
+    "Dark_Romance/#Lizzie B Brown": [
+      "Obedience 01 Obedience Lizzie B Brown",
+      "Obedience 02 Obedience Volume 2 Lizzie B Brown"
+    ],
+    "Dark_Romance/#Navessa Allen": [
+      "CAUGHT UP Navessa Allen (3.79)",
+      "LIGHTS OUT Navessa Allen (4.07)"
+    ],
+    "Dark_Romance/#Penelope Douglas": [
+      "Falls Boys (Hellbent Book 1) Penelope Douglas",
+      "Next to Never Penelope Douglas (4.01)",
+      "Pirate Girls (Hellbent Book 2) Penelope Douglas (0.00)",
+      "Quiet Ones (Hellbent Book 3) Penelope Douglas (3.89)",
+      "Rival Penelope Douglas (3.98)"
+    ],
+    "Fantasy_Science_Fiction": [
+      "11-22-63 King, Stephen",
+      "A Forsaken Prophecy Stacey McEwan",
+      "Beyond the Filigree Wall Melissa Wright",
+      "Ready Player One (Ernest Cline @my fiction books",
+      "The Book of Doors Gareth Brown (4.02)",
+      "The Devils Joe Abercrombie",
+      "The Enchanted Greenhouse Sarah Beth Durst (0.00)",
+      "The Force Awakens (Star Wars) Alan Dean Foster",
+      "The Hitchhiker's Guide to the Galaxy Douglas Adams",
+      "The Left Hand of Darkness Ursula K. LeGuin",
+      "The Life-Changing Magic of Tidying Up The Japanese Art of Decluttering and Organizing Kondo, Marie",
+      "The Ocean at the End of the Lane Neil Gaiman",
+      "The Risen Empire Scott Westerfeld",
+      "The River She Became Emily Varga",
+      "The Tainted Cup Robert Jackson Bennett (4.29)",
+      "The War of the Worlds H G Wells (3.83)",
+      "Three Shattered Souls Mai Corland (4.07)"
+    ],
+    "Fantasy_Science_Fiction/#Brandon Sanderson": [
+      "Edgedancer Brandon Sanderson",
+      "The Final Empire - Brandon Sanderson (4.48)",
+      "The Hero of Ages - Brandon Sanderson (4.52)",
+      "The Way of Kings Brandon Sanderson 4.65",
+      "The Well of Ascension - Brandon Sanderson (4.38)",
+      "Wind and Truth Brandon Sanderson"
+    ],
+    "Fantasy_Science_Fiction/#Cixin Liu": [
+      "Ball Lightning Cixin Liu (3.91)"
+    ],
+    "Fantasy_Science_Fiction/#Dan Simmons": [
+      "Hyperion Tales Dan Simmons 4.26",
+      "The Hyperion Cantos 4 Book Bundle - Dan Simmons (4.26)",
+      "[[study]] The Hyperion Cantos 4 Book Bundle Dan Simmons 4.26"
+    ],
+    "Fantasy_Science_Fiction/#Guy Gavriel Kay": [
+      "The Darkest Road Guy Gavriel Kay (4.20)",
+      "The Summer Tree Guy Gavriel Kay"
+    ],
+    "Fantasy_Science_Fiction/#Isaac Asimov": [
+      "Robot Series 00 The Complete Robot Isaac Asimov (4.33)",
+      "Robot Series 01 I Robot Isaac Asimov (4.21)",
+      "Robot Series 01 I Robot Isaac Asimov 2 (4.19)",
+      "Robot Series 02 The Rest of the Robots Isaac Asimov 2 (4.09)",
+      "Robot Series 03 Robot Dreams Isaac Asimov",
+      "Robot Series 03 Robot Dreams Isaac Asimov 2",
+      "Robot Series 04 Robot Visions Isaac Asimov",
+      "Robot Series 04 Robot Visions Isaac Asimov 2",
+      "Robot Series 05 The Positronic Man Isaac Asimov",
+      "Robot Series 05 The Positronic Man Isaac Asimov 2",
+      "Robot Series 06 The Caves of Steel Isaac Asimov (4.19)",
+      "Robot Series 07 The Naked Sun Isaac Asimov (4.20)",
+      "Robot Series 08 The Robots of Dawn Isaac Asimov (4.20)"
+    ],
+    "Fantasy_Science_Fiction/#John Scalzi": [
+      "When the Moon Hits Your Eye Scalzi,John"
+    ],
+    "Fantasy_Science_Fiction/#Kate DiCamillo": [
+      "The Tale of Despereaux Kate DiCamillo",
+      "데스페로 이야기 Kate DiCamillo"
+    ],
+    "Fantasy_Science_Fiction/#Kristen Ciccarelli": [
+      "Heartless Hunter Kristen Ciccarelli (4.08)",
+      "The Rebel Witch Kristen Ciccarelli"
+    ],
+    "Fantasy_Science_Fiction/#Matt Haig": [
+      "How to Stop Time Matt Haig",
+      "The Comfort Book Matt Haig",
+      "The Humans Haig, Matt",
+      "The Midnight Library Matt Haig",
+      "The Midnight Train Matt Haig"
+    ],
+    "Fiction_Literary_Historical/#Barbara Kingsolver": [
+      "Demon Copperhead - Barbara Kingsolver (4.51)"
+    ],
+    "Fiction_Literary_Historical/#Gabrielle Zevin": [
+      "Tomorrow and Tomorrow and Tomorrow A Novel - Gabrielle Zevin (4.20)"
+    ],
+    "Fiction_Literary_Historical/#Hanya Yanagihara": [
+      "A Little Life - Hanya Yanagihara (4.33)"
+    ],
+    "Fiction_Literary_Historical/#Ken Follett": [
+      "Die Saulen der Erde Die Tore der Welt Schatulle - Ken Follett (4.15) (2)",
+      "The Pillars of the Earth - Ken Follett (4.33)",
+      "World Without End - Ken Follett (4.33)"
+    ],
+    "Fiction_Literary_Historical/#Paulo Coelho": [
+      "The Pilgrimage Paulo Coelho (3.71)"
+    ],
+    "Historical_Fiction": [
+      "A Fire Sparkling MacLean, Julianne (4.44)",
+      "Consuelo George Sand (5.00)",
+      "Crooked Kingdom Book 2 (Six of Crows) Bardugo, Leigh (4.64)",
+      "Land Maggie O'Farrell (3.98)",
+      "Moonwalking With Einstein The Art and Science of Remembering Everything Joshua Foer (3.88)",
+      "SMALL THINGS LIKE THESE Claire Keegan (4.07)",
+      "THE FROZEN RIVER Ariel Lawhon (4.37)",
+      "The Heart in Winter Kevin Barry",
+      "The Sirens Emilia Hart"
+    ],
+    "Historical_Fiction/#Kristin Hannah": [
+      "The Nightingale Kristin Hannah",
+      "The Women Kristin Hannah (4.58)"
+    ],
+    "Historical_Fiction/#Mark Sullivan": [
+      "Beneath a Scarlet Sky - Mark Sullivan (4.41)"
+    ],
+    "Historical_Fiction/#Yael van der Wouden": [
+      "The Safekeep Yael van der Wouden"
+    ],
+    "Horror_Dark_Fiction": [
+      "The Last Tale of the Flower Bride Roshani Chokshi"
+    ],
+    "Horror_Dark_Fiction/#Grady Hendrix": [
+      "Witchcraft for Wayward Girls Grady Hendrix"
+    ],
+    "Horror_Dark_Fiction/#Mona Awad": [
+      "We Love You, Bunny Mona Awad"
+    ],
+    "Literary_General_Fiction": [
+      "A WITCH 39 S GUIDE TO MAGICAL INNKEEPING Sangu Mandanna",
+      "Bits And Pieces Whoopi Goldberg (4.29)",
+      "Coming Home Brittney Griner",
+      "Cool Machine Colson Whitehead",
+      "Elledge's Nontrivial Trivia Jonn Elledge (4.09)",
+      "Elric of Melnibone The Elric Saga Part 1 Michael Moorcock (4.09)",
+      "Fangirl Down Tessa Bailey (3.77)",
+      "Guns Germs and Steel The Fates of Human Societies Jared Diamond (4.27)",
+      "How We Think Marius Ostrowski (3.75)",
+      "How to Develop A Super Power Memory ESiti Forum",
+      "JAMES Percival Everett (4.41)",
+      "Make It Stick Peter C Brown Henry L Roediger III Mark A McDaniel",
+      "Make It Stick Peter C Brown Henry L Roediger III Mark A McDaniel 2 (4.40)",
+      "News of the World Paulette Jiles (4.08)",
+      "No Going Back Kristi Noem (3.57)",
+      "Phoebe Berman's Gonna Lose It Brooke Averick (4.06)",
+      "Prisoners of Geography Tim Marshall (4.83)",
+      "Seafire Natalie C Parker (3.82)",
+      "Sourdough (Robin Sloan) @my fiction books (3.75)",
+      "The Age of Grievance Frank Bruni (4.07)",
+      "The Correspondent Virginia Evans (4.10)",
+      "The Dream Hotel Laila Lalami",
+      "The First Time I Saw Him Laura Dave (0.00)",
+      "The Hundred Years War on Palestine Rashid Khalidi (4.03)",
+      "The Light We Carry Michelle Obama (4.27)",
+      "The Mare Hampshire, Angharad",
+      "The Ministry of Time Kaliane Bradley",
+      "The Poppy Fields Nikki Erlick",
+      "The Rise and Fall of the Third Reich A History of Nazi Germany William L Shirer (4.23)",
+      "The Rumor Elin Hilderbrand",
+      "The Shampoo Effect Jenny Jackson",
+      "The Shock of the Fall (Special edition) Nathan Filer",
+      "The Wedding People Alison Espach",
+      "To Rise Again at a Decent Hour Joshua Ferris",
+      "Unbroken A World War II Story Of Survival Res Laura Hillenbrand",
+      "Uncomfortable Conversations with a Jew Emmanuel Acho (0.00)",
+      "WICKED Gregory Maguire (3.50)",
+      "Water Moon Samantha Sotto Yambao"
+    ],
+    "Literary_General_Fiction/#Allen Levi": [
+      "Allen Levi Theo of Golden Levi Allen (4.46)",
+      "Theo of Golden Allen Levi",
+      "Theo of Golden Levi, Allen (4.46)"
+    ],
+    "Literary_General_Fiction/#Avi": [
+      "The End of Everything Victor Davis Hanson (4.18)",
+      "The True Confessions Of Charlotte Doyle Avi (3.79)",
+      "The True Confessions Of Charlotte Doyle Avi 3 (3.79)"
+    ],
+    "Literary_General_Fiction/#Daniel Kahneman 30 Minute Expert Summary": [
+      "Thinking, Fast and Slow by Daniel Kahneman 30 Minute Expert Summary"
+    ],
+    "Literary_General_Fiction/#Erik Larson": [
+      "The Demon of Unrest Erik Larson (4.16)",
+      "The Devil in the White City Erik Larson Larson Erik (4.00)"
+    ],
+    "Literary_General_Fiction/#General Authors": [
+      "Never Lie Unknown (4.08)"
+    ],
+    "Literary_General_Fiction/#James Islington": [
+      "The Strength of the Few James Islington",
+      "The Will of the Many (James Islington@my fiction books (0.00)"
+    ],
+    "Literary_General_Fiction/#Kat Stoddard": [
+      "Wasp's Nest Kat Stoddard (3.92)"
+    ],
+    "Literary_General_Fiction/#Patchett,Ann": [
+      "Whistler Patchett,Ann"
+    ],
+    "Literary_General_Fiction/#Sarah J. Maas": [
+      "A Court of Mist and Fury Sarah J Maas (4.63)",
+      "A Court of Silver Flames Sarah J Maas (4.09)",
+      "A Court of Thorns and Roses Sarah J Maas (4.15)",
+      "A Court of Wings and Ruin Sarah J Maas (4.46)",
+      "A court of frost and starlight Sarah j mass Sarah J Maas",
+      "Acotar Sarah jmaas Sarah J Maas"
+    ],
+    "Literary_General_Fiction/#Stephanie Garber": [
+      "A Curse for True Love Stephanie Garber Garber, Stephanie (4.17)",
+      "Once Upon a Broken Heart Stephanie Garber (4.50)",
+      "The Ballad of Never After Stephanie Garber (3.67)"
+    ],
+    "Mystery_Thriller_Crime": [
+      "ALL THE COLORS OF THE DARK Chris Whitaker (4.23)",
+      "Ellis, Bret Easton American Psycho (3.80)",
+      "First Lie Wins Ashley Elston (3.99)",
+      "KNIFE Salman Rushdie (3.97)",
+      "My Dark Vanessa Kate Elizabeth Russell (4.09)",
+      "THE GOD OF THE WOODS Liz Moore (4.09)",
+      "TO DIE FOR David Baldacci (4.38)",
+      "The Crossroads C.J. Box (0.00)",
+      "The Cuckoo's Calling Robert Galbraith; J.K. Rowling",
+      "The Forgery of Venus Michael Gruber",
+      "The Girl In The Glass James Hayman",
+      "The Housewife Barelli, Natalie",
+      "The Insider Threat Brad Taylor",
+      "The Melody Lingers On Mary Higgins Clark",
+      "The Perfect Divorce Jeneva Rose",
+      "The Secret of Secrets Dan Brown",
+      "The Silence Daisy Pearce",
+      "Vampire Sorority Sisters 01 Better Off Red Rebekah Weatherspoon (3.75)",
+      "What Lies Between Us John Marrs"
+    ],
+    "Mystery_Thriller_Crime/#Agatha Christie": [
+      "And Then There Were None Agatha Christie",
+      "The Murder of Roger Ackroyd Agatha Christie"
+    ],
+    "Mystery_Thriller_Crime/#Alex Michaelides": [
+      "THE SILENT PATIENT BY ALEX MICHAELIDES {Noble Publishing} Noble Publishing",
+      "The Silent Patient - Alex Michaelides (4.18)"
+    ],
+    "Mystery_Thriller_Crime/#Blake J. Harris": [
+      "Console Wars - Blake J. Harris (3.97)"
+    ],
+    "Mystery_Thriller_Crime/#Caro Claire Burke": [
+      "Yesteryear Caro Claire Burke"
+    ],
+    "Mystery_Thriller_Crime/#Daniel Silva": [
+      "AN INSIDE JOB Daniel Silva (4.40)",
+      "Ransom Daniel Silva",
+      "The English Spy Daniel Silva"
+    ],
+    "Mystery_Thriller_Crime/#Douglas R Hofstadter": [
+      "Gödel, Escher, Bach-An Eternal Golden Brai - Douglas R Hofstadter (4.15)"
+    ],
+    "Mystery_Thriller_Crime/#Harper Lee": [
+      "To kill a mocking bird - Haper Lee (4.15)"
+    ],
+    "Mystery_Thriller_Crime/#James Keene": [
+      "Black Bird - James Keene"
+    ],
+    "Mystery_Thriller_Crime/#James Patterson": [
+      "Cross and Sampson James Patterson (4.41)",
+      "THE HOUSE OF CROSS James Patterson (4.36)",
+      "The Country Road Murders James Patterson",
+      "Truth or Die James Patterson",
+      "Zoo James Patterson"
+    ],
+    "Mystery_Thriller_Crime/#Jeff Kinney": [
+      "Cabin Fever - Jeff Kinney (4.23)"
+    ],
+    "Mystery_Thriller_Crime/#Jesse Q. Sutanto": [
+      "Vera Wong's Guide to Snooping (on a Dead Man) Jesse Q. Sutanto (4.19)"
+    ],
+    "Mystery_Thriller_Crime/#John Grisham": [
+      "The Firm John Grisham (3.68)"
+    ],
+    "Mystery_Thriller_Crime/#Keigo Higashino": [
+      "The Devotion of Suspect X - Keigo Higashino (4.18)"
+    ],
+    "Mystery_Thriller_Crime/#Lisa Jewell": [
+      "None of This is True - Lisa Jewell (4.16)"
+    ],
+    "Mystery_Thriller_Crime/#Melissa Wright": [
+      "The Rivenwilde Series - Melissa Wright (4.15)"
+    ],
+    "Mystery_Thriller_Crime/#Mike Omer": [
+      "In the Darkness (Zoe Bentley Mystery Book 2) Mike Omer",
+      "In the Darkness Zoe Bentley Mystery Book Mike Omer 4.25",
+      "Thicker than Blood Zoe Bentley Mystery - Mike Omer (4.25)"
+    ],
+    "Mystery_Thriller_Crime/#Nora Roberts": [
+      "The Final Target Nora Roberts",
+      "Whiskey Beach Nora Roberts"
+    ],
+    "Mystery_Thriller_Crime/#P.C. Cast and Kristin Cast": [
+      "Untamed - P.C. Cast and Kristin Cast (4.36)"
+    ],
+    "Mystery_Thriller_Crime/#Patricia Cornwell": [
+      "Kay Scarpetta 05 The Body Farm Patricia Cornwell (4.07)",
+      "Kay Scarpetta 06 From Potter s Field Patricia Cornwell (4.06)",
+      "Kay Scarpetta 07 Cause Of Death Patricia Cornwell (3.95)",
+      "Kay Scarpetta 08 Unnatural Exposure Patricia Cornwell (4.07)",
+      "Kay Scarpetta 09 Point of Origin Patricia Cornwell (4.05)"
+    ],
+    "Mystery_Thriller_Crime/#Paula Hawkins": [
+      "03. The Girl on the Train Paula Hawkins Paula Hawkins",
+      "걸 온 더 트레인 Paula Hawkins"
+    ],
+    "Mystery_Thriller_Crime/#Richard Osman": [
+      "The Impossible Fortune Richard Osman",
+      "The Man Who Died Twice Richard Osman"
+    ],
+    "Mystery_Thriller_Crime/#Sally Hepworth": [
+      "Mad Mabel - Sally Hepworth"
+    ],
+    "Mystery_Thriller_Crime/#Stephen King": [
+      "The Dark Tower Boxed Set Stephen King",
+      "The Talisman Stephen King"
+    ],
+    "NonFiction_Memoir/#Paul Kalanithi": [
+      "When Breath becomes air - Paul Kalanithi (4.39)"
+    ],
+    "NonFiction_Memoir/#Tara Westover": [
+      "Educated - Tara Westover (4.47)"
+    ],
+    "NonFiction_Memoir/#Walter Isaacson": [
+      "Steve Jobs - Walter Isaacson (4.16)"
+    ],
+    "Nonfiction_History_Politics": [
+      "A short history of nearly everything Bill Bryson Bill Bryson",
+      "Bill Bryson A Short History of Nearly Everything Unknown",
+      "The Song of Achilles Madeline Miller",
+      "The Wide Wide Sea Hampton Sides",
+      "This Changes Everything Capitalism vs. The Climate Naomi Klein"
+    ],
+    "Nonfiction_History_Politics/#Brian Kilmeade": [
+      "Thomas Jefferson and the Tripoli Pirates Brian Kilmeade"
+    ],
+    "Nonfiction_History_Politics/#John Berger": [
+      "Ways of Seeing John Berger"
+    ],
+    "Nonfiction_History_Politics/#Michael J. Sandel": [
+      "The Tyranny of Merit Michael J. Sandel"
+    ],
+    "Nonfiction_History_Politics/#Michael Sandel": [
+      "What Money Can't Buy The Moral Limits of Markets Michael Sandel"
+    ],
+    "Nonfiction_History_Politics/#Walter Isaacson": [
+      "The Innovators How a Group of Inventors, Hackers, Geniuses and Geeks Created the Digital Revolution Walter Isaacson"
+    ],
+    "Psychology_Self_Help": [
+      "Daring Greatly Brené Brown",
+      "Mindset--The New Psychology of Success by Carol S. Dweck Conversation Starters dailyBooks",
+      "Thinking, Fast and Slow Kahneman, Daniel"
+    ],
+    "Psychology_Self_Help/#Brené Brown": [
+      "[[study]] Daring Greatly - Brene (4.28)"
+    ],
+    "Psychology_Self_Help/#Carol S. Dweck": [
+      "Mindset The New Psychology of Success - Carol S. Dweck (4.09)",
+      "[[study]] Mindset--The New Psychology of Success by Carol S Dweck - dailyBooks (4.09)"
+    ],
+    "Romance/#Rebecca Ross": [
+      "Ruthless Vows - Rebecca Ross (4.24)"
+    ],
+    "Romance_Contemporary": [
+      "All the Little Lights Jamie McGuire (3.96)",
+      "An Unfinished Love Story Doris Kearns Goodwin (4.59)",
+      "Bonus Epilogue Tears of Tess (Monsters in the Dark Book 5) Winters, Pepper",
+      "COUNTING MIRACLES Nicholas Sparks (4.15)",
+      "Heart Talk Cleo Wade (4.24)",
+      "Initial Meeting NM Sanchez N M Sanchez (3.75)",
+      "Shadows of Fury R NIMES (4.16)",
+      "Still Beating Jennifer Hartmann (0.00)",
+      "The Princess Saves Herself In This One Amanda Lovelace (3.82)",
+      "The Ritual A Dark College Romance Shantel Tessier",
+      "Vicious Reign Monica Kayne (4.26)",
+      "Wicked Sanctuary Jane Henry (4.17)"
+    ],
+    "Romance_Contemporary/#Abby Jimenez": [
+      "Say You'll Remember Me Abby Jimenez (3.97)",
+      "The Fall Risk - Abby Jimenez (4.61)"
+    ],
+    "Romance_Contemporary/#Ali Hazelwood": [
+      "Bride Ali Hazelwood (3.99)",
+      "The Love Hypothesis Ali Hazelwood (4.00)"
+    ],
+    "Romance_Contemporary/#Carley Fortune": [
+      "04 ONE GOLDEN SUMMER by Carley Fortune Carley Fortune (4.28)",
+      "One Golden Summer Carley Fortune (0.00)"
+    ],
+    "Romance_Contemporary/#Elin Hilderbrand": [
+      "The Five-Star Weekend - Elin Hilderbrand (4.01)"
+    ],
+    "Romance_Contemporary/#Ella Monroe": [
+      "Five Star Summer - Ella Monroe (4.15)"
+    ],
+    "Romance_Contemporary/#Elle Kennedy": [
+      "The Deal Off Campus 1 Elle Kennedy (4.18)",
+      "The Mistake (Off-Campus Book 2) Elle Kennedy",
+      "The Score Off Campus 3 Elle Kennedy (4.12)"
+    ],
+    "Romance_Contemporary/#Emily Henry": [
+      "Alex leto a ja Czech Edition - Emily Henry (4.15) (2) (2)",
+      "Beach Read Emily Henry",
+      "Great Big Beautiful Life Emily Henry (0.00)",
+      "Knihomolove Czech Edition - Emily Henry (4.15)"
+    ],
+    "Romance_Contemporary/#Rachel Winters": [
+      "Would Like to Meet Rachel Winters"
+    ],
+    "Romance_Contemporary/#Rebecca Yarros": [
+      "Fourth Wing Special Edition Rebecca Yarros (0.00)",
+      "Iron Flame Rebecca Yarros (5.00)",
+      "Onyx Storm The Empyrean Book 3 Rebecca Yarros",
+      "The Things We Leave Unfinished Rebecca Yarros"
+    ],
+    "Romance_Contemporary/Bethany Jadin": [
+      "The Code 01 Vested Interest Bethany Jadin (4.03)",
+      "The Code 02 Hidden Agenda Bethany Jadin (4.11)",
+      "The Code 03 Broken Process Bethany Jadin (4.14)"
+    ],
+    "Romance_Contemporary/Lynn Painter": [
+      "Better Than the Movies Lynn Painter (4.25)"
+    ],
+    "Romance_Contemporary/Rachel Reid": [
+      "Heated Rivalry Rachel Reid",
+      "The Long Game (Game Changers) Rachel Reid"
+    ],
+    "Science_Nature_Technology": [
+      "To Explain the World The Discovery of Modern Science Steven Weinberg"
+    ],
+    "Science_Nature_Technology/#Belsky, Gary": [
+      "Why Smart People Make Big Money Mistakes and How to Correct Them Lessons From the Life-Changing Science of Behavioral Economics Belsky, Gary"
+    ],
+    "Science_Nature_Technology/#Carl Sagan": [
+      "The Demon Haunted World Carl Sagan 4.15"
+    ],
+    "Science_Nature_Technology/#Douglas R Hofstadter": [
+      "Gödel, Escher, Bach An Eternal Golden Brai Douglas R Hofstadter 4.15"
+    ],
+    "Self_Improvement/#Angela Duckworth": [
+      "grit - Angela Duckworth (4.09)"
+    ],
+    "Self_Improvement/#Malcolm Gladwell": [
+      "Outliers - Malcolm Gladwell (4.19)"
+    ],
+    "Self_Improvement/#Susan Cain": [
+      "Quiet - Susan Cain (4.08)",
+      "Quiet Power - Susan Cain (4.08)"
+    ],
+    "Young_Adult_Children/#R.J. Palacio": [
+      "Auggie n Me Three Wonder Stories - R J Palacio (4.45)"
+    ]
+  }
+}

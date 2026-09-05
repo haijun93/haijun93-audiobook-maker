@@ -5,8 +5,8 @@ setopt pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-YOU_INPUT="/Users/hyeokjunkong/Desktop/소설/YOU - A Novel(Kor)/YOU - A Novel(Kor).txt"
-MARTIAN_INPUT="/Users/hyeokjunkong/Desktop/소설/The Martian/The_Martian_by_Andy_Weir_ko_chatgpt.txt"
+YOU_INPUT="${YOU_INPUT:-${HOME}/Desktop/소설/YOU - A Novel(Kor)/YOU - A Novel(Kor).txt}"
+MARTIAN_INPUT="${MARTIAN_INPUT:-${HOME}/Desktop/소설/The Martian/The_Martian_by_Andy_Weir_ko_chatgpt.txt}"
 
 VOICE="${VOICE:-cove}"
 REQUEST_TIMEOUT_SEC="${REQUEST_TIMEOUT_SEC:-600}"

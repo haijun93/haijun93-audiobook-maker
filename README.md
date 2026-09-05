@@ -1,77 +1,234 @@
 # Korean Audiobook Maker
 
-한국어 텍스트를 오디오북으로 만드는 프로젝트입니다.
+Create Korean audiobooks from TXT, EPUB, DOCX, and PDF files, or translate
+English EPUB, PDF, and MOBI books into Korean and bilingual study editions.
+Use the local web interface for everyday work or the CLI for automation and
+long-running jobs.
 
-현재 남아 있는 생성 방식은 하나뿐입니다.
-- `chatgpt_web`: ChatGPT 웹 로그인 기반 read-aloud 자동화
+The project supports three voice providers:
 
-## 설치
+- `gemini_api_tts`: Gemini Developer API TTS
+- `gemini_web`: Gemini's signed-in web interface
+- `chatgpt_web`: ChatGPT's signed-in web interface and read-aloud feature
+
+> Use only documents you own or have permission to process. You are
+> responsible for provider terms, API charges, and the rights to generated
+> output.
+
+## Web Interface
+
+Python 3.11 or newer is required.
 
 ```bash
-python3 -m pip install -r requirements.txt
+git clone https://github.com/haijun93/haijun93-audiobook-maker.git
+cd haijun93-audiobook-maker
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+audiobook-maker-web
 ```
 
-권장 사항:
-- 시스템 `ffmpeg`가 있으면 가장 좋습니다.
-- 시스템 `ffmpeg`가 없으면 `imageio-ffmpeg` fallback을 사용합니다.
-- `chatgpt_web`를 쓰려면 Chrome에 `chatgpt.com` 로그인 세션이 있어야 합니다.
-- `playwright install chromium` 초기 1회 설치가 필요할 수 있습니다.
+Open [http://127.0.0.1:7860](http://127.0.0.1:7860). The interface provides:
 
-## 기본 낭독 지침
+- audio generation from an uploaded file or pasted text, including Gemini Web
+- English EPUB/PDF/MOBI translation into `[k]` Korean and `[k-e]` bilingual EPUBs
+- folder scanning and queued batch translation or audio generation
+- persistent jobs, live logs, result playback, and individual file downloads
 
-모든 오디오북 생성 방식의 기본 낭독 지침은 공통입니다.
-- 한국어 원어민 전문 성우가 읽는 오디오북 톤
-- 외국어식 억양, 영어식 강세, 문장 끝 올림 억양 지양
-- 문장 흐름 중심의 자연스러운 호흡과 리듬
-- 따뜻하고 차분하며 오래 들어도 피로하지 않은 톤
-- 감정선은 살리되 과장 연기는 하지 않는 방향
+Folder jobs use paths on the computer running the server. By default,
+translations are written to `[k]` and `[k-e]` folders inside the selected
+source folder, while audio is written to its `audiobooks` folder. Enter a
+different output path to keep results elsewhere.
 
-필요하면 ChatGPT 웹용 추가 낭독 지침으로 덮어쓸 수 있습니다.
+Windows activation:
 
-## 빠른 시작
+```powershell
+.venv\Scripts\activate
+```
+
+Run without installing command aliases:
 
 ```bash
-python3 audiobook_maker.py \
+python web_app.py
+```
+
+The server listens only on localhost by default. It has no built-in account
+system, so do not expose it to a network without an authenticated reverse
+proxy. See [SECURITY.md](SECURITY.md).
+
+## Provider Setup
+
+### Gemini API TTS
+
+Create an API key for a project that can access Gemini TTS, then set one of:
+
+```bash
+export GEMINI_API_KEY="your_api_key"
+# or: export GOOGLE_API_KEY="your_api_key"
+```
+
+The default model is `gemini-2.5-flash-preview-tts` and the default voice is
+`Sulafat`.
+
+### Gemini Web and ChatGPT Web
+
+Install Google Chrome and sign in to the provider in your regular Chrome
+profile. Chrome is discovered automatically on macOS, Windows, and Linux. A
+custom executable can be selected with:
+
+```bash
+export AUDIOBOOK_CHROME_PATH="/path/to/chrome"
+```
+
+Playwright may need a one-time browser installation:
+
+```bash
+python -m playwright install chromium
+```
+
+Web automation depends on the provider's current UI, account limits, login
+state, and network. The job log reports retries and actionable failures.
+
+### Book Translation
+
+Gemini Web is the default translation provider. The translation workflow first
+builds a character relationship and speech-level guide, translates the book,
+then performs final tone and dialogue consistency checks. It produces a
+sentence-paired bilingual EPUB and can derive a Korean-only edition from it.
+
+PDF sources are converted to a reflowable English EPUB before translation, so
+complex fixed-layout pages may not retain their original visual arrangement.
+MOBI input requires [Calibre](https://calibre-ebook.com/) and its
+`ebook-convert` command. Calibre is discovered automatically in common install
+locations, or it can be configured explicitly:
+
+```bash
+export EBOOK_CONVERT_PATH="/path/to/ebook-convert"
+```
+
+## CLI
+
+Gemini API example:
+
+```bash
+audiobook-maker \
+  --provider gemini_api_tts \
+  --input-file "./book.epub" \
+  --output-file "./audiobooks/book.m4a" \
+  --voice Sulafat
+```
+
+Gemini Web example:
+
+```bash
+audiobook-maker \
+  --provider gemini_web \
+  --input-file "./book.txt" \
+  --output-file "./audiobooks/book.m4a" \
+  --voice account_default
+```
+
+ChatGPT Web example:
+
+```bash
+audiobook-maker \
   --provider chatgpt_web \
-  --input-file "./smoke_ko.txt" \
-  --output-file "./audiobooks/smoke_chatgpt_web.m4a" \
-  --voice "cove"
+  --input-file "./book.txt" \
+  --output-file "./audiobooks/book.m4a" \
+  --voice cove
 ```
 
-## 장시간 작업 재개
+Run `audiobook-maker --help` for all provider, chunking, retry, study-mode,
+heartbeat, and output options.
+
+## Audiobook Modes
+
+- `plain`: read the extracted source text
+- `material_only`: omit surrounding answer or explanation material where the
+  source format supports it
+- `study`: organize sections as summaries, memory points, reminders, and
+  transitions
+
+EPUB input follows spine order. DOCX input uses paragraph and heading styles.
+PDF input reads text blocks and preserves major section boundaries where they
+can be detected. Adjacent short sections are grouped to avoid choppy audio.
+
+## Long-Running Jobs
+
+Shell wrappers in `scripts/` add a watchdog, heartbeat files, retry settings,
+and resumable work directories. For example:
 
 ```bash
-MAX_CHARS=1800 \
-./scripts/run_chatgpt_web_job.sh \
-  "./book.txt" \
-  "./audiobooks/book_chatgpt_web_cove.m4a"
+MAX_CHARS=2500 \
+./scripts/run_gemini_api_tts_job.sh \
+  "./book.epub" \
+  "./audiobooks/book.m4a"
 ```
 
-기본적으로 watchdog가 켜져 있습니다.
-- `WATCHDOG_STALL_SEC=120`: heartbeat나 산출물 갱신이 120초 없으면 현재 합성 프로세스를 강제 종료하고 즉시 재시작합니다.
-- `WATCHDOG_POLL_SEC=15`: 정체 여부를 확인하는 주기입니다.
-- `WATCHDOG_KILL_GRACE_SEC=10`: 정상 종료를 기다린 뒤 강제 종료로 넘어가기 전 유예 시간입니다.
+Common watchdog settings:
 
-`run_chatgpt_web_job.sh`는 Python을 unbuffered 모드로 실행하고, 작업 폴더 안에 heartbeat JSON 파일을 남겨 외부 감시가 실제 진행 상태를 추적할 수 있게 합니다.
+- `WATCHDOG_STALL_SEC`: maximum time without heartbeat or output activity
+- `WATCHDOG_POLL_SEC`: watchdog polling interval
+- `WATCHDOG_KILL_GRACE_SEC`: graceful shutdown period before forced shutdown
 
-## 산출물
+Intermediate text, responses, metadata, audio segments, and a manifest remain
+in the job work directory so interrupted work can continue.
 
-작업 폴더에 다음 추적 파일을 남깁니다.
-- 원문 세그먼트 텍스트
-- 프롬프트
-- 응답 본문
-- ChatGPT 웹 메타데이터 JSON
-- 분할 오디오 세그먼트
-- watchdog heartbeat JSON
+For continuous use of multiple Gemini and ChatGPT web accounts, see
+[`docs/CONTINUOUS_TRANSLATION_SCHEDULER.md`](docs/CONTINUOUS_TRANSLATION_SCHEDULER.md).
+The scheduler keeps one worker per browser profile, work-steals from a shared
+durable queue, resumes checkpoints, isolates account cooldowns, and reports all
+account slots in the live web dashboard.
 
-## 테스트
+## Configuration
+
+Copy `.env.example` to `.env.local` or export the same variables in the shell.
+The web interface recognizes:
+
+- `AUDIOBOOK_WEB_HOST` (default `127.0.0.1`)
+- `AUDIOBOOK_WEB_PORT` (default `7860`)
+- `AUDIOBOOK_WEB_DATA_DIR` (default `.webui`)
+- `AUDIOBOOK_MAX_UPLOAD_MB` (default `100`)
+- `AUDIOBOOK_CHROME_PATH`
+- `EBOOK_CONVERT_PATH`
+- `GEMINI_API_KEY` or `GOOGLE_API_KEY`
+
+Uploaded documents and generated files are stored below
+`AUDIOBOOK_WEB_DATA_DIR`. Folder-batch results are stored in the output path
+selected in the interface. Job metadata is written atomically, and active jobs
+return to the queue after a web server restart.
+
+## Development
 
 ```bash
-python3 -m unittest discover -s tests -p 'test_*.py'
+python -m pip install -e ".[dev]"
+python scripts/quality_gate.py
 ```
 
-`pytest`가 설치돼 있다면 아래 명령도 동작합니다.
+The quality gate runs dependency checks, Ruff, Python compilation, zsh syntax
+validation, the full test suite, and Git whitespace validation. GitHub Actions
+runs the same checks on Python 3.11 and 3.13.
 
-```bash
-pytest -q
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
+## License
+
+Korean Audiobook Maker is released under the [MIT License](LICENSE). Selected
+Lucide icons are included under the terms in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+---
+
+## 한국어 빠른 안내
+
+이 프로젝트는 `txt`, `epub`, `docx`, `pdf`를 오디오북으로 변환하고,
+영문 `epub`, `pdf`, `mobi`를 `[k]` 한글 EPUB과 `[k-e]` 한영 EPUB으로
+번역합니다. 폴더 경로를 지정하면 번역이나 오디오 생성을 일괄 처리할
+수 있습니다. 처음 사용하는 경우 위 설치 명령을 실행한 뒤
+`audiobook-maker-web`을 시작하고 브라우저에서
+`http://127.0.0.1:7860`을 여세요.
+
+Gemini API 방식에는 `GEMINI_API_KEY`가 필요합니다. Gemini Web과 ChatGPT
+Web 방식은 Chrome 로그인 세션을 사용합니다. 웹 화면의 작업 목록에서
+진행률과 로그를 확인하고, 완료된 오디오를 재생하거나 각 EPUB 결과물을
+내려받을 수 있습니다. MOBI 변환에는 Calibre가 필요합니다.

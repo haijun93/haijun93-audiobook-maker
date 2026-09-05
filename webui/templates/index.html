@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Audiobook Studio</title>
+  <link rel="icon" href="{{ url_for('static', filename='icons/play.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand" aria-label="Audiobook Studio">
+      <div class="brand-wave" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div>
+        <strong>Audiobook Studio</strong>
+        <span data-i18n="brandSub">Korean Audiobook Maker</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div id="system-summary" class="system-summary" aria-live="polite"></div>
+      <div class="segmented compact" role="group" aria-label="Language">
+        <button type="button" class="segment active" data-lang="ko">한국어</button>
+        <button type="button" class="segment" data-lang="en">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="runtime-pane" aria-labelledby="runtime-title">
+      <div class="runtime-header">
+        <div class="runtime-title-group">
+          <span class="live-signal" id="runtime-signal" aria-hidden="true"></span>
+          <div>
+            <h2 id="runtime-title" data-i18n="liveOperations">실시간 작업</h2>
+            <span id="runtime-connection" class="runtime-connection" data-i18n="connecting">연결 중</span>
+          </div>
+        </div>
+        <button class="icon-button" id="refresh-runtime" type="button" title="Refresh" aria-label="Refresh"><img class="ui-icon" src="{{ url_for('static', filename='icons/refresh-cw.svg') }}" alt=""></button>
+      </div>
+
+      <div class="runtime-summary" aria-live="polite">
+        <div><strong id="runtime-active-count">0</strong><span data-i18n="runtimeActive">실행 중</span></div>
+        <div><strong id="runtime-healthy-count">0</strong><span data-i18n="runtimeHealthy">정상</span></div>
+        <div><strong id="runtime-recovering-count">0</strong><span data-i18n="runtimeRecovering">자동 복구</span></div>
+        <div><strong id="runtime-attention-count">0</strong><span data-i18n="attention">확인 필요</span></div>
+      </div>
+
+      <div id="runtime-audit" class="runtime-audit" aria-live="polite" hidden></div>
+      <div id="runtime-accounts" class="runtime-accounts" aria-live="polite" hidden></div>
+      <div id="runtime-list" class="runtime-list" aria-live="polite"></div>
+      <div id="runtime-empty" class="runtime-empty">
+        <span class="status-dot"></span>
+        <span data-i18n="runtimeEmpty">실행 중인 외부 작업 없음</span>
+      </div>
+    </section>
+
+    <section class="creator-pane" aria-labelledby="create-title">
+      <div class="section-heading">
+        <div>
+          <span class="step-index">01</span>
+          <h1 id="create-title" data-i18n="newJob">새 오디오북</h1>
+        </div>
+      </div>
+
+      <div class="segmented full task-tabs" role="tablist" aria-label="Job type">
+        <button type="button" class="segment active" data-task-tab="audio" role="tab" aria-selected="true" data-i18n="taskAudio">오디오</button>
+        <button type="button" class="segment" data-task-tab="translation" role="tab" aria-selected="false" data-i18n="taskTranslation">도서 번역</button>
+        <button type="button" class="segment" data-task-tab="batch" role="tab" aria-selected="false" data-i18n="taskBatch">폴더 일괄</button>
+        <button type="button" class="segment" data-task-tab="downloader" role="tab" aria-selected="false">📚 도서 수집</button>
+      </div>
+
+      <form id="audio-form" class="task-form" data-task-panel="audio" novalidate>
+        <div class="field-group">
+          <div class="segmented full" role="tablist" aria-label="Source type">
+            <button type="button" class="segment active" data-audio-source-tab="file" role="tab" aria-selected="true" data-i18n="file">파일</button>
+            <button type="button" class="segment" data-audio-source-tab="text" role="tab" aria-selected="false" data-i18n="text">텍스트</button>
+          </div>
+          <input type="hidden" name="source_kind" id="audio-source-kind" value="file">
+
+          <div id="audio-file-source" class="source-panel">
+            <label class="drop-zone" id="audio-drop-zone" for="audio-source-file">
+              <input id="audio-source-file" name="file" type="file" accept=".txt,.epub,.docx,.pdf">
+              <span class="drop-symbol" aria-hidden="true"><img src="{{ url_for('static', filename='icons/plus.svg') }}" alt=""></span>
+              <strong id="audio-file-label" data-i18n="chooseFile">파일 선택</strong>
+              <small>TXT · EPUB · DOCX · PDF</small>
+            </label>
+          </div>
+
+          <div id="audio-text-source" class="source-panel" hidden>
+            <label for="audio-direct-text" data-i18n="sourceText">원문</label>
+            <textarea id="audio-direct-text" name="text" rows="9" data-i18n-placeholder="textPlaceholder" placeholder="낭독할 한국어 텍스트를 입력하세요"></textarea>
+            <input type="hidden" name="text_name" value="direct_text.txt">
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label data-i18n="provider">음성 제공자</label>
+          <div class="segmented provider-control audio-provider-control" role="radiogroup" aria-label="Provider">
+            <label class="radio-segment">
+              <input type="radio" name="provider" value="edge_tts" checked>
+              <span>Edge TTS</span>
+            </label>
+            <label class="radio-segment">
+              <input type="radio" name="provider" value="gemini_web">
+              <span>Gemini Web</span>
+            </label>
+            <label class="radio-segment">
+              <input type="radio" name="provider" value="chatgpt_web">
+              <span>ChatGPT Web</span>
+            </label>
+            <label class="radio-segment">
+              <input type="radio" name="provider" value="gemini_api_tts">
+              <span>Gemini API</span>
+            </label>
+          </div>
+          <div id="audio-provider-state" class="inline-status" aria-live="polite"></div>
+        </div>
+
+        <div class="form-grid">
+          <div class="field-group">
+            <label for="audio-mode" data-i18n="mode">구성</label>
+            <select id="audio-mode" name="mode">
+              <option value="plain" data-i18n="modePlain">원문 낭독</option>
+              <option value="material_only" data-i18n="modeMaterial">자료 중심</option>
+              <option value="study" data-i18n="modeStudy">학습용</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <label for="audio-voice" data-i18n="voice" style="margin-bottom: 0;">음성</label>
+              <button id="audio-voice-preview-btn" type="button" class="btn-voice-preview" style="background: #1e293b; color: #38bdf8; border: 1px solid #334155; border-radius: 4px; padding: 2px 8px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="선택한 음성 샘플 미리듣기">
+                <span>🔊</span> <span data-i18n="previewVoice">미리듣기</span>
+              </button>
+            </div>
+            <select id="audio-voice" name="voice"></select>
+            <audio id="audio-voice-preview-player" style="display: none; width: 100%; margin-top: 6px; height: 30px;" controls preload="none"></audio>
+          </div>
+        </div>
+
+        <details class="advanced-settings">
+          <summary data-i18n="advanced">고급 설정</summary>
+          <div class="advanced-body">
+            <div class="form-grid three">
+              <div class="field-group">
+                <label for="audio-max-chars" data-i18n="chunkSize">조각 크기</label>
+                <input id="audio-max-chars" name="max_chars" type="number" min="200" max="20000" step="100" value="1600">
+              </div>
+              <div class="field-group">
+                <label for="audio-bitrate" data-i18n="bitrate">비트레이트</label>
+                <select id="audio-bitrate" name="bitrate">
+                  <option value="64">64 kbps</option>
+                  <option value="96" selected>96 kbps</option>
+                  <option value="128">128 kbps</option>
+                  <option value="192">192 kbps</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="audio-max-attempts" data-i18n="retries">재시도</label>
+                <input id="audio-max-attempts" name="max_attempts" type="number" min="1" max="20" value="5">
+              </div>
+            </div>
+            <div class="field-group" id="audio-model-field" hidden>
+              <label for="audio-model" data-i18n="model">모델</label>
+              <input id="audio-model" name="model" value="gemini-2.5-flash-preview-tts" maxlength="120">
+            </div>
+            <label class="check-row" id="audio-visible-field">
+              <input type="checkbox" name="visible" value="true">
+              <span data-i18n="showBrowser">브라우저 창 표시</span>
+            </label>
+          </div>
+        </details>
+
+        <div id="audio-form-error" class="form-error" role="alert" hidden></div>
+        <button class="primary-action" id="submit-audio" type="submit">
+          <img class="ui-icon" src="{{ url_for('static', filename='icons/play.svg') }}" alt="">
+          <span data-i18n="start">만들기 시작</span>
+        </button>
+      </form>
+
+      <form id="translation-form" class="task-form" data-task-panel="translation" novalidate hidden>
+        <div class="field-group">
+          <label class="drop-zone" id="translation-drop-zone" for="translation-source-file">
+            <input id="translation-source-file" name="file" type="file" accept=".epub,.pdf,.mobi">
+            <span class="drop-symbol" aria-hidden="true"><img src="{{ url_for('static', filename='icons/plus.svg') }}" alt=""></span>
+            <strong id="translation-file-label" data-i18n="chooseBook">영문 도서 선택</strong>
+            <small>EPUB · PDF · MOBI</small>
+          </label>
+        </div>
+        <div class="field-group">
+          <label data-i18n="translationProvider">번역 제공자</label>
+          <div class="segmented full translation-provider-control" role="radiogroup" aria-label="Translation provider">
+            <label class="radio-segment active"><input type="radio" name="translation_provider" value="gemini" checked><span>Gemini Web</span></label>
+            <label class="radio-segment"><input type="radio" name="translation_provider" value="chatgpt"><span>ChatGPT Web</span></label>
+          </div>
+          <div id="translation-provider-state" class="inline-status" aria-live="polite"></div>
+        </div>
+        <div class="field-group">
+          <label data-i18n="outputs">결과물</label>
+          <div class="segmented full output-control" role="radiogroup" aria-label="Translation output">
+            <label class="radio-segment active"><input type="radio" name="translation_output" value="both" checked><span data-i18n="bothEditions">한글 + 한영</span></label>
+            <label class="radio-segment"><input type="radio" name="translation_output" value="korean"><span data-i18n="koreanEdition">한글</span></label>
+            <label class="radio-segment"><input type="radio" name="translation_output" value="bilingual"><span data-i18n="bilingualEdition">한영</span></label>
+          </div>
+        </div>
+        <details class="advanced-settings">
+          <summary data-i18n="advanced">고급 설정</summary>
+          <div class="advanced-body">
+            <div class="form-grid three">
+              <div class="field-group"><label for="translation-max-chars" data-i18n="chunkSize">조각 크기</label><input id="translation-max-chars" name="max_chars" type="number" min="2000" max="20000" step="500" value="6000"></div>
+              <div class="field-group"><label for="translation-max-attempts" data-i18n="retries">재시도</label><input id="translation-max-attempts" name="max_attempts" type="number" min="1" max="20" value="5"></div>
+              <div class="field-group"><label for="translation-conversation-chunks" data-i18n="conversationChunks">대화당 조각</label><input id="translation-conversation-chunks" name="chunks_per_conversation" type="number" min="1" max="50" value="10"></div>
+            </div>
+            <input type="hidden" name="inter_request_delay" value="4">
+            <input type="hidden" name="request_timeout" value="1200">
+            <label class="check-row"><input type="checkbox" name="visible" value="true"><span data-i18n="showBrowser">브라우저 창 표시</span></label>
+            <label class="check-row"><input type="checkbox" name="overwrite" value="true"><span data-i18n="overwrite">기존 결과 덮어쓰기</span></label>
+          </div>
+        </details>
+        <div id="translation-form-error" class="form-error" role="alert" hidden></div>
+        <button class="primary-action" id="submit-translation" type="submit"><img class="ui-icon" src="{{ url_for('static', filename='icons/play.svg') }}" alt=""><span data-i18n="startTranslation">번역 시작</span></button>
+      </form>
+
+      <form id="batch-form" class="task-form" data-task-panel="batch" novalidate hidden>
+        <div class="field-group">
+          <label data-i18n="batchOperation">일괄 작업</label>
+          <div class="segmented full batch-operation-control" role="radiogroup" aria-label="Batch operation">
+            <label class="radio-segment active"><input type="radio" name="operation" value="batch_translation" checked><span data-i18n="translateBooks">도서 번역</span></label>
+            <label class="radio-segment"><input type="radio" name="operation" value="batch_audio"><span data-i18n="createAudio">오디오 생성</span></label>
+          </div>
+        </div>
+        <div class="field-group">
+          <label for="batch-source-dir" data-i18n="sourceFolder">원본 폴더</label>
+          <div class="path-control"><input id="batch-source-dir" name="source_dir" type="text" autocomplete="off" placeholder="/Users/name/Books"><button id="scan-folder" type="button" data-i18n="scan">검색</button></div>
+          <div id="folder-scan-result" class="inline-status" aria-live="polite"></div>
+        </div>
+        <div class="field-group">
+          <label for="batch-output-dir" data-i18n="outputFolder">결과 폴더</label>
+          <input id="batch-output-dir" name="output_dir" type="text" autocomplete="off" data-i18n-placeholder="defaultOutput" placeholder="기본 위치 사용">
+        </div>
+        <div class="check-grid">
+          <label class="check-row"><input id="batch-recursive" type="checkbox" name="recursive" value="true"><span data-i18n="recursive">하위 폴더 포함</span></label>
+          <label class="check-row"><input type="checkbox" name="overwrite" value="true"><span data-i18n="overwrite">기존 결과 덮어쓰기</span></label>
+        </div>
+
+        <div id="batch-translation-options">
+          <div class="field-group">
+            <label data-i18n="translationProvider">번역 제공자</label>
+            <div class="segmented full batch-translation-provider-control" role="radiogroup" aria-label="Batch translation provider">
+              <label class="radio-segment active"><input type="radio" name="translation_provider" value="gemini" checked><span>Gemini Web</span></label>
+              <label class="radio-segment"><input type="radio" name="translation_provider" value="chatgpt"><span>ChatGPT Web</span></label>
+            </div>
+          </div>
+          <input type="hidden" name="translation_output" value="both">
+        </div>
+
+        <div id="batch-audio-options" hidden>
+          <div class="field-group">
+            <label data-i18n="provider">음성 제공자</label>
+            <div class="segmented provider-control batch-audio-provider-control" role="radiogroup" aria-label="Batch audio provider">
+              <label class="radio-segment active"><input type="radio" name="provider" value="edge_tts" checked><span>Edge TTS</span></label>
+              <label class="radio-segment"><input type="radio" name="provider" value="gemini_web"><span>Gemini Web</span></label>
+              <label class="radio-segment"><input type="radio" name="provider" value="chatgpt_web"><span>ChatGPT Web</span></label>
+              <label class="radio-segment"><input type="radio" name="provider" value="gemini_api_tts"><span>Gemini API</span></label>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="field-group"><label for="batch-mode" data-i18n="mode">구성</label><select id="batch-mode" name="mode"><option value="plain" data-i18n="modePlain">원문 낭독</option><option value="material_only" data-i18n="modeMaterial">자료 중심</option><option value="study" data-i18n="modeStudy">학습용</option></select></div>
+            <div class="field-group">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label for="batch-voice" data-i18n="voice" style="margin-bottom: 0;">음성</label>
+                <button id="batch-voice-preview-btn" type="button" class="btn-voice-preview" style="background: #1e293b; color: #38bdf8; border: 1px solid #334155; border-radius: 4px; padding: 2px 8px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="선택한 음성 샘플 미리듣기">
+                  <span>🔊</span> <span data-i18n="previewVoice">미리듣기</span>
+                </button>
+              </div>
+              <select id="batch-voice" name="voice"></select>
+              <audio id="batch-voice-preview-player" style="display: none; width: 100%; margin-top: 6px; height: 30px;" controls preload="none"></audio>
+            </div>
+          </div>
+          <input type="hidden" name="bitrate" value="96">
+          <input type="hidden" name="model" value="gemini-2.5-flash-preview-tts">
+        </div>
+
+        <details class="advanced-settings">
+          <summary data-i18n="advanced">고급 설정</summary>
+          <div class="advanced-body">
+            <div class="form-grid">
+              <div class="field-group"><label for="batch-max-chars" data-i18n="chunkSize">조각 크기</label><input id="batch-max-chars" name="max_chars" type="number" min="200" max="20000" step="100" value="6000"></div>
+              <div class="field-group"><label for="batch-max-attempts" data-i18n="retries">재시도</label><input id="batch-max-attempts" name="max_attempts" type="number" min="1" max="20" value="5"></div>
+            </div>
+            <input type="hidden" name="chunks_per_conversation" value="10">
+            <input type="hidden" name="inter_request_delay" value="4">
+            <input type="hidden" name="request_timeout" value="1200">
+            <label class="check-row"><input type="checkbox" name="visible" value="true"><span data-i18n="showBrowser">브라우저 창 표시</span></label>
+          </div>
+        </details>
+        <div id="batch-form-error" class="form-error" role="alert" hidden></div>
+        <button class="primary-action" id="submit-batch" type="submit"><img class="ui-icon" src="{{ url_for('static', filename='icons/play.svg') }}" alt=""><span data-i18n="startBatch">일괄 작업 시작</span></button>
+      </form>
+
+      <!-- Book Downloader Form (OceanofPDF + ReadRobe) -->
+      <form id="downloader-form" class="task-form" data-task-panel="downloader" novalidate hidden>
+        <div class="field-group">
+          <label for="dl-author">작가명 (Author)</label>
+          <input id="dl-author" name="author" type="text" placeholder="예: Freida McFadden, Stephen King, Pepper Winters" value="Freida McFadden" required>
+        </div>
+
+        <div class="field-group">
+          <label for="dl-query">도서명 / 검색어 (선택 사항)</label>
+          <input id="dl-query" name="query" type="text" placeholder="비워두면 작가의 모든 미보유 도서를 자동 검색 및 수집합니다.">
+        </div>
+
+        <div class="field-group">
+          <label>수집 소스 (Engine)</label>
+          <div class="segmented full dl-source-control" role="radiogroup" aria-label="Downloader source">
+            <label class="radio-segment active"><input type="radio" name="dl_source" value="all" checked><span>🌐 통합 자동 (OceanofPDF + ReadRobe)</span></label>
+            <label class="radio-segment"><input type="radio" name="dl_source" value="oceanofpdf"><span>OceanofPDF</span></label>
+            <label class="radio-segment"><input type="radio" name="dl_source" value="readrobe"><span>ReadRobe.com</span></label>
+          </div>
+        </div>
+
+        <div class="check-grid">
+          <label class="check-row"><input id="dl-auto-queue" type="checkbox" name="auto_queue" value="true" checked><span>다운로드 완료 즉시 번역 스케줄러 큐 자동 등록</span></label>
+        </div>
+
+        <div id="downloader-status-box" class="downloader-status-card" style="margin-top: 14px; padding: 14px; background: rgba(30,41,59,0.85); border: 1px solid rgba(56,189,248,0.35); border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="live-signal" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #38bdf8; box-shadow: 0 0 8px #38bdf8;"></span>
+              <strong style="color: #38bdf8; font-size: 13px;">📡 실시간 도서 수집 엔진 모니터링</strong>
+            </div>
+            <span id="dl-badge" style="padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; background: #334155; color: #cbd5e1; transition: all 0.3s ease;">대기 중</span>
+          </div>
+          <div style="font-size: 12px; color: #94a3b8; line-height: 1.6;">
+            <div>대상: <strong id="dl-target" style="color: #f1f5f9; font-weight: 600;">-</strong> &nbsp;|&nbsp; 소스: <span id="dl-source" style="color: #38bdf8; font-weight: 500;">-</span></div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>진행: <span id="dl-detail">대기 중</span></div>
+              <strong id="dl-progress" style="color: #38bdf8; font-size: 12px;"></strong>
+            </div>
+          </div>
+          <div id="dl-progress-track" style="margin-top: 6px; width: 100%; height: 4px; background: #1e293b; border-radius: 2px; overflow: hidden;" hidden>
+            <div id="dl-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #38bdf8, #818cf8); transition: width 0.4s ease;"></div>
+          </div>
+          <div id="dl-logs-box" style="margin-top: 10px; max-height: 120px; overflow-y: auto; background: #0b1120; border: 1px solid #1e293b; border-radius: 6px; padding: 8px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; color: #a5f3fc; line-height: 1.4; white-space: pre-wrap;">[대기 중] 수집 요청 시 실시간 로그가 여기에 표시됩니다.</div>
+
+          <!-- Recent Collected Books Section -->
+          <div style="margin-top: 12px; border-top: 1px solid #334155; padding-top: 10px;">
+            <div style="font-size: 12px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">📥 최근 수집 완료 도서 (서재 자동 등록)</div>
+            <div id="dl-recent-list" style="font-size: 11px; color: #94a3b8; max-height: 100px; overflow-y: auto;">
+              <div style="color: #64748b; font-style: italic;">최근 수집된 도서가 여기에 표시됩니다.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="downloader-form-error" class="form-error" role="alert" hidden style="margin-top: 10px;"></div>
+        <button class="primary-action" id="submit-downloader" type="submit" style="margin-top: 12px;"><img class="ui-icon" src="{{ url_for('static', filename='icons/play.svg') }}" alt=""><span>원서 검색 및 자동 다운로드 시작</span></button>
+      </form>
+    </section>
+
+    <section class="queue-pane batch-report-pane" aria-labelledby="report-title">
+      <div class="section-heading report-heading">
+        <div class="heading-title-group">
+          <span class="report-badge">30M AUDIT</span>
+          <h2 id="report-title">30분 간격 배치 상황 보고</h2>
+        </div>
+        <div class="heading-actions">
+          <span class="next-audit-pill" id="next-audit-pill" title="다음 자동 점검까지 남은 시간">⏳ 다음 점검: <strong id="next-audit-timer">--:--</strong></span>
+          <button class="icon-button" id="refresh-batch-report" type="button" title="즉시 점검 실행" aria-label="즉시 점검"><img class="ui-icon" src="{{ url_for('static', filename='icons/refresh-cw.svg') }}" alt=""><span>즉시 점검</span></button>
+        </div>
+      </div>
+
+      <!-- Consolidated 4-Account Visual Health & Supervisor Block -->
+      <div class="report-section-block visual-audit-section" style="border: 1px solid rgba(56, 189, 248, 0.25); background: linear-gradient(145deg, rgba(15, 23, 42, 0.85), rgba(30, 41, 59, 0.7)); border-radius: 12px; padding: 14px; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);">
+        <div class="block-title" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="block-icon" style="font-size: 16px;">📸</span>
+            <span style="font-weight: 700; color: #f8fafc; font-size: 14px;">4대 AI 워커 실시간 관제 및 비주얼 감사</span>
+            <span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">3분 주기 스냅샷</span>
+          </div>
+          <span id="visual-audit-updated-at" style="font-size: 11px; color: #94a3b8;">최근 감사: --:--:--</span>
+        </div>
+        <div class="account-health-grid" id="visual-audit-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 10px;">
+          <div class="account-card loading-card" style="padding: 12px; font-size: 12px; color: #94a3b8;">비주얼 감사 데이터 수신 중...</div>
+        </div>
+        <!-- Collapsible Recent Supervisor Logs -->
+        <details style="background: rgba(2, 6, 23, 0.8); border: 1px solid #1e293b; border-radius: 8px; padding: 6px 10px; font-size: 11px;">
+          <summary style="cursor: pointer; color: #94a3b8; font-weight: 600; outline: none;">📋 24/7 제로-유휴 슈퍼바이저 실시간 관리·감독 로그</summary>
+          <div id="supervisor-log-container" style="margin-top: 8px; font-family: monospace; color: #38bdf8; max-height: 120px; overflow-y: auto; white-space: pre-wrap; font-size: 10.5px; line-height: 1.4;">
+            로그를 불러오는 중...
+          </div>
+        </details>
+      </div>
+
+      <!-- ⚡ Claude Web Authentic Fiction X-Ray Dossier Pipeline Block -->
+      <div class="report-section-block xray-harvest-section" style="border: 1px solid rgba(168, 85, 247, 0.35); background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(46, 16, 101, 0.2)); border-radius: 12px; padding: 14px; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);">
+        <div class="block-title" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="block-icon" style="font-size: 16px;">⚡</span>
+            <span style="font-weight: 700; color: #f8fafc; font-size: 14px;">클로드 웹 기반 정품 X-Ray(등장인물·용어 도감) 수집 파이프라인</span>
+            <span id="xray-live-badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">수집 중 🚀</span>
+          </div>
+          <span id="xray-status-updated-at" style="font-size: 11px; color: #94a3b8;">실시간 연동</span>
+        </div>
+
+        <div class="batch-summary-grid" style="grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
+          <div class="batch-summary-card" style="padding: 10px 12px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+            <span class="summary-card-label" style="font-size: 11px; color: #94a3b8;">📚 총 대상 소설</span>
+            <span class="summary-card-val" id="xray-stat-total" style="font-size: 18px; font-weight: 700; color: #f8fafc;">565권</span>
+          </div>
+          <div class="batch-summary-card active-card" style="padding: 10px 12px; background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 8px;">
+            <span class="summary-card-label" style="font-size: 11px; color: #c084fc;">🏆 수집 완료</span>
+            <span class="summary-card-val text-active" id="xray-stat-completed" style="font-size: 18px; font-weight: 700; color: #c084fc;">--권</span>
+          </div>
+          <div class="batch-summary-card remaining-card" style="padding: 10px 12px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+            <span class="summary-card-label" style="font-size: 11px; color: #94a3b8;">⏳ 남은 대상</span>
+            <span class="summary-card-val text-remaining" id="xray-stat-remaining" style="font-size: 18px; font-weight: 700; color: #fbbf24;">--권</span>
+          </div>
+          <div class="batch-summary-card" style="padding: 10px 12px; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+            <span class="summary-card-label" style="font-size: 11px; color: #94a3b8;">📊 수집 진행률</span>
+            <span class="summary-card-val" id="xray-stat-percent" style="font-size: 18px; font-weight: 700; color: #38bdf8;">--%</span>
+          </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div style="width: 100%; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden; margin-bottom: 12px;">
+          <div id="xray-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #c084fc, #38bdf8); transition: width 0.4s ease;"></div>
+        </div>
+
+        <!-- Recent Harvested List -->
+        <div style="background: rgba(2, 6, 23, 0.6); border: 1px solid #1e293b; border-radius: 8px; padding: 10px; margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 11.5px; font-weight: 700; color: #cbd5e1;">📥 최근 수집 및 6대 에디션 자동 탑재된 정품 X-Ray 목록</span>
+            <span style="font-size: 10px; color: #94a3b8;">실시간 웹 검색 그라운딩</span>
+          </div>
+          <div id="xray-recent-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px; max-height: 140px; overflow-y: auto;">
+            <div style="color: #64748b; font-size: 11px; font-style: italic;">수집 데이터를 불러오는 중...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3-Stage Master Pipeline KPI Summary Grid -->
+      <div class="report-section-block">
+        <div class="block-title">
+          <span class="block-icon">🎯</span>
+          <span>3대 마스터 파이프라인 진행 요약 (24/7 자동 배분)</span>
+        </div>
+
+        <div class="batch-summary-grid" id="batch-summary-grid">
+          <div class="batch-summary-card">
+            <span class="summary-card-label">📚 총 작업대상</span>
+            <span class="summary-card-val" id="batch-stat-total">--</span>
+          </div>
+          <div class="batch-summary-card active-card">
+            <span class="summary-card-label">⚡ 작업 중</span>
+            <span class="summary-card-val text-active" id="batch-stat-active">--</span>
+          </div>
+          <div class="batch-summary-card completed-card">
+            <span class="summary-card-label">🏆 완역 보관</span>
+            <span class="summary-card-val text-completed" id="batch-stat-completed">--</span>
+          </div>
+          <div class="batch-summary-card remaining-card">
+            <span class="summary-card-label">⏳ 남은 도서</span>
+            <span class="summary-card-val text-remaining" id="batch-stat-remaining">--</span>
+          </div>
+        </div>
+
+        <!-- 1. Real-time Web Translation Section -->
+        <div class="active-sub-block">
+          <div class="sub-block-title">
+            <span class="sub-block-icon">⚡</span>
+            <span>실시간 본문 번역 진행 현황 (웹 LLM)</span>
+            <span class="active-count-badge" id="active-tasks-count">0권 진행 중</span>
+          </div>
+          <div class="active-tasks-container" id="active-tasks-container">
+            <div class="empty-state-small">진행 중인 본문 번역 작업을 불러오는 중...</div>
+          </div>
+        </div>
+
+        <!-- 2. Real-time Post-Processing & Quality Review Section -->
+        <div class="active-sub-block postprocess-sub-block" style="margin-top: 14px;">
+          <div class="sub-block-title">
+            <span class="sub-block-icon">🛠️</span>
+            <span>실시간 후처리 & 4대 에디션 조립 현황 (로컬 검수 및 배포)</span>
+            <span class="postprocess-count-badge" id="postprocess-tasks-count">0권 검수/조립 중</span>
+          </div>
+          <div class="postprocess-tasks-container" id="postprocess-tasks-container">
+            <div class="empty-state-small">현재 대기/진행 중인 후처리 작업이 없습니다.</div>
+          </div>
+        </div>
+
+        <!-- 3. Scheduled / Pending Translation Queue Section -->
+        <div class="active-sub-block scheduled-queue-sub-block" style="margin-top: 14px;">
+          <div class="sub-block-title" style="justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="sub-block-icon">⏳</span>
+              <span>번역 작업 예정 목록 (우선순위 대기 큐)</span>
+              <span class="scheduled-count-badge" id="scheduled-queue-total" style="background: rgba(99, 102, 241, 0.2); color: #818cf8; font-weight: 700; padding: 2px 8px; border-radius: 9999px; font-size: 0.8rem;">0권 대기 중</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input type="text" id="scheduled-search-input" placeholder="🔍 예정 도서/작가 검색..." style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.15); color: #f8fafc; padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; outline: none; width: 180px;">
+            </div>
+          </div>
+          <div class="scheduled-priority-pills" id="scheduled-priority-pills" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0;"></div>
+          <div class="scheduled-tasks-container" id="scheduled-tasks-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; max-height: 480px; overflow-y: auto; padding-right: 4px;">
+            <div class="empty-state-small">대기 큐 목록을 불러오는 중...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hourly Completed Books & Processing Accounts Section (Last 3 Days) -->
+      <div class="report-section-block completed-timeline-section">
+        <div class="block-title">
+          <span class="block-icon">🏆</span>
+          <span>시간대별 번역 완료 작품 및 처리 계정 (최근 3일)</span>
+          <span class="completed-count-badge" id="completed-timeline-count">0권 완료</span>
+        </div>
+        <div class="completed-timeline-container" id="completed-timeline-container">
+          <div class="empty-list-text">번역 완료 이력을 불러오는 중...</div>
+        </div>
+      </div>
+
+      <!-- 30-Min Audit Logs (Collapsible) -->
+      <details class="audit-history-details">
+        <summary>
+          <span class="block-icon">📜</span>
+          <span>30분 정기 운영 감사 기록</span>
+        </summary>
+        <div class="audit-history-list" id="audit-history-list">
+          <div class="empty-list-text">감사 이력 확인 중...</div>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+</body>
+</html>
